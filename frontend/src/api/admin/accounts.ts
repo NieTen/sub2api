@@ -24,7 +24,8 @@ import type {
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   OllamaCloudUsageSettings,
-  OllamaCloudUsageState
+  OllamaCloudUsageState,
+  BatchAccountConnectionTestResult
 } from '@/types'
 
 /**
@@ -781,6 +782,27 @@ export async function batchRefresh(accountIds: number[]): Promise<BatchOperation
 }
 
 /**
+ * Batch test account connectivity with fixed server-side concurrency.
+ * @param accountIds - Array of account IDs
+ * @returns Per-account connectivity test results
+ */
+export async function batchTestConnections(
+  accountIds: number[],
+  modelId?: string
+): Promise<BatchAccountConnectionTestResult> {
+  const payload: { account_ids: number[]; model_id?: string } = {
+    account_ids: accountIds
+  }
+  if (modelId) payload.model_id = modelId
+  const { data } = await apiClient.post<BatchAccountConnectionTestResult>(
+    '/admin/accounts/batch-test',
+    payload,
+    { timeout: 300000 }
+  )
+  return data
+}
+
+/**
  * Set privacy for an Antigravity OAuth account
  * @param id - Account ID
  * @returns Updated account
@@ -1027,6 +1049,7 @@ export const accountsAPI = {
   batchDelete,
   batchClearError,
   batchRefresh,
+  batchTestConnections,
   setPrivacy,
   revertProxyFallback,
   refreshOpenAIQuota,

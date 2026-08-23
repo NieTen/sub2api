@@ -481,6 +481,76 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_status_active_excludes_codex_overdrafting_accounts",
+			setup: func(client *dbent.Client) {
+				recoverAt := time.Now().Add(5 * time.Hour).UTC()
+				mustCreateAccount(s.T(), client, &service.Account{Name: "active-normal", Status: service.StatusActive})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:   "active-codex-overdrafting",
+					Status: service.StatusActive,
+					Extra: map[string]any{
+						service.CodexQuotaOverdraftProbeExtraKey: map[string]any{
+							"status":     "passed",
+							"cycle_key":  "5h:active",
+							"recover_at": recoverAt.Format(time.RFC3339Nano),
+						},
+					},
+				})
+			},
+			status:    service.StatusActive,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("active-normal", accounts[0].Name)
+			},
+		},
+		{
+			name: "filter_by_status_overdrafting_only_returns_active_codex_overdrafting_accounts",
+			setup: func(client *dbent.Client) {
+				now := time.Now().UTC()
+				recoverAt := now.Add(5 * time.Hour)
+				expiredAt := now.Add(-5 * time.Minute)
+				mustCreateAccount(s.T(), client, &service.Account{Name: "active-normal", Status: service.StatusActive})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:   "codex-overdrafting",
+					Status: service.StatusActive,
+					Extra: map[string]any{
+						service.CodexQuotaOverdraftProbeExtraKey: map[string]any{
+							"status":     "passed",
+							"cycle_key":  "5h:current",
+							"recover_at": recoverAt.Format(time.RFC3339Nano),
+						},
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:   "codex-overdraft-expired",
+					Status: service.StatusActive,
+					Extra: map[string]any{
+						service.CodexQuotaOverdraftProbeExtraKey: map[string]any{
+							"status":     "passed",
+							"cycle_key":  "5h:expired",
+							"recover_at": expiredAt.Format(time.RFC3339Nano),
+						},
+					},
+				})
+				mustCreateAccount(s.T(), client, &service.Account{
+					Name:   "codex-overdraft-failed",
+					Status: service.StatusActive,
+					Extra: map[string]any{
+						service.CodexQuotaOverdraftProbeExtraKey: map[string]any{
+							"status":     "failed",
+							"cycle_key":  "5h:failed",
+							"recover_at": recoverAt.Format(time.RFC3339Nano),
+						},
+					},
+				})
+			},
+			status:    service.StatusFilterOverdrafting,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("codex-overdrafting", accounts[0].Name)
+			},
+		},
+		{
 			name: "filter_by_status_unschedulable_excludes_rate_limited_and_temp_unschedulable",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "active-normal", Status: service.StatusActive, Schedulable: true})

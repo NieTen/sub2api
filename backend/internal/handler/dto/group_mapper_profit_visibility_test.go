@@ -16,16 +16,24 @@ var profitControlJSONFields = []string{
 	"profit_safety_buffer",
 }
 
+var codexOverdraftJSONFields = []string{
+	"codex_overdraft_enabled",
+	"codex_overdraft_next_group_id",
+}
+
 func profitControlServiceGroup() *service.Group {
+	nextGroupID := int64(9)
 	return &service.Group{
-		ID:                   7,
-		Name:                 "profit-gated",
-		Platform:             service.PlatformAnthropic,
-		RateMultiplier:       2.0,
-		Status:               service.StatusActive,
-		ProfitControlEnabled: true,
-		ProfitMinMargin:      0.3,
-		ProfitSafetyBuffer:   0.05,
+		ID:                         7,
+		Name:                       "profit-gated",
+		Platform:                   service.PlatformOpenAI,
+		RateMultiplier:             2.0,
+		Status:                     service.StatusActive,
+		ProfitControlEnabled:       true,
+		ProfitMinMargin:            0.3,
+		ProfitSafetyBuffer:         0.05,
+		CodexOverdraftEnabled:      true,
+		CodexOverdraftNextGroupID:  &nextGroupID,
 	}
 }
 
@@ -54,6 +62,11 @@ func TestGroupFromServiceOmitsProfitControl(t *testing.T) {
 				t.Errorf("%s: 普通用户 DTO 不得包含 %q", name, f)
 			}
 		}
+		for _, f := range codexOverdraftJSONFields {
+			if _, ok := fields[f]; ok {
+				t.Errorf("%s: 普通用户 DTO 不得包含 %q", name, f)
+			}
+		}
 		if _, ok := fields["rate_multiplier"]; !ok {
 			t.Errorf("%s: 应仍返回 rate_multiplier", name)
 		}
@@ -68,6 +81,20 @@ func TestGroupFromServiceAdminIncludesProfitControl(t *testing.T) {
 	}
 	fields := marshalToMap(t, admin)
 	for _, f := range profitControlJSONFields {
+		if _, ok := fields[f]; !ok {
+			t.Errorf("管理员 DTO 应包含 %q", f)
+		}
+	}
+}
+
+// TestGroupFromServiceAdminIncludesCodexOverdraft 钉死管理端可读写 OpenAI 分组透支接力配置。
+func TestGroupFromServiceAdminIncludesCodexOverdraft(t *testing.T) {
+	admin := GroupFromServiceAdmin(profitControlServiceGroup())
+	if admin.CodexOverdraftEnabled != true || admin.CodexOverdraftNextGroupID == nil || *admin.CodexOverdraftNextGroupID != 9 {
+		t.Fatalf("管理员 DTO 未透传 Codex 透支接力配置: %+v", admin)
+	}
+	fields := marshalToMap(t, admin)
+	for _, f := range codexOverdraftJSONFields {
 		if _, ok := fields[f]; !ok {
 			t.Errorf("管理员 DTO 应包含 %q", f)
 		}

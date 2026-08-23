@@ -2,7 +2,7 @@
   <BaseDialog
     :show="show"
     :title="t('admin.accounts.dataImportTitle')"
-    width="normal"
+    width="wide"
     close-on-click-outside
     @close="handleClose"
   >
@@ -11,44 +11,211 @@
         {{ t('admin.accounts.dataImportHint') }}
       </div>
       <div
-        class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-600 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400"
+        class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
       >
         {{ t('admin.accounts.dataImportWarning') }}
       </div>
 
-      <div>
-        <label class="input-label">{{ t('admin.accounts.dataImportFile') }}</label>
-        <div
-          class="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 transition-colors"
-          :class="dragActive
-            ? 'border-primary-400 bg-primary-50/70 dark:border-primary-500 dark:bg-primary-900/20'
-            : 'border-gray-300 bg-gray-50 dark:border-dark-600 dark:bg-dark-800'"
-          @dragenter.prevent="handleDragEnter"
-          @dragover.prevent
-          @dragleave.prevent="handleDragLeave"
-          @drop.prevent="handleDrop"
-        >
-          <div class="min-w-0">
-            <div class="truncate text-sm text-gray-700 dark:text-dark-200" :title="fileListTitle">
-              {{ selectedFilesLabel || t('admin.accounts.dataImportSelectFile') }}
+      <div class="grid gap-4 lg:grid-cols-2">
+        <section class="space-y-3">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.dataImportText') }}</label>
+            <textarea
+              v-model="sourceText"
+              data-testid="account-import-input"
+              class="input min-h-[240px] w-full resize-y font-mono text-xs leading-5"
+              :placeholder="t('admin.accounts.dataImportPlaceholder')"
+              spellcheck="false"
+            />
+            <p class="mt-1.5 text-xs text-gray-500 dark:text-dark-400">
+              {{ t('admin.accounts.dataImportTextHint') }}
+            </p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button type="button" class="btn btn-secondary" @click="openFilePicker">
+              {{ t('common.chooseFile') }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="!hasAnyInput"
+              @click="clearInputs"
+            >
+              {{ t('admin.accounts.dataImportClear') }}
+            </button>
+          </div>
+
+          <div
+            data-testid="account-import-dropzone"
+            class="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-3 transition-colors"
+            :class="dragActive
+              ? 'border-primary-400 bg-primary-50/70 dark:border-primary-500 dark:bg-primary-900/20'
+              : 'border-gray-300 bg-gray-50 dark:border-dark-600 dark:bg-dark-800'"
+            @dragenter.prevent="handleDragEnter"
+            @dragover.prevent
+            @dragleave.prevent="handleDragLeave"
+            @drop.prevent="handleDrop"
+          >
+            <div class="min-w-0">
+              <div class="truncate text-sm text-gray-700 dark:text-dark-200" :title="selectedFilesTitle">
+                {{ selectedFilesLabel || t('admin.accounts.dataImportSelectFile') }}
+              </div>
+              <div class="text-xs text-gray-500 dark:text-dark-400">
+                {{ t('admin.accounts.dataImportDropHint') }}
+              </div>
             </div>
-            <div class="text-xs text-gray-500 dark:text-dark-400">
-              JSON (.json)
-              <span v-if="files.length > 1"> · {{ fileListTitle }}</span>
+            <button type="button" class="btn btn-secondary shrink-0" @click="openFilePicker">
+              {{ t('common.chooseFile') }}
+            </button>
+          </div>
+
+          <input
+            ref="fileInput"
+            type="file"
+            class="hidden"
+            accept="application/json,.json"
+            multiple
+            @change="handleFileChange"
+          />
+
+          <div
+            v-if="files.length > 0"
+            class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-400"
+            :title="selectedFilesTitle"
+          >
+            {{ t('admin.accounts.selectedCount', { count: files.length }) }}
+            <span class="mx-1">·</span>
+            <span class="break-all">{{ selectedFilesTitle }}</span>
+          </div>
+
+          <div
+            v-if="parseError"
+            class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-300"
+          >
+            {{ parseError }}
+          </div>
+        </section>
+
+        <section class="space-y-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.accounts.dataImportOutputTitle') }}
+              </div>
+              <div class="text-sm text-gray-600 dark:text-dark-300">
+                {{ t('admin.accounts.dataImportOutputHint') }}
+              </div>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                class="btn btn-secondary"
+                data-testid="account-import-copy"
+                :disabled="!outputText"
+                @click="handleCopy"
+              >
+                {{ t('admin.accounts.dataImportCopy') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-primary"
+                data-testid="account-import-download"
+                :disabled="!outputText"
+                @click="handleDownload"
+              >
+                {{ t('admin.accounts.dataImportDownload') }}
+              </button>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary shrink-0" @click="openFilePicker">
-            {{ t('common.chooseFile') }}
-          </button>
-        </div>
-        <input
-          ref="fileInput"
-          type="file"
-          class="hidden"
-          accept="application/json,.json"
-          multiple
-          @change="handleFileChange"
-        />
+
+          <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-700 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportInputRecords') }}</div>
+              <div class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ previewInputCount }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-700 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportAccounts') }}</div>
+              <div class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ previewAccountCount }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-700 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportProxies') }}</div>
+              <div class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ previewProxyCount }}</div>
+            </div>
+            <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-dark-700 dark:bg-dark-800">
+              <div class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.accounts.dataImportSkipped') }}</div>
+              <div class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ previewSkippedCount }}</div>
+            </div>
+          </div>
+
+          <div class="overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700">
+            <div class="border-b border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 dark:border-dark-700 dark:bg-dark-800 dark:text-dark-200">
+              {{ t('admin.accounts.dataImportPreviewTitle') }}
+            </div>
+            <div class="max-h-64 overflow-auto">
+              <table class="min-w-full table-fixed text-left text-sm">
+                <thead class="sticky top-0 bg-white text-xs uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-dark-400">
+                  <tr>
+                    <th class="px-3 py-2 font-medium">{{ t('admin.accounts.columns.name') }}</th>
+                    <th class="px-3 py-2 font-medium">{{ t('admin.accounts.dataImportSource') }}</th>
+                    <th class="px-3 py-2 font-medium">{{ t('admin.accounts.columns.platform') }}</th>
+                    <th class="px-3 py-2 font-medium">{{ t('admin.accounts.columns.type') }}</th>
+                    <th class="px-3 py-2 font-medium">{{ t('admin.accounts.columns.status') }}</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
+                  <tr v-for="(row, index) in previewRows" :key="`${row.source}-${row.name}-${index}`">
+                    <td class="px-3 py-2 text-gray-900 dark:text-white">{{ row.name }}</td>
+                    <td class="px-3 py-2">
+                      <span
+                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                        :class="row.source === 'CPA'
+                          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                          : 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'"
+                      >
+                        {{ row.source === 'CPA' ? t('admin.accounts.dataImportSourceCpa') : t('admin.accounts.dataImportSourceSub2Api') }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2 text-gray-700 dark:text-dark-200">{{ row.platform }}</td>
+                    <td class="px-3 py-2 text-gray-700 dark:text-dark-200">{{ row.type }}</td>
+                    <td class="px-3 py-2">
+                      <span class="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                        {{ row.status }}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr v-if="!previewRows.length">
+                    <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-500 dark:text-dark-400">
+                      {{ t('admin.accounts.dataImportPreviewEmpty') }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div
+            v-if="warnings.length"
+            class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300"
+          >
+            <div class="font-medium">{{ t('admin.accounts.dataImportIssues') }}</div>
+            <ul class="mt-1 space-y-1 text-xs">
+              <li v-for="(item, index) in warnings" :key="`${item.source}-${index}`">
+                {{ item.source }}: {{ item.reason }}
+              </li>
+            </ul>
+          </div>
+
+          <textarea
+            ref="outputTextarea"
+            data-testid="account-import-output"
+            class="input min-h-[240px] w-full resize-y font-mono text-xs leading-5"
+            readonly
+            :value="outputText"
+            :placeholder="t('admin.accounts.dataImportOutputPlaceholder')"
+            spellcheck="false"
+          />
+        </section>
       </div>
 
       <div
@@ -84,9 +251,10 @@
         </button>
         <button
           class="btn btn-primary"
-          type="submit"
-          form="import-data-form"
+          type="button"
+          data-testid="account-import-submit"
           :disabled="importing"
+          @click="handleImport"
         >
           {{ importing ? t('admin.accounts.dataImporting') : t('admin.accounts.dataImportButton') }}
         </button>
@@ -101,7 +269,9 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
-import type { AdminDataImportResult, AdminDataPayload } from '@/types'
+import { useClipboard } from '@/composables/useClipboard'
+import type { AdminDataImportResult } from '@/types'
+import { buildImportPayload, parseInputText, type ImportParseIssue, type ImportPreviewRow, type ImportSourceEntry, type NormalizedImportResult } from './importDataParser'
 
 interface Props {
   show: boolean
@@ -117,56 +287,74 @@ const emit = defineEmits<Emits>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const { copyToClipboard } = useClipboard()
 
 const importing = ref(false)
+const sourceText = ref('')
 const files = ref<File[]>([])
 const dragDepth = ref(0)
-const dragActive = computed(() => dragDepth.value > 0)
-const hasCreatedData = ref(false)
+const parseError = ref('')
+const previewState = ref<NormalizedImportResult | null>(null)
 const result = ref<AdminDataImportResult | null>(null)
-
+const hasCreatedData = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const outputTextarea = ref<HTMLTextAreaElement | null>(null)
+let refreshVersion = 0
+
+const dragActive = computed(() => dragDepth.value > 0)
+const hasAnyInput = computed(() => sourceText.value.trim().length > 0 || files.value.length > 0)
+const previewRows = computed<ImportPreviewRow[]>(() => previewState.value?.previewRows || [])
+const warnings = computed<ImportParseIssue[]>(() => previewState.value?.issues || [])
+const previewInputCount = computed(() => previewState.value?.inputCount || 0)
+const previewAccountCount = computed(() => previewState.value?.accountCount || 0)
+const previewProxyCount = computed(() => previewState.value?.proxyCount || 0)
+const previewSkippedCount = computed(() => previewState.value?.skippedCount || 0)
+const outputText = computed(() => previewState.value?.outputText || '')
+const errorItems = computed(() => result.value?.errors || [])
 const selectedFilesLabel = computed(() => {
   if (files.value.length === 0) return ''
   if (files.value.length === 1) return files.value[0]?.name || ''
   return t('admin.accounts.selectedCount', { count: files.value.length })
 })
-const fileListTitle = computed(() => files.value.map((item) => item.name).join(', '))
-
-const errorItems = computed(() => result.value?.errors || [])
+const selectedFilesTitle = computed(() => files.value.map((item) => item.name).join(', '))
 
 watch(
   () => props.show,
   (open) => {
     if (open) {
-      files.value = []
-      dragDepth.value = 0
-      hasCreatedData.value = false
-      result.value = null
-      if (fileInput.value) {
-        fileInput.value.value = ''
-      }
+      resetState()
     }
   }
 )
 
-const openFilePicker = () => {
-  fileInput.value?.click()
-}
+watch(
+  [sourceText, files],
+  () => {
+    void refreshPreview()
+  },
+  { deep: false }
+)
 
-const handleFileChange = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  setSelectedFiles(target.files)
-  target.value = ''
-}
-
-const handleClose = () => {
-  if (importing.value) return
-  if (hasCreatedData.value) {
-    hasCreatedData.value = false
-    emit('imported')
+const resetState = () => {
+  refreshVersion += 1
+  sourceText.value = ''
+  files.value = []
+  dragDepth.value = 0
+  parseError.value = ''
+  previewState.value = null
+  result.value = null
+  hasCreatedData.value = false
+  if (fileInput.value) {
+    fileInput.value.value = ''
   }
-  emit('close')
+  if (outputTextarea.value) {
+    outputTextarea.value.value = ''
+  }
+}
+
+const openFilePicker = () => {
+  if (importing.value) return
+  fileInput.value?.click()
 }
 
 const isJsonFile = (sourceFile: File) => {
@@ -188,7 +376,12 @@ const setSelectedFiles = (sourceFiles: FileList | File[] | null | undefined) => 
     )
   }
   files.value = picked
-  result.value = null
+}
+
+const handleFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  setSelectedFiles(target.files)
+  target.value = ''
 }
 
 const handleDragEnter = () => {
@@ -219,82 +412,133 @@ const readFileAsText = async (sourceFile: File): Promise<string> => {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.onerror = () => reject(reader.error || new Error(t('admin.accounts.dataImportFailed')))
     reader.readAsText(sourceFile)
   })
 }
 
-const SUPPORTED_DATA_TYPES = ['sub2api-data', 'sub2api-bundle']
-const SUPPORTED_DATA_VERSION = 1
+const refreshPreview = async (): Promise<NormalizedImportResult | null> => {
+  const version = ++refreshVersion
 
-// 与后端 validateDataHeader 对齐:合并前逐文件校验,避免坏文件混入合并 payload 后
-// 报错无法定位来源,或绕过后端本会对单文件做的 type/version 检查。
-const isValidDataPayload = (payload: unknown): payload is AdminDataPayload => {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false
-  const candidate = payload as Record<string, unknown>
-  if (
-    candidate.type !== undefined &&
-    candidate.type !== '' &&
-    !SUPPORTED_DATA_TYPES.includes(candidate.type as string)
-  ) {
-    return false
+  if (!hasAnyInput.value) {
+    if (version === refreshVersion) {
+      parseError.value = ''
+      previewState.value = null
+    }
+    return null
   }
-  if (
-    candidate.version !== undefined &&
-    candidate.version !== 0 &&
-    candidate.version !== SUPPORTED_DATA_VERSION
-  ) {
-    return false
+
+  try {
+    const entries: ImportSourceEntry[] = []
+
+    const text = sourceText.value.trim()
+    if (text) {
+      const parsedText = parseInputText(text, t('admin.accounts.dataImportTextSource'))
+      if (parsedText.errors.length > 0) {
+        throw new Error(t('admin.accounts.dataImportParseFailed'))
+      }
+      entries.push(...parsedText.entries)
+    }
+
+    for (const sourceFile of files.value) {
+      const fileText = await readFileAsText(sourceFile)
+      const parsedFile = parseInputText(fileText, sourceFile.name)
+      if (parsedFile.errors.length > 0) {
+        throw new Error(t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name }))
+      }
+      entries.push(...parsedFile.entries)
+    }
+
+    if (version !== refreshVersion) return previewState.value
+
+    if (!entries.length) {
+      previewState.value = null
+      parseError.value = ''
+      return null
+    }
+
+    const normalized = buildImportPayload(entries)
+    if (normalized.accountCount === 0 && normalized.proxyCount === 0) {
+      throw new Error(
+        files.value.length > 0
+          ? t('admin.accounts.dataImportInvalidFile', {
+              name: selectedFilesTitle.value || files.value[0]?.name || t('admin.accounts.dataImportTextSource')
+            })
+          : t('admin.accounts.dataImportParseFailed')
+      )
+    }
+    previewState.value = normalized
+    parseError.value = ''
+    return normalized
+  } catch (error: any) {
+    if (version === refreshVersion) {
+      previewState.value = null
+      parseError.value = error?.message || t('admin.accounts.dataImportFailed')
+    }
+    return null
   }
-  return Array.isArray(candidate.proxies) && Array.isArray(candidate.accounts)
 }
 
-const mergeDataPayloads = (payloads: AdminDataPayload[]): AdminDataPayload => {
-  const [firstPayload] = payloads
-  if (payloads.length === 1 && firstPayload) return firstPayload
+const ensurePreview = async (): Promise<NormalizedImportResult | null> => {
+  return refreshPreview()
+}
 
-  return {
-    type: payloads.find((item) => typeof item.type === 'string')?.type,
-    version: payloads.find((item) => typeof item.version === 'number')?.version,
-    exported_at: new Date().toISOString(),
-    proxies: payloads.flatMap((item) => item.proxies),
-    accounts: payloads.flatMap((item) => item.accounts),
-    skipped_shadows: payloads.reduce((sum, item) => {
-      const count = Number(item.skipped_shadows || 0)
-      return Number.isFinite(count) ? sum + count : sum
-    }, 0)
+const clearInputs = () => {
+  if (importing.value) return
+  resetState()
+}
+
+const handleCopy = async () => {
+  const state = await ensurePreview()
+  if (!state) {
+    appStore.showError(parseError.value || t('admin.accounts.dataImportFailed'))
+    return
   }
+  await copyToClipboard(state.outputText, t('admin.accounts.dataImportCopied'))
+}
+
+const handleDownload = async () => {
+  const state = await ensurePreview()
+  if (!state) {
+    appStore.showError(parseError.value || t('admin.accounts.dataImportFailed'))
+    return
+  }
+
+  const blob = new Blob([state.outputText], { type: 'application/json' })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `sub2api-account-import-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
+  link.click()
+  window.URL.revokeObjectURL(url)
+}
+
+const handleClose = () => {
+  if (importing.value) return
+  if (hasCreatedData.value) {
+    hasCreatedData.value = false
+    emit('imported')
+  }
+  emit('close')
 }
 
 const handleImport = async () => {
-  if (files.value.length === 0) {
+  if (importing.value) return
+  if (!hasAnyInput.value) {
     appStore.showError(t('admin.accounts.dataImportSelectFile'))
     return
   }
 
   importing.value = true
   try {
-    const dataPayloads: AdminDataPayload[] = []
-    for (const sourceFile of files.value) {
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(await readFileAsText(sourceFile))
-      } catch {
-        appStore.showError(
-          t('admin.accounts.dataImportParseFailedFile', { name: sourceFile.name })
-        )
-        return
-      }
-      if (!isValidDataPayload(parsed)) {
-        appStore.showError(t('admin.accounts.dataImportInvalidFile', { name: sourceFile.name }))
-        return
-      }
-      dataPayloads.push(parsed)
+    const state = await ensurePreview()
+    if (!state) {
+      appStore.showError(parseError.value || t('admin.accounts.dataImportFailed'))
+      return
     }
-    const dataPayload = mergeDataPayloads(dataPayloads)
 
     const res = await adminAPI.accounts.importData({
-      data: dataPayload,
+      data: state.payload,
       skip_default_group_bind: true
     })
 
@@ -305,10 +549,10 @@ const handleImport = async () => {
       account_failed: res.account_failed,
       proxy_created: res.proxy_created,
       proxy_reused: res.proxy_reused,
-      proxy_failed: res.proxy_failed,
+      proxy_failed: res.proxy_failed
     }
+
     if (res.account_failed > 0 || res.proxy_failed > 0) {
-      // 部分成功也创建了数据;弹窗关闭时通过 imported 通知父组件刷新列表
       if (res.account_created > 0 || res.proxy_created > 0) {
         hasCreatedData.value = true
       }

@@ -416,6 +416,50 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 
+  it('回填并保存 OpenAI Codex 透支账号类型白名单', async () => {
+    const account = buildOpenAISetupTokenAccount()
+    account.extra = {
+      codex_quota_overdraft_account_types: ['oauth', 'setup-token']
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect((wrapper.get('[data-testid="openai-codex-overdraft-allow-oauth"]').element as HTMLInputElement).checked).toBe(true)
+    expect((wrapper.get('[data-testid="openai-codex-overdraft-allow-setup-token"]').element as HTMLInputElement).checked).toBe(true)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_quota_overdraft_account_types).toEqual([
+      'oauth',
+      'setup-token'
+    ])
+  })
+
+  it('关闭 OpenAI 账号级 Codex 透支时保存显式 false', async () => {
+    const account = buildOpenAISetupTokenAccount()
+    account.extra = {
+      codex_quota_overdraft_account_types: ['oauth', 'setup-token']
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="openai-codex-overdraft-toggle"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_quota_overdraft_enabled).toBe(false)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.codex_quota_overdraft_account_types).toBeUndefined()
+  })
+
   it('loads and clears the OAuth-only Codex namespace flatten toggle', async () => {
     const account = buildAccount()
     account.type = 'oauth'

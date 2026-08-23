@@ -42,6 +42,16 @@ describe('AppSidebar scroll position persistence', () => {
   })
 })
 
+describe('AppSidebar overlay structure', () => {
+  it('renders the regular user sidebar as code-driven sections', () => {
+    expect(componentSource).toContain("t('nav.console')")
+    expect(componentSource).toContain("t('nav.account')")
+    expect(componentSource).toContain("t('nav.extension')")
+    expect(componentSource).toContain("t('nav.balanceRecharge')")
+    expect(componentSource).not.toContain('/sidebar-overlay.js')
+  })
+})
+
 describe('AppSidebar header styles', () => {
   it('does not clip the version badge dropdown', () => {
     const sidebarHeaderBlockMatch = styleSource.match(/\.sidebar-header\s*\{[\s\S]*?\n {2}\}/)

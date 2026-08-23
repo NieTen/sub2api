@@ -21939,6 +21939,9 @@ type GroupMutation struct {
 	addprofit_min_margin                    *float64
 	profit_safety_buffer                    *float64
 	addprofit_safety_buffer                 *float64
+	codex_overdraft_enabled                 *bool
+	codex_overdraft_next_group_id           *int64
+	addcodex_overdraft_next_group_id        *int64
 	clearedFields                           map[string]struct{}
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
@@ -25181,6 +25184,112 @@ func (m *GroupMutation) ResetProfitSafetyBuffer() {
 	m.addprofit_safety_buffer = nil
 }
 
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (m *GroupMutation) SetCodexOverdraftEnabled(b bool) {
+	m.codex_overdraft_enabled = &b
+}
+
+// CodexOverdraftEnabled returns the value of the "codex_overdraft_enabled" field in the mutation.
+func (m *GroupMutation) CodexOverdraftEnabled() (r bool, exists bool) {
+	v := m.codex_overdraft_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCodexOverdraftEnabled returns the old "codex_overdraft_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCodexOverdraftEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCodexOverdraftEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCodexOverdraftEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCodexOverdraftEnabled: %w", err)
+	}
+	return oldValue.CodexOverdraftEnabled, nil
+}
+
+// ResetCodexOverdraftEnabled resets all changes to the "codex_overdraft_enabled" field.
+func (m *GroupMutation) ResetCodexOverdraftEnabled() {
+	m.codex_overdraft_enabled = nil
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (m *GroupMutation) SetCodexOverdraftNextGroupID(i int64) {
+	m.codex_overdraft_next_group_id = &i
+	m.addcodex_overdraft_next_group_id = nil
+}
+
+// CodexOverdraftNextGroupID returns the value of the "codex_overdraft_next_group_id" field in the mutation.
+func (m *GroupMutation) CodexOverdraftNextGroupID() (r int64, exists bool) {
+	v := m.codex_overdraft_next_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCodexOverdraftNextGroupID returns the old "codex_overdraft_next_group_id" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCodexOverdraftNextGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCodexOverdraftNextGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCodexOverdraftNextGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCodexOverdraftNextGroupID: %w", err)
+	}
+	return oldValue.CodexOverdraftNextGroupID, nil
+}
+
+// AddCodexOverdraftNextGroupID adds i to the "codex_overdraft_next_group_id" field.
+func (m *GroupMutation) AddCodexOverdraftNextGroupID(i int64) {
+	if m.addcodex_overdraft_next_group_id != nil {
+		*m.addcodex_overdraft_next_group_id += i
+	} else {
+		m.addcodex_overdraft_next_group_id = &i
+	}
+}
+
+// AddedCodexOverdraftNextGroupID returns the value that was added to the "codex_overdraft_next_group_id" field in this mutation.
+func (m *GroupMutation) AddedCodexOverdraftNextGroupID() (r int64, exists bool) {
+	v := m.addcodex_overdraft_next_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (m *GroupMutation) ClearCodexOverdraftNextGroupID() {
+	m.codex_overdraft_next_group_id = nil
+	m.addcodex_overdraft_next_group_id = nil
+	m.clearedFields[group.FieldCodexOverdraftNextGroupID] = struct{}{}
+}
+
+// CodexOverdraftNextGroupIDCleared returns if the "codex_overdraft_next_group_id" field was cleared in this mutation.
+func (m *GroupMutation) CodexOverdraftNextGroupIDCleared() bool {
+	_, ok := m.clearedFields[group.FieldCodexOverdraftNextGroupID]
+	return ok
+}
+
+// ResetCodexOverdraftNextGroupID resets all changes to the "codex_overdraft_next_group_id" field.
+func (m *GroupMutation) ResetCodexOverdraftNextGroupID() {
+	m.codex_overdraft_next_group_id = nil
+	m.addcodex_overdraft_next_group_id = nil
+	delete(m.clearedFields, group.FieldCodexOverdraftNextGroupID)
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by ids.
 func (m *GroupMutation) AddAPIKeyIDs(ids ...int64) {
 	if m.api_keys == nil {
@@ -25539,7 +25648,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 62)
+	fields := make([]string, 0, 64)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25726,6 +25835,12 @@ func (m *GroupMutation) Fields() []string {
 	if m.profit_safety_buffer != nil {
 		fields = append(fields, group.FieldProfitSafetyBuffer)
 	}
+	if m.codex_overdraft_enabled != nil {
+		fields = append(fields, group.FieldCodexOverdraftEnabled)
+	}
+	if m.codex_overdraft_next_group_id != nil {
+		fields = append(fields, group.FieldCodexOverdraftNextGroupID)
+	}
 	return fields
 }
 
@@ -25858,6 +25973,10 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
 		return m.ProfitSafetyBuffer()
+	case group.FieldCodexOverdraftEnabled:
+		return m.CodexOverdraftEnabled()
+	case group.FieldCodexOverdraftNextGroupID:
+		return m.CodexOverdraftNextGroupID()
 	}
 	return nil, false
 }
@@ -25991,6 +26110,10 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldProfitMinMargin(ctx)
 	case group.FieldProfitSafetyBuffer:
 		return m.OldProfitSafetyBuffer(ctx)
+	case group.FieldCodexOverdraftEnabled:
+		return m.OldCodexOverdraftEnabled(ctx)
+	case group.FieldCodexOverdraftNextGroupID:
+		return m.OldCodexOverdraftNextGroupID(ctx)
 	}
 	return nil, fmt.Errorf("unknown Group field %s", name)
 }
@@ -26434,6 +26557,20 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetProfitSafetyBuffer(v)
 		return nil
+	case group.FieldCodexOverdraftEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCodexOverdraftEnabled(v)
+		return nil
+	case group.FieldCodexOverdraftNextGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCodexOverdraftNextGroupID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)
 }
@@ -26523,6 +26660,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addprofit_safety_buffer != nil {
 		fields = append(fields, group.FieldProfitSafetyBuffer)
 	}
+	if m.addcodex_overdraft_next_group_id != nil {
+		fields = append(fields, group.FieldCodexOverdraftNextGroupID)
+	}
 	return fields
 }
 
@@ -26585,6 +26725,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
 		return m.AddedProfitSafetyBuffer()
+	case group.FieldCodexOverdraftNextGroupID:
+		return m.AddedCodexOverdraftNextGroupID()
 	}
 	return nil, false
 }
@@ -26783,6 +26925,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 		}
 		m.AddProfitSafetyBuffer(v)
 		return nil
+	case group.FieldCodexOverdraftNextGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCodexOverdraftNextGroupID(v)
+		return nil
 	}
 	return fmt.Errorf("unknown Group numeric field %s", name)
 }
@@ -26856,6 +27005,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	}
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
+	}
+	if m.FieldCleared(group.FieldCodexOverdraftNextGroupID) {
+		fields = append(fields, group.FieldCodexOverdraftNextGroupID)
 	}
 	return fields
 }
@@ -26936,6 +27088,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldCodexOverdraftNextGroupID:
+		m.ClearCodexOverdraftNextGroupID()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -27130,6 +27285,12 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldProfitSafetyBuffer:
 		m.ResetProfitSafetyBuffer()
+		return nil
+	case group.FieldCodexOverdraftEnabled:
+		m.ResetCodexOverdraftEnabled()
+		return nil
+	case group.FieldCodexOverdraftNextGroupID:
+		m.ResetCodexOverdraftNextGroupID()
 		return nil
 	}
 	return fmt.Errorf("unknown Group field %s", name)

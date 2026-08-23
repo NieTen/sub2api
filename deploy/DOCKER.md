@@ -2,6 +2,8 @@
 
 Sub2API is an AI API Gateway Platform for distributing and managing AI product subscription API quotas.
 
+The primary image published from the current repository is `ghcr.io/nieten/sub2api`.
+
 ## Quick Start
 
 ```bash
@@ -10,7 +12,7 @@ docker run -d \
   -p 8080:8080 \
   -e DATABASE_URL="postgres://user:pass@host:5432/sub2api" \
   -e REDIS_URL="redis://host:6379" \
-  weishaw/sub2api:latest
+  ghcr.io/nieten/sub2api:latest
 ```
 
 ## Docker Compose
@@ -20,7 +22,7 @@ version: '3.8'
 
 services:
   sub2api:
-    image: weishaw/sub2api:latest
+    image: ghcr.io/nieten/sub2api:latest
     ports:
       - "8080:8080"
     environment:
@@ -72,5 +74,5 @@ volumes:
 
 ## Links
 
-- [GitHub Repository](https://github.com/weishaw/sub2api)
-- [Documentation](https://github.com/weishaw/sub2api#readme)
+- [GitHub Repository](https://github.com/NieTen/sub2api)
+- [Documentation](https://github.com/NieTen/sub2api#readme)

@@ -1,0 +1,129 @@
+[
+  {
+    "name": "gpt-5.6-sol",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 5,
+    "output": 30,
+    "cachedInput": 0.5,
+    "flexInput": 6.25
+  },
+  {
+    "name": "gpt-5.6-terra",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 2.5,
+    "output": 15,
+    "cachedInput": 0.25,
+    "flexInput": 3.125
+  },
+  {
+    "name": "gpt-5.6-luna",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 1,
+    "output": 6,
+    "cachedInput": 0.1,
+    "flexInput": 1.25
+  },
+  {
+    "name": "gpt-5.5",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 5,
+    "output": 30,
+    "cachedInput": 0.5,
+    "flexInput": null
+  },
+  {
+    "name": "gpt-5.4",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 2.5,
+    "output": 15,
+    "cachedInput": 0.25,
+    "flexInput": null
+  },
+  {
+    "name": "gpt-5.4-mini",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 0.75,
+    "cachedInput": 0.075,
+    "flexInput": null,
+    "output": 4.5
+  },
+  {
+    "name": "gpt-5.3-codex",
+    "vendor": "OpenAI",
+    "type": "text",
+    "input": 1.75,
+    "cachedInput": 0.175,
+    "flexInput": null,
+    "output": 14
+  },
+  {
+    "name": "gpt-image-2",
+    "vendor": "OpenAI",
+    "type": "image",
+    "resolutionPrices": {
+      "1K": 2,
+      "2K": 3,
+      "4K": 5
+    }
+  },
+  {
+    "name": "gpt-image-1",
+    "vendor": "OpenAI",
+    "type": "image",
+    "resolutionPrices": {
+      "1K": 2,
+      "2K": 3,
+      "4K": 5
+    }
+  },
+  {
+    "name": "claude-fable-5",
+    "vendor": "ANTHROPIC",
+    "type": "text",
+    "input": 10,
+    "output": 50,
+    "cachedInput": 12.5,
+    "flexInput": 1
+  },
+  {
+    "name": "claude-opus-4-8",
+    "vendor": "ANTHROPIC",
+    "type": "text",
+    "input": 5,
+    "output": 25,
+    "cachedInput": 6.25,
+    "flexInput": 0.5
+  },{
+  "name": "claude-opus-4-7",
+  "vendor": "ANTHROPIC",
+  "type": "text",
+  "input": 5,
+  "output": 25,
+  "cachedInput": 6.25,
+  "flexInput": 0.5
+},{
+  "name": "claude-opus-4-6",
+  "vendor": "ANTHROPIC",
+  "type": "text",
+  "input": 5,
+  "output": 25,
+  "cachedInput": 6.25,
+  "flexInput": 0.5
+},{
+  "name": "claude-sonnet-4-6",
+  "vendor": "ANTHROPIC",
+  "type": "text",
+  "input": 3,
+  "output": 15,
+  "cachedInput": 3.75,
+  "flexInput": 0.3
+}
+
+
+]

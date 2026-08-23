@@ -16,6 +16,9 @@ const (
 	StatusExpired  = domain.StatusExpired
 )
 
+// 仅用于账号列表筛选，不作为账号表 status 字段的持久化值。
+const StatusFilterOverdrafting = "overdrafting"
+
 // Role constants
 const (
 	RoleAdmin = domain.RoleAdmin

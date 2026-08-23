@@ -1,0 +1,1561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="众智AI 生图 API，一分钟接入，三种创作任务顺序生成">
+    <title>众智AI生图 API - 一分钟接入</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --scheme-height: 0px;
+            --secondary: #ff7048;
+        }
+
+        * {
+            box-sizing: border-box;
+            letter-spacing: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            margin: 0;
+            min-width: 320px;
+            color: #14223a;
+            background: #11141a;
+            font-family: "Microsoft YaHei UI", "Microsoft YaHei", Arial, sans-serif;
+            overflow-x: hidden;
+        }
+
+        button,
+        a {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        button {
+            font: inherit;
+            cursor: pointer;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        img {
+            display: block;
+            max-width: 100%;
+        }
+
+        .visually-hidden {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+
+        .scheme-bar {
+            position: relative;
+            z-index: 100;
+            height: var(--scheme-height);
+            display: grid;
+            grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+            align-items: center;
+            gap: 20px;
+            padding: 8px 22px;
+            color: #f7f9fc;
+            background: #11141a;
+            border-bottom: 1px solid #2c313b;
+        }
+
+        .scheme-brand {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .scheme-brand-mark {
+            width: 24px;
+            height: 24px;
+            display: grid;
+            place-items: center;
+            color: #11141a;
+            background: #ffffff;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .scheme-brand small {
+            color: #8993a3;
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        .scheme-tabs {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(104px, 1fr));
+            gap: 3px;
+            padding: 3px;
+            background: #242933;
+            border: 1px solid #353b47;
+            border-radius: 6px;
+        }
+
+        .scheme-tab {
+            min-height: 32px;
+            padding: 5px 11px;
+            color: #aeb7c5;
+            background: transparent;
+            border: 0;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 800;
+            transition: color 180ms ease, background-color 180ms ease;
+        }
+
+        .scheme-tab:hover {
+            color: #ffffff;
+            background: #303641;
+        }
+
+        .scheme-tab[aria-selected="true"] {
+            color: #11141a;
+            background: #ffffff;
+        }
+
+        .scheme-current {
+            min-width: 0;
+            overflow: hidden;
+            color: #8f99a8;
+            font-size: 10px;
+            text-align: right;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .app {
+            --page-bg: #eef4f8;
+            --surface: rgba(255, 255, 255, 0.94);
+            --surface-solid: #ffffff;
+            --surface-soft: #f4f8fb;
+            --text: #14223a;
+            --muted: #5e6d7f;
+            --line: #cad8e4;
+            --primary: #1677ff;
+            --secondary: #ff7048;
+            --ready: #16845f;
+            --nav-bg: rgba(238, 244, 248, 0.88);
+            --shadow: 0 18px 50px rgba(28, 47, 67, 0.12);
+            position: relative;
+            min-height: calc(100vh - var(--scheme-height));
+            display: grid;
+            grid-template-rows: 62px minmax(0, 1fr) 88px;
+            overflow: hidden;
+            color: var(--text);
+            background: var(--page-bg);
+            isolation: isolate;
+        }
+
+        .app::before {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            inset: 0;
+            opacity: 0.52;
+            background-image:
+                linear-gradient(var(--line) 1px, transparent 1px),
+                linear-gradient(90deg, var(--line) 1px, transparent 1px);
+            background-size: 48px 48px;
+            mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.72), transparent 65%);
+        }
+
+        .app[data-theme="console"] {
+            color-scheme: dark;
+            --page-bg: #080d12;
+            --surface: rgba(15, 23, 29, 0.96);
+            --surface-solid: #10181e;
+            --surface-soft: #0b1217;
+            --text: #dce8ec;
+            --muted: #83959e;
+            --line: #2a3940;
+            --primary: #4de2ae;
+            --secondary: #f0714b;
+            --ready: #4de2ae;
+            --nav-bg: rgba(8, 13, 18, 0.88);
+            --shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
+            font-family: "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+        }
+
+        .app[data-theme="canvas"] {
+            --page-bg: #f5f2ea;
+            --surface: rgba(255, 254, 251, 0.95);
+            --surface-solid: #fffefb;
+            --surface-soft: #f0ece3;
+            --text: #282d33;
+            --muted: #6b706f;
+            --line: #d4cdc0;
+            --primary: #d94934;
+            --secondary: #b78919;
+            --ready: #397b61;
+            --nav-bg: rgba(245, 242, 234, 0.9);
+            --shadow: 10px 10px 0 rgba(210, 201, 187, 0.78);
+        }
+
+        .app-shell {
+            width: min(1400px, calc(100% - 44px));
+            margin: 0 auto;
+        }
+
+        .main-nav {
+            min-height: 62px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            background: var(--nav-bg);
+            border-bottom: 1px solid var(--line);
+            backdrop-filter: blur(12px);
+        }
+
+        .main-nav .app-shell {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .site-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex: 0 0 auto;
+            font-size: 16px;
+            font-weight: 900;
+        }
+
+        .site-logo-mark {
+            width: 30px;
+            height: 30px;
+            display: grid;
+            place-items: center;
+            color: #ffffff;
+            background: var(--primary);
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: 900;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .nav-link {
+            padding: 7px 0;
+            border-bottom: 2px solid transparent;
+            transition: color 180ms ease, border-color 180ms ease;
+        }
+
+        .nav-link:hover {
+            color: var(--text);
+            border-color: var(--primary);
+        }
+
+        .nav-cta,
+        .hero-cta {
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 15px;
+            color: #ffffff;
+            background: var(--primary);
+            border: 1px solid var(--primary);
+            border-radius: 5px;
+            font-size: 11px;
+            font-weight: 900;
+            transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease;
+        }
+
+        .app[data-theme="console"] .nav-cta,
+        .app[data-theme="console"] .hero-cta {
+            color: #07110e;
+        }
+
+        .nav-cta:hover,
+        .hero-cta:hover {
+            color: var(--text);
+            background: var(--surface-solid);
+            border-color: var(--line);
+        }
+
+        .workspace {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(270px, 0.62fr) minmax(0, 1.38fr);
+            align-items: stretch;
+            gap: 28px;
+            padding-top: 18px;
+            padding-bottom: 18px;
+        }
+
+        .hero-copy {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 10px 0;
+        }
+
+        .eyebrow {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin: 0 0 13px;
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .eyebrow::before {
+            content: "";
+            width: 25px;
+            height: 2px;
+            background: currentColor;
+        }
+
+        h1 {
+            max-width: 510px;
+            margin: 0;
+            font-size: 50px;
+            line-height: 1.08;
+            font-weight: 900;
+        }
+
+        h1 span {
+            color: var(--secondary);
+        }
+
+        .app[data-theme="canvas"] h1 {
+            font-family: SimSun, "Songti SC", serif;
+        }
+
+        .hero-subtitle {
+            max-width: 470px;
+            margin: 17px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.78;
+        }
+
+        .hero-actions {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 13px;
+            margin-top: 22px;
+        }
+
+        .hero-proof {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .proof-light {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            color: var(--ready);
+            background: currentColor;
+            box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 16%, transparent);
+        }
+
+        .studio {
+            min-width: 0;
+            min-height: 0;
+            display: grid;
+            grid-template-rows: auto minmax(0, 1fr);
+            padding: 13px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+        }
+
+        .app[data-theme="console"] .studio,
+        .app[data-theme="console"] .gen-card,
+        .app[data-theme="canvas"] .studio,
+        .app[data-theme="canvas"] .gen-card {
+            border-radius: 2px;
+        }
+
+        .studio-head {
+            min-height: 42px;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 1px 2px 10px;
+        }
+
+        .studio-title {
+            min-width: 0;
+        }
+
+        .studio-title h2 {
+            margin: 0 0 4px;
+            font-size: 14px;
+        }
+
+        .studio-title p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 9px;
+        }
+
+        .sequence-state {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 9px;
+            font-weight: 800;
+        }
+
+        .sequence-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .sequence-dot {
+            width: 19px;
+            height: 4px;
+            overflow: hidden;
+            background: var(--line);
+            border-radius: 2px;
+        }
+
+        .sequence-dot::after {
+            content: "";
+            display: block;
+            width: 0;
+            height: 100%;
+            background: var(--primary);
+            transition: width 200ms ease;
+        }
+
+        .sequence-dot.is-current::after,
+        .sequence-dot.is-done::after {
+            width: 100%;
+        }
+
+        .sequence-dot.is-done::after {
+            background: var(--ready);
+        }
+
+        .generation-grid {
+            position: relative;
+            min-height: 0;
+            display: block;
+            perspective: 1200px;
+        }
+
+        .gen-card {
+            position: absolute;
+            inset: 0 36px 16px 0;
+            --back-x: 36px;
+            --back-y: 16px;
+            --back-scale: 0.972;
+            min-width: 0;
+            min-height: 0;
+            display: grid;
+            grid-template-rows: 42px 96px minmax(0, 1fr);
+            overflow: hidden;
+            color: var(--text);
+            background: var(--surface-solid);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            cursor: pointer;
+            transform-origin: center center;
+            transition: transform 420ms cubic-bezier(0.22, 0.8, 0.24, 1), border-color 180ms ease, box-shadow 180ms ease, opacity 220ms ease;
+        }
+
+        .gen-card[data-stack-position="0"] {
+            z-index: 3;
+            opacity: 1;
+            transform: translate(0, 0) scale(1);
+            box-shadow: 0 18px 42px rgba(18, 31, 45, 0.14);
+        }
+
+        .gen-card[data-stack-position="1"] {
+            z-index: 2;
+            opacity: 0.9;
+            transform: translate(18px, 8px) rotate(0.65deg) scale(0.986);
+            box-shadow: 0 10px 26px rgba(18, 31, 45, 0.1);
+        }
+
+        .gen-card[data-stack-position="2"] {
+            z-index: 1;
+            opacity: 0.76;
+            transform: translate(var(--back-x), var(--back-y)) rotate(1.2deg) scale(var(--back-scale));
+            box-shadow: 0 7px 20px rgba(18, 31, 45, 0.08);
+        }
+
+        .gen-card.is-dealing {
+            z-index: 12;
+            pointer-events: none;
+            animation: deal-card-to-back 640ms cubic-bezier(0.22, 0.8, 0.24, 1) both;
+        }
+
+        @keyframes deal-card-to-back {
+            0% {
+                opacity: 1;
+                transform: translate(0, 0) rotate(0deg) scale(1);
+            }
+            46% {
+                opacity: 0.96;
+                transform: translate(-18%, -6px) rotate(-3deg) scale(1.01);
+            }
+            64% {
+                opacity: 0.76;
+                transform: translate(-24%, 8px) rotate(-4deg) scale(0.985);
+            }
+            100% {
+                opacity: 0.72;
+                transform: translate(var(--back-x), var(--back-y)) rotate(0deg) scale(var(--back-scale));
+            }
+        }
+
+        .gen-card:hover,
+        .gen-card.is-active {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 16%, transparent);
+        }
+
+        .gen-card:focus-visible,
+        .scheme-tab:focus-visible,
+        .nav-link:focus-visible,
+        .nav-cta:focus-visible,
+        .hero-cta:focus-visible {
+            outline: 3px solid var(--secondary);
+            outline-offset: 3px;
+        }
+
+        .card-head {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .card-title {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .card-index {
+            flex: 0 0 auto;
+            color: var(--primary);
+            font-size: 9px;
+            font-weight: 900;
+        }
+
+        .card-title strong {
+            overflow: hidden;
+            font-size: 10px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .card-status {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--muted);
+            font-size: 8px;
+            font-weight: 800;
+        }
+
+        .card-status::before {
+            content: "";
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .gen-card.is-typing .card-status,
+        .gen-card.is-generating .card-status {
+            color: var(--primary);
+        }
+
+        .gen-card[data-stack-position="0"].is-ready .card-status {
+            color: var(--ready);
+        }
+
+        .stack-edge {
+            position: absolute;
+            z-index: 4;
+            right: 2px;
+            top: 8px;
+            width: 16px;
+            height: 24px;
+            display: grid;
+            place-items: center;
+            color: var(--primary);
+            background: var(--surface-soft);
+            border: 1px solid var(--line);
+            border-radius: 3px;
+            font-size: 7px;
+            font-weight: 900;
+            transition: opacity 180ms ease;
+        }
+
+        .gen-card[data-stack-position="0"] .stack-edge {
+            opacity: 0;
+        }
+
+        .prompt-shell {
+            min-width: 0;
+            padding: 8px 10px;
+            background: var(--surface-soft);
+            border-bottom: 1px solid var(--line);
+        }
+
+        .prompt-label {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 5px;
+            color: var(--muted);
+            font-size: 9px;
+            font-weight: 800;
+        }
+
+        .prompt-text {
+            height: 64px;
+            margin: 0;
+            overflow: hidden;
+            color: var(--text);
+            font: 12px/1.65 "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+            white-space: pre-wrap;
+        }
+
+        .app[data-theme="console"] .prompt-text {
+            font-family: "Cascadia Code", Consolas, "Microsoft YaHei", monospace;
+        }
+
+        .gen-card.is-typing .prompt-text::after {
+            content: "";
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            margin-left: 2px;
+            vertical-align: -2px;
+            background: var(--primary);
+            animation: caret-blink 650ms steps(1) infinite;
+        }
+
+        @keyframes caret-blink {
+            50% { opacity: 0; }
+        }
+
+        .card-output {
+            position: relative;
+            min-height: 0;
+            margin: 0;
+            overflow: hidden;
+            background: var(--surface-soft);
+        }
+
+        .card-output img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            visibility: hidden;
+            opacity: 0;
+            transform: scale(1.025);
+            transition: visibility 0s 620ms, opacity 620ms ease, transform 760ms ease;
+        }
+
+        .gen-card[data-stack-position="0"].is-ready .card-output img {
+            visibility: visible;
+            opacity: 1;
+            transform: scale(1);
+            transition-delay: 0s;
+        }
+
+        .gen-card:not([data-stack-position="0"]) .card-output img {
+            visibility: hidden;
+            opacity: 0;
+            transition: none;
+        }
+
+        .output-mask {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: #ffffff;
+            background: rgba(8, 13, 18, 0.72);
+            transition: opacity 260ms ease;
+        }
+
+        .gen-card[data-stack-position="0"].is-ready .output-mask {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .output-mask-copy {
+            padding: 10px;
+            text-align: center;
+        }
+
+        .output-mask-copy strong {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 9px;
+        }
+
+        .output-mask-copy span {
+            color: #b8c3cd;
+            font-size: 7px;
+        }
+
+        .render-progress {
+            width: 76px;
+            height: 2px;
+            margin: 8px auto 0;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .render-progress-bar {
+            width: 0;
+            height: 100%;
+            background: var(--secondary);
+            transition: width 100ms ease-out;
+        }
+
+        .gen-card.is-generating .output-mask::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 0;
+            height: 2px;
+            background: var(--secondary);
+            box-shadow: 0 0 14px var(--secondary);
+            animation: image-scan 1s ease-in-out infinite;
+        }
+
+        @keyframes image-scan {
+            from { top: 4%; }
+            to { top: 96%; }
+        }
+
+        .output-meta {
+            position: absolute;
+            left: 7px;
+            right: 7px;
+            bottom: 7px;
+            display: flex;
+            justify-content: space-between;
+            gap: 6px;
+            padding: 5px 6px;
+            color: #ffffff;
+            background: rgba(7, 10, 14, 0.68);
+            border-radius: 3px;
+            font-size: 6px;
+            opacity: 0;
+            transform: translateY(5px);
+            transition: opacity 220ms ease, transform 220ms ease;
+            backdrop-filter: blur(6px);
+        }
+
+        .gen-card[data-stack-position="0"].is-ready .output-meta {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .quickstart {
+            min-height: 88px;
+            display: grid;
+            grid-template-columns: 145px minmax(0, 1fr);
+            align-items: stretch;
+            gap: 18px;
+            padding-top: 9px;
+            padding-bottom: 10px;
+            border-top: 1px solid var(--line);
+        }
+
+        .quickstart-title {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .quickstart-title strong {
+            font-size: 16px;
+        }
+
+        .quickstart-title span {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 8px;
+        }
+
+        .quick-steps {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            border: 1px solid var(--line);
+            background: var(--surface);
+            border-radius: 6px;
+        }
+
+        .app[data-theme="console"] .quick-steps,
+        .app[data-theme="canvas"] .quick-steps {
+            border-radius: 2px;
+        }
+
+        .quick-step {
+            position: relative;
+            min-width: 0;
+            display: grid;
+            grid-template-columns: 25px minmax(0, 1fr);
+            align-items: center;
+            gap: 7px;
+            padding: 8px 10px;
+            border-right: 1px solid var(--line);
+        }
+
+        .quick-step:last-child {
+            border-right: 0;
+        }
+
+        .quick-step::after {
+            content: ">";
+            position: absolute;
+            z-index: 2;
+            right: -5px;
+            top: 50%;
+            color: var(--primary);
+            font-size: 10px;
+            font-weight: 900;
+            transform: translateY(-50%);
+        }
+
+        .quick-step:last-child::after {
+            display: none;
+        }
+
+        .quick-number {
+            width: 25px;
+            height: 25px;
+            display: grid;
+            place-items: center;
+            color: #ffffff;
+            background: var(--primary);
+            border-radius: 4px;
+            font-size: 8px;
+            font-weight: 900;
+        }
+
+        .app[data-theme="console"] .quick-number {
+            color: #07110e;
+            border-radius: 2px;
+        }
+
+        .app[data-theme="canvas"] .quick-number {
+            border-radius: 0;
+        }
+
+        .quick-copy {
+            min-width: 0;
+        }
+
+        .quick-copy strong {
+            display: block;
+            overflow: hidden;
+            font-size: 9px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .quick-copy span {
+            display: block;
+            overflow: hidden;
+            margin-top: 2px;
+            color: var(--muted);
+            font-size: 7px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @media (min-width: 900px) and (min-height: 680px) {
+            body {
+                overflow: hidden;
+            }
+
+            .app {
+                height: calc(100vh - var(--scheme-height));
+            }
+        }
+
+        @media (max-width: 1120px) {
+            h1 {
+                font-size: 42px;
+            }
+
+            .workspace {
+                grid-template-columns: minmax(250px, 0.55fr) minmax(0, 1.45fr);
+                gap: 18px;
+            }
+
+            .prompt-text {
+                font-size: 11px;
+            }
+
+            .quickstart {
+                grid-template-columns: 120px minmax(0, 1fr);
+            }
+
+            .quick-copy span {
+                display: none;
+            }
+        }
+
+        @media (max-width: 860px) {
+            :root {
+                --scheme-height: 0px;
+            }
+
+            .scheme-bar {
+                height: var(--scheme-height);
+                grid-template-columns: 1fr;
+                gap: 6px;
+                padding: 8px 14px;
+            }
+
+            .scheme-brand {
+                justify-content: center;
+            }
+
+            .scheme-current {
+                display: none;
+            }
+
+            .scheme-tabs {
+                width: 100%;
+            }
+
+            .app {
+                min-height: calc(100vh - var(--scheme-height));
+                grid-template-rows: 56px auto auto;
+                overflow: visible;
+            }
+
+            .app-shell {
+                width: calc(100% - 28px);
+            }
+
+            .main-nav {
+                min-height: 56px;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .workspace {
+                grid-template-columns: 1fr;
+                gap: 16px;
+                padding-top: 16px;
+                padding-bottom: 16px;
+            }
+
+            .hero-copy {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: end;
+                gap: 14px;
+                padding: 0;
+            }
+
+            .hero-copy-main {
+                min-width: 0;
+            }
+
+            .eyebrow {
+                margin-bottom: 8px;
+            }
+
+            h1 {
+                max-width: none;
+                font-size: 34px;
+            }
+
+            .hero-subtitle {
+                max-width: none;
+                margin-top: 9px;
+                font-size: 12px;
+            }
+
+            .hero-actions {
+                margin: 0;
+            }
+
+            .hero-proof {
+                display: none;
+            }
+
+            .studio {
+                min-height: 510px;
+            }
+
+            .generation-grid {
+                display: block;
+            }
+
+            .gen-card {
+                inset: 0 24px 12px 0;
+                --back-x: 24px;
+                --back-y: 12px;
+                --back-scale: 0.98;
+                display: grid;
+                grid-template-rows: 42px 96px minmax(250px, 1fr);
+            }
+
+            .gen-card[data-stack-position="1"] {
+                transform: translate(12px, 6px) rotate(0.45deg) scale(0.99);
+            }
+
+            .gen-card[data-stack-position="2"] {
+                transform: translate(24px, 12px) rotate(0.8deg) scale(0.98);
+            }
+
+            .gen-card:not(.is-active) .prompt-shell,
+            .gen-card:not(.is-active) .card-output {
+                display: none;
+            }
+
+            .gen-card.is-dealing .prompt-shell,
+            .gen-card.is-dealing .card-output {
+                display: block;
+            }
+
+            .gen-card.is-active {
+                grid-template-rows: 42px 96px minmax(250px, 1fr);
+            }
+
+            .quickstart {
+                grid-template-columns: 1fr;
+                gap: 7px;
+                padding-top: 12px;
+                padding-bottom: 16px;
+            }
+
+            .quickstart-title {
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+            }
+
+            .quickstart-title span {
+                margin: 0;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .scheme-brand small {
+                display: none;
+            }
+
+            .scheme-tab {
+                min-width: 0;
+                padding-inline: 6px;
+                font-size: 10px;
+            }
+
+            .site-logo {
+                font-size: 14px;
+            }
+
+            .main-nav .nav-cta {
+                min-height: 34px;
+                padding-inline: 10px;
+            }
+
+            .hero-copy {
+                display: block;
+            }
+
+            h1 {
+                font-size: 31px;
+                overflow-wrap: anywhere;
+            }
+
+            .hero-subtitle {
+                font-size: 11px;
+            }
+
+            .hero-actions {
+                margin-top: 12px;
+            }
+
+            .studio {
+                min-height: 480px;
+                padding: 9px;
+            }
+
+            .studio-head {
+                min-height: 38px;
+            }
+
+            .sequence-state > span {
+                display: none;
+            }
+
+            .quick-steps {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .quick-step {
+                min-height: 50px;
+                grid-template-columns: 25px minmax(0, 1fr);
+                padding: 7px 9px;
+                border-bottom: 1px solid var(--line);
+                text-align: left;
+            }
+
+            .quick-step:nth-child(2n) {
+                border-right: 0;
+            }
+
+            .quick-step::after {
+                display: none;
+            }
+
+            .quick-step:last-child {
+                grid-column: 1 / -1;
+                border-bottom: 0;
+            }
+
+            .quick-copy strong {
+                font-size: 8px;
+                white-space: nowrap;
+            }
+
+            .quick-copy span {
+                display: none;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                scroll-behavior: auto !important;
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="app" id="app" data-theme="blueprint">
+        <nav class="main-nav" aria-label="主导航">
+            <div class="app-shell">
+                <a class="site-logo" href="#top" aria-label="众智AI 首页">
+                    <span class="site-logo-mark" aria-hidden="true">众</span>
+                    <span>众智AI</span>
+                </a>
+               <!-- <div class="nav-links">
+                    <a class="nav-link" href="#studio">创作演示</a>
+                    <a class="nav-link" href="#quickstart">接入流程</a>
+                    <a class="nav-link" href="#quickstart">价格</a>
+                </div>-->
+                <a class="nav-cta" href="/register">一分钟接入 <span aria-hidden="true">→</span></a>
+            </div>
+        </nav>
+
+        <section class="workspace app-shell" id="top">
+            <div class="hero-copy">
+                <div class="hero-copy-main">
+                    <p class="eyebrow">众智AI 生图 API</p>
+                    <h1>简单描述，生成<span>漂亮作品</span></h1>
+                    <p class="hero-subtitle">旅行九宫格、城市海报、编辑广告，三种任务按顺序自动生成。悬浮或点击任意卡片，即刻切换到对应作品。</p>
+                </div>
+                <div class="hero-actions">
+                    <a class="hero-cta" href="/register">一分钟接入 <span aria-hidden="true">→</span></a>
+                    <span class="hero-proof"><i class="proof-light" aria-hidden="true"></i>服务在线 · 平均 1 分钟</span>
+                </div>
+            </div>
+
+            <section class="studio" id="studio" data-sequence-showcase aria-label="三种作品顺序生成演示">
+                <header class="studio-head">
+                    <div class="studio-title">
+                        <h2>三张卡片，顺序生成</h2>
+                        <p>当前作品完成后自动进入下一张，也可悬浮或点击切换</p>
+                    </div>
+                    <div class="sequence-state" aria-live="polite">
+                        <span id="sequenceStatus">正在生成第 1 张</span>
+                        <div class="sequence-dots" aria-hidden="true">
+                            <i class="sequence-dot is-current" data-sequence-dot="0"></i>
+                            <i class="sequence-dot" data-sequence-dot="1"></i>
+                            <i class="sequence-dot" data-sequence-dot="2"></i>
+                        </div>
+                    </div>
+                </header>
+
+                <div class="generation-grid" id="generationGrid" data-active="0">
+                    <article class="gen-card is-active" data-job-index="0" data-stack-position="0" tabindex="0" role="button" aria-pressed="true" aria-label="生成 Bali 旅行九宫格">
+                        <header class="card-head">
+                            <div class="card-title"><span class="card-index">01</span><strong>Bali 旅行九宫格</strong></div>
+                            <span class="card-status" data-card-status>等待生成</span>
+                        </header>
+                        <div class="prompt-shell">
+                            <div class="prompt-label"><span>简单描述</span><span data-char-count>0 字</span></div>
+                            <p class="prompt-text" data-prompt-output></p>
+                        </div>
+                        <figure class="card-output">
+                            <img src="assets/tu/showcase-bali.png" alt="同一位女性在 Bali 九个旅行场景中的九宫格作品">
+                            <div class="output-mask">
+                                <div class="output-mask-copy"><strong data-mask-title>等待生成</strong><span data-mask-detail>IMAGE 01 / READY</span><div class="render-progress"><div class="render-progress-bar" data-render-progress></div></div></div>
+                            </div>
+                            <figcaption class="output-meta"><span>3×3 TRAVEL GRID</span><span>同一人物 · 9 个场景</span></figcaption>
+                        </figure>
+                        <span class="stack-edge" aria-hidden="true">01</span>
+                    </article>
+
+                    <article class="gen-card" data-job-index="1" data-stack-position="1" tabindex="0" role="button" aria-pressed="false" aria-label="生成 Nagasaki 城市海报">
+                        <header class="card-head">
+                            <div class="card-title"><span class="card-index">02</span><strong>Nagasaki 城市海报</strong></div>
+                            <span class="card-status" data-card-status>等待生成</span>
+                        </header>
+                        <div class="prompt-shell">
+                            <div class="prompt-label"><span>简单描述</span><span data-char-count>0 字</span></div>
+                            <p class="prompt-text" data-prompt-output></p>
+                        </div>
+                        <figure class="card-output">
+                            <img src="assets/tu/showcase-nagasaki.png" alt="以长崎港湾、樱花和历史建筑组成的竖版旅行海报作品">
+                            <div class="output-mask">
+                                <div class="output-mask-copy"><strong data-mask-title>等待生成</strong><span data-mask-detail>IMAGE 02 / READY</span><div class="render-progress"><div class="render-progress-bar" data-render-progress></div></div></div>
+                            </div>
+                            <figcaption class="output-meta"><span>EDITORIAL POSTER</span><span>水彩 · 水粉 · 插画</span></figcaption>
+                        </figure>
+                        <span class="stack-edge" aria-hidden="true">02</span>
+                    </article>
+
+                    <article class="gen-card" data-job-index="2" data-stack-position="2" tabindex="0" role="button" aria-pressed="false" aria-label="生成双场编辑广告">
+                        <header class="card-head">
+                            <div class="card-title"><span class="card-index">03</span><strong>双场编辑广告</strong></div>
+                            <span class="card-status" data-card-status>等待生成</span>
+                        </header>
+                        <div class="prompt-shell">
+                            <div class="prompt-label"><span>简单描述</span><span data-char-count>0 字</span></div>
+                            <p class="prompt-text" data-prompt-output></p>
+                        </div>
+                        <figure class="card-output">
+                            <img src="assets/tu/showcase-editorial.png" alt="以人体工学座椅为核心对象的上下双场横版编辑广告作品">
+                            <div class="output-mask">
+                                <div class="output-mask-copy"><strong data-mask-title>等待生成</strong><span data-mask-detail>IMAGE 03 / READY</span><div class="render-progress"><div class="render-progress-bar" data-render-progress></div></div></div>
+                            </div>
+                            <figcaption class="output-meta"><span>45 / 55 DUAL REALM</span><span>横版编辑广告</span></figcaption>
+                        </figure>
+                        <span class="stack-edge" aria-hidden="true">03</span>
+                    </article>
+                </div>
+            </section>
+        </section>
+
+        <section class="quickstart app-shell" id="quickstart" aria-label="一分钟接入流程">
+            <div class="quickstart-title"><strong>一分钟接入</strong><span>五步完成，立即开始生图</span></div>
+            <div class="quick-steps">
+                <div class="quick-step"><span class="quick-number">01</span><div class="quick-copy"><strong>注册</strong><span>创建账户</span></div></div>
+                <div class="quick-step"><span class="quick-number">02</span><div class="quick-copy"><strong>生成 API 密钥</strong><span>创建访问密钥</span></div></div>
+                <div class="quick-step"><span class="quick-number">03</span><div class="quick-copy"><strong>选择分组</strong><span>选择模型路由</span></div></div>
+                <div class="quick-step"><span class="quick-number">04</span><div class="quick-copy"><strong>充值</strong><span>余额实时到账</span></div></div>
+                <div class="quick-step"><span class="quick-number">05</span><div class="quick-copy"><strong>开始生图</strong><span>提交简单描述</span></div></div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (() => {
+            const cards = [...document.querySelectorAll('[data-job-index]')];
+            const dots = [...document.querySelectorAll('[data-sequence-dot]')];
+            const grid = document.getElementById('generationGrid');
+            const sequenceStatus = document.getElementById('sequenceStatus');
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            let sequenceTimers = [];
+            let runToken = 0;
+            let cardOrder = [0, 1, 2];
+            let hoverLockUntil = 0;
+
+            const jobs = [
+                {
+                    prompt: '同一位女性的 Bali 旅行九宫格，寺庙、海滩、日落与梯田，自然手机抓拍感。',
+                    typingLabel: '正在描述旅行场景',
+                    generatingLabel: '正在统一人物与九个场景'
+                },
+                {
+                    prompt: 'Nagasaki 竖版旅行海报，港湾、樱花、石桥和复古长裙女性，水彩水粉插画。',
+                    typingLabel: '正在描述城市主视觉',
+                    generatingLabel: '正在绘制长崎旅行海报'
+                },
+                {
+                    prompt: '横版编辑广告，上下 45/55 双场硬切，核心杜蕾斯跨越分界，巨大黑字主标题。',
+                    typingLabel: '正在描述双场结构',
+                    generatingLabel: '正在构建编辑广告画面'
+                }
+            ];
+
+            function clearSequenceTimers() {
+                sequenceTimers.forEach((timer) => {
+                    window.clearTimeout(timer);
+                    window.clearInterval(timer);
+                });
+                sequenceTimers = [];
+            }
+
+            function addSequenceTimeout(callback, delay) {
+                const timer = window.setTimeout(callback, delay);
+                sequenceTimers.push(timer);
+                return timer;
+            }
+
+            function setCardStatus(card, text) {
+                const status = card.querySelector('[data-card-status]');
+                if (status) {
+                    status.textContent = text;
+                }
+            }
+
+            function setMask(card, title, detail) {
+                card.querySelector('[data-mask-title]').textContent = title;
+                card.querySelector('[data-mask-detail]').textContent = detail;
+            }
+
+            function updateSequenceDots(activeIndex) {
+                dots.forEach((dot, index) => {
+                    const card = cards[index];
+                    dot.classList.toggle('is-current', index === activeIndex);
+                    dot.classList.toggle('is-done', index !== activeIndex && card.classList.contains('is-ready'));
+                });
+            }
+
+            function updateCardStack() {
+                cards.forEach((card, index) => {
+                    const position = cardOrder.indexOf(index);
+                    const isFront = position === 0;
+                    card.dataset.stackPosition = String(position);
+                    card.classList.toggle('is-active', isFront);
+                    card.setAttribute('aria-pressed', String(isFront));
+                });
+                grid.dataset.active = String(cardOrder[0]);
+                updateSequenceDots(cardOrder[0]);
+            }
+
+            function bringCardToFront(index) {
+                const currentPosition = cardOrder.indexOf(index);
+                if (currentPosition <= 0) {
+                    return;
+                }
+                cardOrder.splice(currentPosition, 1);
+                cardOrder.unshift(index);
+            }
+
+            function resetCard(card) {
+                card.classList.remove('is-active', 'is-typing', 'is-generating', 'is-ready', 'is-dealing');
+                card.setAttribute('aria-pressed', 'false');
+                card.querySelector('[data-prompt-output]').textContent = '';
+                card.querySelector('[data-char-count]').textContent = '0 字';
+                card.querySelector('[data-render-progress]').style.width = '0%';
+                setCardStatus(card, '等待生成');
+                setMask(card, '等待生成', `IMAGE ${String(Number(card.dataset.jobIndex) + 1).padStart(2, '0')} / READY`);
+            }
+
+            function scheduleNextJob(currentIndex, token) {
+                if (token !== runToken) {
+                    return;
+                }
+                const nextIndex = cardOrder[1];
+                sequenceStatus.textContent = `第 ${currentIndex + 1} 张已展示，即将切换第 ${nextIndex + 1} 张`;
+                addSequenceTimeout(() => moveFrontCardToBack(currentIndex, token), 1200);
+            }
+
+            function moveFrontCardToBack(currentIndex, token) {
+                if (token !== runToken || cardOrder[0] !== currentIndex) {
+                    return;
+                }
+                const outgoingCard = cards[currentIndex];
+                hoverLockUntil = Date.now() + 900;
+                resetCard(outgoingCard);
+                outgoingCard.classList.add('is-dealing');
+                cardOrder.push(cardOrder.shift());
+                updateCardStack();
+                const nextIndex = cardOrder[0];
+                sequenceStatus.textContent = `第 ${currentIndex + 1} 张已移到牌尾，第 ${nextIndex + 1} 张进入前排`;
+                addSequenceTimeout(() => {
+                    outgoingCard.classList.remove('is-dealing');
+                    activateSequentialJob(nextIndex, 'auto', false);
+                }, 650);
+            }
+
+            function beginRendering(card, index, token) {
+                if (token !== runToken) {
+                    return;
+                }
+                const progress = card.querySelector('[data-render-progress]');
+                let value = 8;
+                card.classList.remove('is-typing');
+                card.classList.add('is-generating');
+                setCardStatus(card, '生成中');
+                setMask(card, jobs[index].generatingLabel, 'ZHONGZHI AI / RENDERING');
+                sequenceStatus.textContent = `正在生成第 ${index + 1} 张作品`;
+
+                if (reduceMotion) {
+                    progress.style.width = '100%';
+                    card.classList.remove('is-generating');
+                    card.classList.add('is-ready');
+                    setCardStatus(card, '作品完成');
+                    updateSequenceDots(index);
+                    return;
+                }
+
+                const interval = window.setInterval(() => {
+                    value = Math.min(94, value + 7 + Math.round(Math.random() * 8));
+                    progress.style.width = `${value}%`;
+                }, 105);
+                sequenceTimers.push(interval);
+
+                addSequenceTimeout(() => {
+                    if (token !== runToken) {
+                        return;
+                    }
+                    window.clearInterval(interval);
+                    progress.style.width = '100%';
+                    card.classList.remove('is-generating');
+                    card.classList.add('is-ready');
+                    setCardStatus(card, '作品完成');
+                    setMask(card, '作品完成', 'IMAGE READY');
+                    updateSequenceDots(index);
+                    scheduleNextJob(index, token);
+                }, 1350);
+            }
+
+            function activateSequentialJob(index, source = 'auto', reorder = true) {
+                clearSequenceTimers();
+                cards.forEach((item) => item.classList.remove('is-dealing'));
+                runToken += 1;
+                const token = runToken;
+                const card = cards[index];
+                const promptOutput = card.querySelector('[data-prompt-output]');
+                const charCount = card.querySelector('[data-char-count]');
+                const prompt = jobs[index].prompt;
+                let cursor = 0;
+
+                if (reorder) {
+                    const previousFrontIndex = cardOrder[0];
+                    if (previousFrontIndex !== index) {
+                        resetCard(cards[previousFrontIndex]);
+                    }
+                    bringCardToFront(index);
+                }
+                updateCardStack();
+                card.classList.remove('is-generating', 'is-ready');
+                card.classList.add('is-typing');
+                promptOutput.textContent = '';
+                charCount.textContent = '0 字';
+                card.querySelector('[data-render-progress]').style.width = '0%';
+                setCardStatus(card, '写描述');
+                setMask(card, jobs[index].typingLabel, source === 'user' ? 'MANUAL SWITCH' : 'AUTO SEQUENCE');
+                sequenceStatus.textContent = `正在准备第 ${index + 1} 张作品`;
+                updateSequenceDots(index);
+
+                if (reduceMotion) {
+                    promptOutput.textContent = prompt;
+                    charCount.textContent = `${prompt.length} 字`;
+                    cards.forEach((item, itemIndex) => {
+                        item.classList.add('is-ready');
+                        item.classList.remove('is-typing', 'is-generating');
+                        item.querySelector('[data-prompt-output]').textContent = jobs[itemIndex].prompt;
+                        item.querySelector('[data-char-count]').textContent = `${jobs[itemIndex].prompt.length} 字`;
+                        item.querySelector('[data-render-progress]').style.width = '100%';
+                        setCardStatus(item, '作品完成');
+                    });
+                    sequenceStatus.textContent = '三张作品已生成完成';
+                    updateSequenceDots(index);
+                    return;
+                }
+
+                const typeNext = () => {
+                    if (token !== runToken) {
+                        return;
+                    }
+                    cursor = Math.min(prompt.length, cursor + 1);
+                    promptOutput.textContent = prompt.slice(0, cursor);
+                    charCount.textContent = `${cursor} 字`;
+                    if (cursor < prompt.length) {
+                        addSequenceTimeout(typeNext, 24);
+                        return;
+                    }
+                    addSequenceTimeout(() => beginRendering(card, index, token), 260);
+                };
+                addSequenceTimeout(typeNext, source === 'user' ? 80 : 260);
+            }
+
+            cards.forEach((card, index) => {
+                card.addEventListener('mouseenter', () => {
+                    if (Date.now() < hoverLockUntil) {
+                        return;
+                    }
+                    activateSequentialJob(index, 'user');
+                });
+                card.addEventListener('click', () => activateSequentialJob(index, 'user'));
+                card.addEventListener('keydown', (event) => {
+                    if (!['Enter', ' '].includes(event.key)) {
+                        return;
+                    }
+                    event.preventDefault();
+                    activateSequentialJob(index, 'user');
+                });
+            });
+
+            activateSequentialJob(0, 'auto');
+        })();
+    </script>
+</body>
+</html>

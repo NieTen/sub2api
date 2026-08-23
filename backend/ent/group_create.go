@@ -850,6 +850,34 @@ func (_c *GroupCreate) SetNillableProfitSafetyBuffer(v *float64) *GroupCreate {
 	return _c
 }
 
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (_c *GroupCreate) SetCodexOverdraftEnabled(v bool) *GroupCreate {
+	_c.mutation.SetCodexOverdraftEnabled(v)
+	return _c
+}
+
+// SetNillableCodexOverdraftEnabled sets the "codex_overdraft_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCodexOverdraftEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetCodexOverdraftEnabled(*v)
+	}
+	return _c
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (_c *GroupCreate) SetCodexOverdraftNextGroupID(v int64) *GroupCreate {
+	_c.mutation.SetCodexOverdraftNextGroupID(v)
+	return _c
+}
+
+// SetNillableCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCodexOverdraftNextGroupID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetCodexOverdraftNextGroupID(*v)
+	}
+	return _c
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_c *GroupCreate) AddAPIKeyIDs(ids ...int64) *GroupCreate {
 	_c.mutation.AddAPIKeyIDs(ids...)
@@ -1139,6 +1167,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultProfitSafetyBuffer
 		_c.mutation.SetProfitSafetyBuffer(v)
 	}
+	if _, ok := _c.mutation.CodexOverdraftEnabled(); !ok {
+		v := group.DefaultCodexOverdraftEnabled
+		_c.mutation.SetCodexOverdraftEnabled(v)
+	}
 	return nil
 }
 
@@ -1328,6 +1360,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ProfitSafetyBuffer(); !ok {
 		return &ValidationError{Name: "profit_safety_buffer", err: errors.New(`ent: missing required field "Group.profit_safety_buffer"`)}
+	}
+	if _, ok := _c.mutation.CodexOverdraftEnabled(); !ok {
+		return &ValidationError{Name: "codex_overdraft_enabled", err: errors.New(`ent: missing required field "Group.codex_overdraft_enabled"`)}
 	}
 	return nil
 }
@@ -1603,6 +1638,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ProfitSafetyBuffer(); ok {
 		_spec.SetField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
 		_node.ProfitSafetyBuffer = value
+	}
+	if value, ok := _c.mutation.CodexOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexOverdraftEnabled, field.TypeBool, value)
+		_node.CodexOverdraftEnabled = value
+	}
+	if value, ok := _c.mutation.CodexOverdraftNextGroupID(); ok {
+		_spec.SetField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64, value)
+		_node.CodexOverdraftNextGroupID = &value
 	}
 	if nodes := _c.mutation.APIKeysIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -2765,6 +2808,42 @@ func (u *GroupUpsert) UpdateProfitSafetyBuffer() *GroupUpsert {
 // AddProfitSafetyBuffer adds v to the "profit_safety_buffer" field.
 func (u *GroupUpsert) AddProfitSafetyBuffer(v float64) *GroupUpsert {
 	u.Add(group.FieldProfitSafetyBuffer, v)
+	return u
+}
+
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (u *GroupUpsert) SetCodexOverdraftEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldCodexOverdraftEnabled, v)
+	return u
+}
+
+// UpdateCodexOverdraftEnabled sets the "codex_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCodexOverdraftEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldCodexOverdraftEnabled)
+	return u
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsert) SetCodexOverdraftNextGroupID(v int64) *GroupUpsert {
+	u.Set(group.FieldCodexOverdraftNextGroupID, v)
+	return u
+}
+
+// UpdateCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCodexOverdraftNextGroupID() *GroupUpsert {
+	u.SetExcluded(group.FieldCodexOverdraftNextGroupID)
+	return u
+}
+
+// AddCodexOverdraftNextGroupID adds v to the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsert) AddCodexOverdraftNextGroupID(v int64) *GroupUpsert {
+	u.Add(group.FieldCodexOverdraftNextGroupID, v)
+	return u
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsert) ClearCodexOverdraftNextGroupID() *GroupUpsert {
+	u.SetNull(group.FieldCodexOverdraftNextGroupID)
 	return u
 }
 
@@ -3989,6 +4068,48 @@ func (u *GroupUpsertOne) AddProfitSafetyBuffer(v float64) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateProfitSafetyBuffer() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitSafetyBuffer()
+	})
+}
+
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (u *GroupUpsertOne) SetCodexOverdraftEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexOverdraftEnabled(v)
+	})
+}
+
+// UpdateCodexOverdraftEnabled sets the "codex_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCodexOverdraftEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexOverdraftEnabled()
+	})
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertOne) SetCodexOverdraftNextGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexOverdraftNextGroupID(v)
+	})
+}
+
+// AddCodexOverdraftNextGroupID adds v to the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertOne) AddCodexOverdraftNextGroupID(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCodexOverdraftNextGroupID(v)
+	})
+}
+
+// UpdateCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCodexOverdraftNextGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexOverdraftNextGroupID()
+	})
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertOne) ClearCodexOverdraftNextGroupID() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCodexOverdraftNextGroupID()
 	})
 }
 
@@ -5379,6 +5500,48 @@ func (u *GroupUpsertBulk) AddProfitSafetyBuffer(v float64) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateProfitSafetyBuffer() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitSafetyBuffer()
+	})
+}
+
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (u *GroupUpsertBulk) SetCodexOverdraftEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexOverdraftEnabled(v)
+	})
+}
+
+// UpdateCodexOverdraftEnabled sets the "codex_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCodexOverdraftEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexOverdraftEnabled()
+	})
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertBulk) SetCodexOverdraftNextGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexOverdraftNextGroupID(v)
+	})
+}
+
+// AddCodexOverdraftNextGroupID adds v to the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertBulk) AddCodexOverdraftNextGroupID(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddCodexOverdraftNextGroupID(v)
+	})
+}
+
+// UpdateCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCodexOverdraftNextGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexOverdraftNextGroupID()
+	})
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (u *GroupUpsertBulk) ClearCodexOverdraftNextGroupID() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCodexOverdraftNextGroupID()
 	})
 }
 

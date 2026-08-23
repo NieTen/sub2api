@@ -375,6 +375,31 @@ func TestAdminService_CreateGroup_WithVideoPricing(t *testing.T) {
 	require.InDelta(t, 0.18, *repo.created.VideoPrice1080P, 0.0001)
 }
 
+func TestAdminService_CreateGroup_ClearsCodexOverdraftNextGroupWhenDisabled(t *testing.T) {
+	nextGroupID := int64(2)
+	repo := &groupRepoStubForAdmin{
+		createID: 1,
+		getByIDByID: map[int64]*Group{
+			nextGroupID: {ID: nextGroupID, Name: "next", Platform: PlatformOpenAI},
+		},
+	}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
+		Name:                      "openai",
+		Platform:                  PlatformOpenAI,
+		RateMultiplier:            1,
+		CodexOverdraftEnabled:     false,
+		CodexOverdraftNextGroupID: &nextGroupID,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.created)
+	require.False(t, repo.created.CodexOverdraftEnabled)
+	require.Nil(t, repo.created.CodexOverdraftNextGroupID)
+}
+
 // TestAdminService_CreateGroup_NilImagePricing 测试 ImagePrice 为 nil 时正常创建
 func TestAdminService_CreateGroup_NilImagePricing(t *testing.T) {
 	repo := &groupRepoStubForAdmin{}
@@ -542,6 +567,36 @@ func TestAdminService_UpdateGroup_WithVideoPricing(t *testing.T) {
 	require.InDelta(t, 0.09, *repo.updated.VideoPrice480P, 0.0001)
 	require.InDelta(t, 0.13, *repo.updated.VideoPrice720P, 0.0001)
 	require.InDelta(t, 0.19, *repo.updated.VideoPrice1080P, 0.0001)
+}
+
+func TestAdminService_UpdateGroup_ClearsCodexOverdraftNextGroupWhenDisabled(t *testing.T) {
+	nextGroupID := int64(2)
+	disabled := false
+	existingGroup := &Group{
+		ID:                        1,
+		Name:                      "openai",
+		Platform:                  PlatformOpenAI,
+		Status:                    StatusActive,
+		CodexOverdraftEnabled:     true,
+		CodexOverdraftNextGroupID: &nextGroupID,
+	}
+	repo := &groupRepoStubForAdmin{
+		getByIDByID: map[int64]*Group{
+			existingGroup.ID: existingGroup,
+			nextGroupID:      {ID: nextGroupID, Name: "next", Platform: PlatformOpenAI},
+		},
+	}
+	svc := &adminServiceImpl{groupRepo: repo}
+
+	group, err := svc.UpdateGroup(context.Background(), existingGroup.ID, &UpdateGroupInput{
+		CodexOverdraftEnabled: &disabled,
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, group)
+	require.NotNil(t, repo.updated)
+	require.False(t, repo.updated.CodexOverdraftEnabled)
+	require.Nil(t, repo.updated.CodexOverdraftNextGroupID)
 }
 
 // TestAdminService_UpdateGroup_PartialImagePricing 测试仅更新部分 ImagePrice 字段

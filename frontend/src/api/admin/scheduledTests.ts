@@ -8,7 +8,9 @@ import type {
   ScheduledTestPlan,
   ScheduledTestResult,
   CreateScheduledTestPlanRequest,
-  UpdateScheduledTestPlanRequest
+  UpdateScheduledTestPlanRequest,
+  CreateScheduledTestPlansBatchRequest,
+  BatchCreateScheduledTestPlansResult
 } from '@/types'
 
 /**
@@ -31,6 +33,21 @@ export async function listByAccount(accountId: number): Promise<ScheduledTestPla
 export async function create(req: CreateScheduledTestPlanRequest): Promise<ScheduledTestPlan> {
   const { data } = await apiClient.post<ScheduledTestPlan>(
     '/admin/scheduled-test-plans',
+    req
+  )
+  return data
+}
+
+/**
+ * Batch create the same scheduled test plan for multiple accounts.
+ * @param req - Batch plan creation request
+ * @returns Per-account creation results
+ */
+export async function createBatch(
+  req: CreateScheduledTestPlansBatchRequest
+): Promise<BatchCreateScheduledTestPlansResult> {
+  const { data } = await apiClient.post<BatchCreateScheduledTestPlansResult>(
+    '/admin/scheduled-test-plans/batch',
     req
   )
   return data
@@ -77,6 +94,7 @@ export async function listResults(planId: number, limit?: number): Promise<Sched
 export const scheduledTestsAPI = {
   listByAccount,
   create,
+  createBatch,
   update,
   delete: deletePlan,
   listResults

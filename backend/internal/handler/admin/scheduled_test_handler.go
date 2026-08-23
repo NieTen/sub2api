@@ -28,6 +28,16 @@ type createScheduledTestPlanRequest struct {
 	AutoRecover    *bool  `json:"auto_recover"`
 }
 
+type createScheduledTestPlansBatchRequest struct {
+	AccountIDs     []int64 `json:"account_ids" binding:"required"`
+	ModelID        string  `json:"model_id"`
+	CronExpression string  `json:"cron_expression" binding:"required"`
+	Enabled        *bool   `json:"enabled"`
+	MaxResults     int     `json:"max_results"`
+	AutoRecover    *bool   `json:"auto_recover"`
+	MaxConcurrency int     `json:"max_concurrency"`
+}
+
 type updateScheduledTestPlanRequest struct {
 	ModelID        string `json:"model_id"`
 	CronExpression string `json:"cron_expression"`
@@ -75,6 +85,50 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 	}
 
 	created, err := h.scheduledTestSvc.CreatePlan(c.Request.Context(), plan)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, created)
+}
+
+// CreateBatch POST /admin/scheduled-test-plans/batch
+func (h *ScheduledTestHandler) CreateBatch(c *gin.Context) {
+	var req createScheduledTestPlansBatchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	accountIDs := make([]int64, 0, len(req.AccountIDs))
+	for _, accountID := range req.AccountIDs {
+		if accountID > 0 {
+			accountIDs = append(accountIDs, accountID)
+		}
+	}
+	if len(accountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	autoRecover := false
+	if req.AutoRecover != nil {
+		autoRecover = *req.AutoRecover
+	}
+
+	created, err := h.scheduledTestSvc.CreatePlansBatch(c.Request.Context(), service.BatchCreateScheduledTestPlansInput{
+		AccountIDs:     accountIDs,
+		ModelID:        req.ModelID,
+		CronExpression: req.CronExpression,
+		Enabled:        enabled,
+		MaxResults:     req.MaxResults,
+		AutoRecover:    autoRecover,
+		MaxConcurrency: req.MaxConcurrency,
+	})
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return

@@ -101,6 +101,8 @@ const sourceGroup: AdminGroup = {
   claude_code_only: false,
   fallback_group_id: null,
   fallback_group_id_on_invalid_request: null,
+  codex_overdraft_enabled: false,
+  codex_overdraft_next_group_id: null,
   allow_messages_dispatch: false,
   default_mapped_model: '',
   messages_dispatch_model_config: undefined,

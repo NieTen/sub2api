@@ -330,6 +330,16 @@ func ProfitSafetyBuffer(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitSafetyBuffer, v))
 }
 
+// CodexOverdraftEnabled applies equality check predicate on the "codex_overdraft_enabled" field. It's identical to CodexOverdraftEnabledEQ.
+func CodexOverdraftEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexOverdraftEnabled, v))
+}
+
+// CodexOverdraftNextGroupID applies equality check predicate on the "codex_overdraft_next_group_id" field. It's identical to CodexOverdraftNextGroupIDEQ.
+func CodexOverdraftNextGroupID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexOverdraftNextGroupID, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldCreatedAt, v))
@@ -2548,6 +2558,66 @@ func ProfitSafetyBufferLT(v float64) predicate.Group {
 // ProfitSafetyBufferLTE applies the LTE predicate on the "profit_safety_buffer" field.
 func ProfitSafetyBufferLTE(v float64) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldProfitSafetyBuffer, v))
+}
+
+// CodexOverdraftEnabledEQ applies the EQ predicate on the "codex_overdraft_enabled" field.
+func CodexOverdraftEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexOverdraftEnabled, v))
+}
+
+// CodexOverdraftEnabledNEQ applies the NEQ predicate on the "codex_overdraft_enabled" field.
+func CodexOverdraftEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCodexOverdraftEnabled, v))
+}
+
+// CodexOverdraftNextGroupIDEQ applies the EQ predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDNEQ applies the NEQ predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDIn applies the In predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldCodexOverdraftNextGroupID, vs...))
+}
+
+// CodexOverdraftNextGroupIDNotIn applies the NotIn predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldCodexOverdraftNextGroupID, vs...))
+}
+
+// CodexOverdraftNextGroupIDGT applies the GT predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDGTE applies the GTE predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDLT applies the LT predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDLTE applies the LTE predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldCodexOverdraftNextGroupID, v))
+}
+
+// CodexOverdraftNextGroupIDIsNil applies the IsNil predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldCodexOverdraftNextGroupID))
+}
+
+// CodexOverdraftNextGroupIDNotNil applies the NotNil predicate on the "codex_overdraft_next_group_id" field.
+func CodexOverdraftNextGroupIDNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldCodexOverdraftNextGroupID))
 }
 
 // HasAPIKeys applies the HasEdge predicate on the "api_keys" edge.

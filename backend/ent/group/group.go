@@ -140,6 +140,10 @@ const (
 	FieldProfitMinMargin = "profit_min_margin"
 	// FieldProfitSafetyBuffer holds the string denoting the profit_safety_buffer field in the database.
 	FieldProfitSafetyBuffer = "profit_safety_buffer"
+	// FieldCodexOverdraftEnabled holds the string denoting the codex_overdraft_enabled field in the database.
+	FieldCodexOverdraftEnabled = "codex_overdraft_enabled"
+	// FieldCodexOverdraftNextGroupID holds the string denoting the codex_overdraft_next_group_id field in the database.
+	FieldCodexOverdraftNextGroupID = "codex_overdraft_next_group_id"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
@@ -277,6 +281,8 @@ var Columns = []string{
 	FieldProfitControlEnabled,
 	FieldProfitMinMargin,
 	FieldProfitSafetyBuffer,
+	FieldCodexOverdraftEnabled,
+	FieldCodexOverdraftNextGroupID,
 }
 
 var (
@@ -412,6 +418,8 @@ var (
 	DefaultProfitMinMargin float64
 	// DefaultProfitSafetyBuffer holds the default value on creation for the "profit_safety_buffer" field.
 	DefaultProfitSafetyBuffer float64
+	// DefaultCodexOverdraftEnabled holds the default value on creation for the "codex_overdraft_enabled" field.
+	DefaultCodexOverdraftEnabled bool
 )
 
 // OrderOption defines the ordering options for the Group queries.
@@ -695,6 +703,16 @@ func ByProfitMinMargin(opts ...sql.OrderTermOption) OrderOption {
 // ByProfitSafetyBuffer orders the results by the profit_safety_buffer field.
 func ByProfitSafetyBuffer(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProfitSafetyBuffer, opts...).ToFunc()
+}
+
+// ByCodexOverdraftEnabled orders the results by the codex_overdraft_enabled field.
+func ByCodexOverdraftEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCodexOverdraftEnabled, opts...).ToFunc()
+}
+
+// ByCodexOverdraftNextGroupID orders the results by the codex_overdraft_next_group_id field.
+func ByCodexOverdraftNextGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCodexOverdraftNextGroupID, opts...).ToFunc()
 }
 
 // ByAPIKeysCount orders the results by api_keys count.

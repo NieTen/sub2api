@@ -183,6 +183,8 @@
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
+          @test-connections="openBatchTestConnections"
+          @create-scheduled-tests="openBatchScheduledTests"
           @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
@@ -454,8 +456,10 @@
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <BatchAccountTestModal :show="showBatchTest" :account-ids="batchTestAccountIds" @close="closeBatchTestConnections" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <BatchScheduledTestModal :show="showBatchSchedule" :account-ids="batchScheduleAccountIds" :model-options="batchScheduleModelOptions" @close="closeBatchScheduledTests" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
@@ -511,8 +515,10 @@ import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
+import BatchAccountTestModal from '@/components/admin/account/BatchAccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import BatchScheduledTestModal from '@/components/admin/account/BatchScheduledTestModal.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -594,6 +600,7 @@ const showDeleteDialog = ref(false)
 const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
+const showBatchTest = ref(false)
 const showStats = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
@@ -604,9 +611,13 @@ const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const batchTestAccountIds = ref<number[]>([])
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
+const showBatchSchedule = ref(false)
+const batchScheduleAccountIds = ref<number[]>([])
+const batchScheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
@@ -756,6 +767,10 @@ const setUsageBatchState = (accountID: number, usage: AccountUsageInfo | null, e
 const handleAccountUsageLoaded = (accountID: number, usage: AccountUsageInfo) => {
   if (usageBatchByAccountId.value[String(accountID)] === usage) return
   setUsageBatchState(accountID, usage, null)
+  const account = accounts.value.find(item => item.id === accountID)
+  if (account && !accountMatchesCurrentFilters(account, usage)) {
+    removeAccountFromCurrentList(account)
+  }
 }
 
 const flushQueuedUsageBatch = async () => {
@@ -1838,6 +1853,41 @@ const handleBulkRefreshToken = async () => {
     appStore.showError(String(error))
   }
 }
+const openBatchTestConnections = () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) {
+    appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
+    return
+  }
+  batchTestAccountIds.value = accountIds
+  showBatchTest.value = true
+}
+const closeBatchTestConnections = () => {
+  showBatchTest.value = false
+  batchTestAccountIds.value = []
+}
+const openBatchScheduledTests = async () => {
+  const accountIds = [...selIds.value]
+  if (accountIds.length === 0) {
+    appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
+    return
+  }
+  batchScheduleAccountIds.value = accountIds
+  batchScheduleModelOptions.value = []
+  showBatchSchedule.value = true
+
+  try {
+    const models = await adminAPI.accounts.getAvailableModels(accountIds[0])
+    batchScheduleModelOptions.value = models.map((m: ClaudeModel) => ({ value: m.id, label: m.display_name || m.id }))
+  } catch {
+    batchScheduleModelOptions.value = []
+  }
+}
+const closeBatchScheduledTests = () => {
+  showBatchSchedule.value = false
+  batchScheduleAccountIds.value = []
+  batchScheduleModelOptions.value = []
+}
 const handleBulkProbeUpstreamBilling = async () => {
   const accountIDs = [...selIds.value]
   if (accountIDs.length === 0) {
@@ -2054,6 +2104,15 @@ const handleBulkUpdated = () => {
 const handleDataImported = () => { showImportData.value = false; reload() }
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
+type CodexOverdraftUsageSource = Partial<Pick<AccountUsageInfo, 'five_hour' | 'seven_day' | 'codex_quota_overdraft'>> & {
+  codex_quota_overdraft_probe?: AccountUsageInfo['codex_quota_overdraft']
+}
+const CODEX_OVERDRAFTING_STATUS = 'overdrafting'
+const isFutureTime = (value?: string | null) => {
+  if (!value) return false
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) && parsed > Date.now()
+}
 const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
@@ -2064,7 +2123,24 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
-const accountMatchesCurrentFilters = (account: Account) => {
+const hasActiveCodexOverdraft = (source: CodexOverdraftUsageSource | null | undefined) => {
+  if (!source) return false
+  const probeState = source.codex_quota_overdraft ?? source.codex_quota_overdraft_probe ?? null
+  return (
+    source.five_hour?.overdraft_active === true ||
+    source.seven_day?.overdraft_active === true ||
+    (probeState?.status === 'passed' &&
+      (isFutureTime(probeState.recover_at) ||
+        isFutureTime(probeState.five_hour_recover_at) ||
+        isFutureTime(probeState.seven_day_recover_at)))
+  )
+}
+const isAccountCodexOverdrafting = (account: Account, usage?: AccountUsageInfo | null) => {
+  const usageSource = usage ?? usageBatchByAccountId.value[String(account.id)]
+  if (usageSource) return hasActiveCodexOverdraft(usageSource)
+  return hasActiveCodexOverdraft(account.extra as CodexOverdraftUsageSource | null | undefined)
+}
+const accountMatchesCurrentFilters = (account: Account, usage?: AccountUsageInfo | null) => {
   const filters = buildAccountQueryFilters()
   if (filters.platform && account.platform !== filters.platform) return false
   if (filters.type && account.type !== filters.type) return false
@@ -2074,15 +2150,18 @@ const accountMatchesCurrentFilters = (account: Account) => {
     const isRateLimited = Number.isFinite(rateLimitResetAt) && rateLimitResetAt > now
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
+    const isCodexOverdrafting = isAccountCodexOverdrafting(account, usage)
 
     if (filters.status === 'active') {
-      if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable) return false
+      if (account.status !== 'active' || isRateLimited || isTempUnschedulable || !account.schedulable || isCodexOverdrafting) return false
     } else if (filters.status === 'rate_limited') {
       if (account.status !== 'active' || !isRateLimited || isTempUnschedulable) return false
     } else if (filters.status === 'temp_unschedulable') {
       if (account.status !== 'active' || !isTempUnschedulable) return false
     } else if (filters.status === 'unschedulable') {
       if (account.status !== 'active' || account.schedulable || isRateLimited || isTempUnschedulable) return false
+    } else if (filters.status === CODEX_OVERDRAFTING_STATUS) {
+      if (account.status !== 'active' || !isCodexOverdrafting) return false
     } else if (account.status !== filters.status) {
       return false
     }
@@ -2128,18 +2207,22 @@ const syncPaginationAfterLocalRemoval = () => {
   hasPendingListSync.value = nextTotal > 0
 }
 
+const removeAccountFromCurrentList = (account: Pick<Account, 'id'>) => {
+  accounts.value = accounts.value.filter(item => item.id !== account.id)
+  syncPaginationAfterLocalRemoval()
+  removeSelectedAccounts([account.id])
+  if (menu.acc?.id === account.id) {
+    menu.show = false
+    menu.acc = null
+  }
+}
+
 const patchAccountInList = (updatedAccount: Account) => {
   const index = accounts.value.findIndex(account => account.id === updatedAccount.id)
   if (index === -1) return
   const mergedAccount = mergeRuntimeFields(accounts.value[index], updatedAccount)
   if (!accountMatchesCurrentFilters(mergedAccount)) {
-    accounts.value = accounts.value.filter(account => account.id !== mergedAccount.id)
-    syncPaginationAfterLocalRemoval()
-    removeSelectedAccounts([mergedAccount.id])
-    if (menu.acc?.id === mergedAccount.id) {
-      menu.show = false
-      menu.acc = null
-    }
+    removeAccountFromCurrentList(mergedAccount)
     return
   }
   const nextAccounts = [...accounts.value]

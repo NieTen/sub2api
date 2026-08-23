@@ -124,6 +124,10 @@ type Group struct {
 	ProfitMinMargin      float64 // 最低毛利率，小数存储（0.30=30%）
 	ProfitSafetyBuffer   float64 // 安全缓冲，小数，与 margin 相加后从 D 中扣除
 
+	// Codex 额度透支接力（仅 openai 分组有效）。
+	CodexOverdraftEnabled     bool
+	CodexOverdraftNextGroupID *int64
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 

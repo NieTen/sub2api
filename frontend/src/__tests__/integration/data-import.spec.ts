@@ -28,6 +28,12 @@ vi.mock('vue-i18n', () => ({
   })
 }))
 
+vi.mock('@/composables/useClipboard', () => ({
+  useClipboard: () => ({
+    copyToClipboard: vi.fn()
+  })
+}))
+
 const mountModal = () =>
   mount(ImportDataModal, {
     props: { show: true },
@@ -114,7 +120,26 @@ describe('ImportDataModal', () => {
 
     const valid = makeJsonFile(
       'valid.json',
-      JSON.stringify({ exported_at: '2026-07-05T00:00:00Z', proxies: [], accounts: [{ name: 'a' }] })
+      JSON.stringify({
+        type: 'sub2api-data',
+        version: 1,
+        exported_at: '2026-07-05T00:00:00Z',
+        proxies: [],
+        accounts: [
+          {
+            name: 'a',
+            platform: 'openai',
+            type: 'oauth',
+            credentials: {
+              access_token: 'token-a'
+            },
+            concurrency: 10,
+            priority: 1,
+            rate_multiplier: 1,
+            auto_pause_on_expired: true
+          }
+        ]
+      })
     )
     setInputFiles(input.element, [valid])
     await input.trigger('change')
@@ -128,7 +153,12 @@ describe('ImportDataModal', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        accounts: [{ name: 'a' }]
+        accounts: [
+          expect.objectContaining({
+            name: 'a',
+            platform: 'openai'
+          })
+        ]
       }),
       skip_default_group_bind: true
     })
@@ -149,14 +179,53 @@ describe('ImportDataModal', () => {
     const input = wrapper.find('input[type="file"]')
     const first = makeJsonFile(
       'first.json',
-      JSON.stringify({ exported_at: '2026-07-05T00:00:00Z', proxies: [], accounts: [{ name: 'a' }] })
+      JSON.stringify({
+        type: 'sub2api-data',
+        version: 1,
+        exported_at: '2026-07-05T00:00:00Z',
+        proxies: [],
+        accounts: [
+          {
+            name: 'a',
+            platform: 'openai',
+            type: 'oauth',
+            credentials: { access_token: 'token-a' },
+            concurrency: 10,
+            priority: 1,
+            rate_multiplier: 1,
+            auto_pause_on_expired: true
+          }
+        ]
+      })
     )
     const second = makeJsonFile(
       'second.json',
       JSON.stringify({
+        type: 'sub2api-data',
+        version: 1,
         exported_at: '2026-07-05T00:00:01Z',
-        proxies: [{ proxy_key: 'p' }],
-        accounts: [{ name: 'b' }]
+        proxies: [
+          {
+            proxy_key: 'p',
+            name: 'proxy-p',
+            protocol: 'http',
+            host: '127.0.0.1',
+            port: 8080,
+            status: 'active'
+          }
+        ],
+        accounts: [
+          {
+            name: 'b',
+            platform: 'anthropic',
+            type: 'oauth',
+            credentials: { access_token: 'token-b' },
+            concurrency: 10,
+            priority: 1,
+            rate_multiplier: 1,
+            auto_pause_on_expired: true
+          }
+        ]
       })
     )
     setInputFiles(input.element, [first, second])
@@ -167,8 +236,21 @@ describe('ImportDataModal', () => {
 
     expect(adminAPI.accounts.importData).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        proxies: [{ proxy_key: 'p' }],
-        accounts: [{ name: 'a' }, { name: 'b' }]
+        proxies: [
+          expect.objectContaining({
+            proxy_key: 'p'
+          })
+        ],
+        accounts: [
+          expect.objectContaining({
+            name: 'a',
+            platform: 'openai'
+          }),
+          expect.objectContaining({
+            name: 'b',
+            platform: 'anthropic'
+          })
+        ]
       }),
       skip_default_group_bind: true
     })
@@ -191,9 +273,32 @@ describe('ImportDataModal', () => {
       makeJsonFile(
         'mixed.json',
         JSON.stringify({
+          type: 'sub2api-data',
+          version: 1,
           exported_at: '2026-07-05T00:00:00Z',
           proxies: [],
-          accounts: [{ name: 'a' }, { name: 'b' }]
+          accounts: [
+            {
+              name: 'a',
+              platform: 'openai',
+              type: 'oauth',
+              credentials: { access_token: 'token-a' },
+              concurrency: 10,
+              priority: 1,
+              rate_multiplier: 1,
+              auto_pause_on_expired: true
+            },
+            {
+              name: 'b',
+              platform: 'anthropic',
+              type: 'oauth',
+              credentials: { access_token: 'token-b' },
+              concurrency: 10,
+              priority: 1,
+              rate_multiplier: 1,
+              auto_pause_on_expired: true
+            }
+          ]
         })
       )
     ])
@@ -205,8 +310,9 @@ describe('ImportDataModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.dataImportCompletedWithErrors')
     expect(wrapper.emitted('imported')).toBeUndefined()
 
-    // 第二个 btn-secondary 是 footer 的取消按钮(第一个是选择文件)
-    await wrapper.findAll('button.btn-secondary')[1]!.trigger('click')
+    const cancelButton = wrapper.findAll('button').find((button) => button.text() === 'common.cancel' && button.attributes('type') === 'button')
+    expect(cancelButton).toBeTruthy()
+    await cancelButton!.trigger('click')
 
     expect(wrapper.emitted('imported')).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)

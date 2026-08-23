@@ -957,6 +957,8 @@ var (
 		{Name: "profit_control_enabled", Type: field.TypeBool, Default: false},
 		{Name: "profit_min_margin", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "profit_safety_buffer", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "codex_overdraft_enabled", Type: field.TypeBool, Default: false},
+		{Name: "codex_overdraft_next_group_id", Type: field.TypeInt64, Nullable: true},
 	}
 	// GroupsTable holds the schema information for the "groups" table.
 	GroupsTable = &schema.Table{
@@ -1000,6 +1002,22 @@ var (
 				Columns: []*schema.Column{GroupsColumns[13]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "duplicate_operation_id IS NOT NULL AND deleted_at IS NULL",
+				},
+			},
+			{
+				Name:    "idx_groups_codex_overdraft_enabled_active",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[63]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "codex_overdraft_enabled = TRUE AND deleted_at IS NULL",
+				},
+			},
+			{
+				Name:    "idx_groups_codex_overdraft_next_group_id_active",
+				Unique:  false,
+				Columns: []*schema.Column{GroupsColumns[64]},
+				Annotation: &entsql.IndexAnnotation{
+					Where: "codex_overdraft_next_group_id IS NOT NULL AND deleted_at IS NULL",
 				},
 			},
 		},

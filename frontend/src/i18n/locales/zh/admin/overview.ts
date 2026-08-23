@@ -804,6 +804,7 @@ export default {
         apiKeys: 'API 密钥数',
         accounts: '账号数',
         capacity: '容量',
+        codexOverdraft: 'Codex 透支',
         usage: '用量',
         status: '状态',
         actions: '操作',
@@ -1115,6 +1116,18 @@ export default {
         fallbackGroup: '降级分组',
         fallbackHint: '非 Claude Code 请求将使用此分组，留空则直接拒绝',
         noFallback: '不降级（直接拒绝）'
+      },
+      codexOverdraft: {
+        title: 'Codex 额度透支',
+        description: '允许此 OpenAI 分组在本组 Codex 额度用尽后，按接力分组继续调度可用账号。',
+        enabledShort: '参与透支',
+        disabledShort: '不参与',
+        nextGroup: '接力分组',
+        nextGroupHint: '当前分组无可用 Codex 额度时，会继续尝试此 OpenAI 分组；留空则不接力。',
+        nextGroupShort: '接力',
+        noNextGroup: '不接力',
+        noNextGroupShort: '无',
+        notOpenAI: '仅 OpenAI'
       },
       openaiMessages: {
         title: 'OpenAI Messages 调度配置',

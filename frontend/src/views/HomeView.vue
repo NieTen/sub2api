@@ -4,7 +4,7 @@
     <!-- iframe mode -->
     <iframe
       v-if="isHomeContentUrl"
-      :src="homeContent.trim()"
+      :src="homeContentIframeSrc"
       class="h-screen w-full border-0"
       allowfullscreen
     ></iframe>
@@ -494,18 +494,18 @@ const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const hasHomeContent = computed(() => homeContent.value.trim().length > 0)
 const compactHomeEnabled = computed(() => appStore.cachedPublicSettings?.compact_home_enabled === true)
+const homeContentIframeSrc = computed(() => sanitizeUrl(homeContent.value, { allowRelative: true }))
 
 // Check if homeContent is a URL (for iframe display)
 const isHomeContentUrl = computed(() => {
-  const content = homeContent.value.trim()
-  return content.startsWith('http://') || content.startsWith('https://')
+  return homeContentIframeSrc.value.length > 0
 })
 
 // Theme
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
 // GitHub URL
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const githubUrl = 'https://github.com/NieTen/sub2api'
 
 // Auth state
 const isAuthenticated = computed(() => authStore.isAuthenticated)

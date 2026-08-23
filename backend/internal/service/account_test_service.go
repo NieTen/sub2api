@@ -36,6 +36,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"golang.org/x/sync/errgroup"
 )
 
 // sseDataPrefix matches SSE data lines with optional whitespace after colon.
@@ -69,6 +70,33 @@ type TestEvent struct {
 type AccountTestOptions struct {
 	ImageDataURL string
 	AudioDataURL string
+}
+
+const BatchAccountConnectionTestConcurrency = 15
+
+// BatchAccountConnectionTestInput 是后台账号批量测试连接的入参。
+type BatchAccountConnectionTestInput struct {
+	AccountIDs []int64
+	ModelID    string
+}
+
+// BatchAccountConnectionTestItem 表示单个账号的批量测试结果。
+type BatchAccountConnectionTestItem struct {
+	AccountID    int64  `json:"account_id"`
+	AccountName  string `json:"account_name"`
+	LatencyMs    int64  `json:"latency_ms"`
+	Responded    bool   `json:"responded"`
+	Success      bool   `json:"success"`
+	ResponseText string `json:"response_text"`
+	ErrorMessage string `json:"error_message"`
+}
+
+// BatchAccountConnectionTestResult 汇总整批账号测试连接结果。
+type BatchAccountConnectionTestResult struct {
+	Total   int                              `json:"total"`
+	Success int                              `json:"success"`
+	Failed  int                              `json:"failed"`
+	Results []BatchAccountConnectionTestItem `json:"results"`
 }
 
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
@@ -146,6 +174,7 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
+	codexQuotaOverdraft       codexQuotaOverdraftAccountTestCoordinator
 	agentIdentityTaskMu       sync.Mutex
 	agentIdentityWS           agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
@@ -694,6 +723,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	payloadBytes, _ := json.Marshal(payload)
+	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
 	// restart this probe after registering a replacement task.
@@ -777,7 +807,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			if !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
+				s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			}
 		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
@@ -788,7 +820,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// Process SSE stream
-	return s.processOpenAIStream(c, resp.Body)
+	if err := s.processOpenAIStream(c, resp.Body); err != nil {
+		return err
+	}
+	s.observeCodexQuotaOverdraftTestResult(account, upstreamTestModelID, overdraftInjected)
+	return nil
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -2568,6 +2604,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 		"model": modelID,
 		"input": []map[string]any{
 			{
+				"type": "message",
 				"role": "user",
 				"content": []map[string]any{
 					{
@@ -3079,6 +3116,116 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 		StartedAt:    startedAt,
 		FinishedAt:   finishedAt,
 	}, nil
+}
+
+// BatchTestConnections 使用固定 15 并发批量执行账号默认连接测试。
+func (s *AccountTestService) BatchTestConnections(ctx context.Context, input BatchAccountConnectionTestInput) (*BatchAccountConnectionTestResult, error) {
+	if s == nil || s.accountRepo == nil {
+		return nil, errors.New("account test service is not configured")
+	}
+
+	result := &BatchAccountConnectionTestResult{
+		Total:   len(input.AccountIDs),
+		Results: make([]BatchAccountConnectionTestItem, len(input.AccountIDs)),
+	}
+	if len(input.AccountIDs) == 0 {
+		return result, nil
+	}
+
+	accounts, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
+	if err != nil {
+		return nil, err
+	}
+	accountsByID := make(map[int64]*Account, len(accounts))
+	for _, account := range accounts {
+		if account != nil {
+			accountsByID[account.ID] = account
+		}
+	}
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(BatchAccountConnectionTestConcurrency)
+
+	for index, accountID := range input.AccountIDs {
+		idx := index
+		id := accountID
+		account := accountsByID[id]
+		result.Results[idx] = BatchAccountConnectionTestItem{AccountID: id}
+		if account != nil {
+			result.Results[idx].AccountName = account.Name
+		}
+
+		g.Go(func() error {
+			if id <= 0 {
+				result.Results[idx].ErrorMessage = "invalid account id"
+				return nil
+			}
+			if account == nil {
+				result.Results[idx].ErrorMessage = "account not found"
+				return nil
+			}
+
+			testResult, testErr := s.RunTestBackground(gctx, id, input.ModelID)
+			item := BatchAccountConnectionTestItem{
+				AccountID:   id,
+				AccountName: account.Name,
+			}
+			if testResult != nil {
+				item.LatencyMs = testResult.LatencyMs
+				item.ResponseText = testResult.ResponseText
+				item.ErrorMessage = testResult.ErrorMessage
+				item.Success = testResult.Status == "success" && testErr == nil && testResult.ErrorMessage == ""
+				item.Responded = accountTestBackgroundResponded(testResult)
+			}
+			if testErr != nil && item.ErrorMessage == "" {
+				item.ErrorMessage = testErr.Error()
+			}
+			if item.Success {
+				item.Responded = true
+			}
+			result.Results[idx] = item
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	for _, item := range result.Results {
+		if item.Success {
+			result.Success++
+		} else {
+			result.Failed++
+		}
+	}
+	return result, nil
+}
+
+func accountTestBackgroundResponded(result *ScheduledTestResult) bool {
+	if result == nil {
+		return false
+	}
+	if strings.TrimSpace(result.ResponseText) != "" || result.Status == "success" {
+		return true
+	}
+	message := strings.TrimSpace(result.ErrorMessage)
+	if message == "" {
+		return false
+	}
+	upstreamMarkers := []string{
+		"API returned ",
+		"Responses API returned ",
+		"Chat Completions API",
+		"response failed",
+		"stream",
+	}
+	for _, marker := range upstreamMarkers {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // parseTestSSEOutput extracts response text and error message from captured SSE output.

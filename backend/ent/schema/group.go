@@ -289,6 +289,15 @@ func (Group) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(0).
 			Comment("安全缓冲，小数；与 margin 相加后从下游倍率中扣除，默认 0"),
+
+		// Codex 额度透支接力（仅 openai 分组有效）。
+		field.Bool("codex_overdraft_enabled").
+			Default(false).
+			Comment("是否允许该 OpenAI 分组参与 Codex 额度透支调度"),
+		field.Int64("codex_overdraft_next_group_id").
+			Optional().
+			Nillable().
+			Comment("当前分组无可透支账号时接力查询的 OpenAI 分组 ID"),
 	}
 }
 
@@ -322,5 +331,11 @@ func (Group) Indexes() []ent.Index {
 			Unique().
 			StorageKey("idx_groups_duplicate_operation_id_active").
 			Annotations(entsql.IndexWhere("duplicate_operation_id IS NOT NULL AND deleted_at IS NULL")),
+		index.Fields("codex_overdraft_enabled").
+			StorageKey("idx_groups_codex_overdraft_enabled_active").
+			Annotations(entsql.IndexWhere("codex_overdraft_enabled = TRUE AND deleted_at IS NULL")),
+		index.Fields("codex_overdraft_next_group_id").
+			StorageKey("idx_groups_codex_overdraft_next_group_id_active").
+			Annotations(entsql.IndexWhere("codex_overdraft_next_group_id IS NOT NULL AND deleted_at IS NULL")),
 	}
 }

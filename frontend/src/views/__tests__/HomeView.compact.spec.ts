@@ -86,6 +86,16 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
   })
 
+  it('renders same-origin custom URL content in iframe mode', () => {
+    const wrapper = mountHome({
+      compact_home_enabled: true,
+      home_content: ' /i2.html ',
+    })
+
+    expect(wrapper.get('iframe').attributes('src')).toBe('/i2.html')
+    expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
+  })
+
   it('treats whitespace-only custom content as empty and selects compact mode', () => {
     const wrapper = mountHome({ compact_home_enabled: true, home_content: ' \n\t ' })
 

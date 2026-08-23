@@ -811,6 +811,7 @@ export default {
         apiKeys: 'API Keys',
         accounts: 'Accounts',
         capacity: 'Capacity',
+        codexOverdraft: 'Codex Overdraft',
         usage: 'Usage',
         status: 'Status',
         actions: 'Actions',
@@ -1117,6 +1118,18 @@ export default {
         fallbackGroup: 'Fallback Group',
         fallbackHint: 'Non-Claude Code requests will use this group. Leave empty to reject directly.',
         noFallback: 'No Fallback (Reject)'
+      },
+      codexOverdraft: {
+        title: 'Codex Quota Overdraft',
+        description: 'Allow this OpenAI group to hand off Codex traffic to a relay group after local Codex quota is exhausted.',
+        enabledShort: 'Enabled',
+        disabledShort: 'Disabled',
+        nextGroup: 'Relay Group',
+        nextGroupHint: 'When this group has no usable Codex quota, scheduling continues in this OpenAI group. Leave empty to stop relay.',
+        nextGroupShort: 'Relay',
+        noNextGroup: 'No Relay',
+        noNextGroupShort: 'None',
+        notOpenAI: 'OpenAI only'
       },
       openaiMessages: {
         title: 'OpenAI Messages Dispatch',

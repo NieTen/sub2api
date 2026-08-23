@@ -37,7 +37,22 @@ export default {
       maxResultsTooltipExample: '例如填写 100，表示最多保存最近 100 次测试结果；第 101 次结果写入后，最早的一条会被清理。',
       maxResultsTooltipRange: '推荐填写范围：一般可填 20 到 200。只关注近期可用性时可填 20-50；需要回看较长时间的波动趋势时可填 100-200。',
       autoRecover: '自动恢复',
-      autoRecoverHelp: '测试成功后自动恢复异常状态的账号'
+      autoRecoverHelp: '测试成功后自动恢复异常状态的账号',
+      batchCreate: {
+        title: '批量新建定时测试',
+        selected: '将为 {count} 个账号新建同一条计划',
+        submit: '批量新建',
+        summary: '创建完成：成功 {success} 个，失败 {failed} 个',
+        success: '批量新建完成，成功 {count} 个',
+        partial: '批量新建部分完成：成功 {success} 个，失败 {failed} 个',
+        failed: '批量新建定时测试失败',
+        created: '已新建计划',
+        columns: {
+          account: '账号',
+          status: '状态',
+          message: '提示内容'
+        }
+      }
     },
 
     // Proxies Management

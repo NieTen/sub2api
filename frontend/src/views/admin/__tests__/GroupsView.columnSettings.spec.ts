@@ -11,6 +11,8 @@ const {
   getUsageSummary,
   getCapacitySummary,
   getLiveCapability,
+  createGroupRequest,
+  updateGroupRequest,
   listAccounts,
   showError,
   showSuccess,
@@ -23,6 +25,8 @@ const {
   getUsageSummary: vi.fn(),
   getCapacitySummary: vi.fn(),
   getLiveCapability: vi.fn(),
+  createGroupRequest: vi.fn(),
+  updateGroupRequest: vi.fn(),
   listAccounts: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
@@ -40,9 +44,15 @@ const messages: Record<string, string> = {
   'admin.groups.columns.type': 'Type',
   'admin.groups.columns.accounts': 'Accounts',
   'admin.groups.columns.capacity': 'Capacity',
+  'admin.groups.columns.codexOverdraft': 'Codex Overdraft',
   'admin.groups.columns.usage': 'Usage',
   'admin.groups.columns.status': 'Status',
   'admin.groups.columns.actions': 'Actions',
+  'admin.groups.codexOverdraft.enabledShort': 'Enabled',
+  'admin.groups.codexOverdraft.disabledShort': 'Disabled',
+  'admin.groups.codexOverdraft.nextGroupShort': 'Next',
+  'admin.groups.codexOverdraft.noNextGroupShort': 'No next group',
+  'admin.groups.codexOverdraft.notOpenAI': 'OpenAI only',
   'admin.groups.usageToday': 'Today',
   'admin.groups.usageYesterday': 'Yesterday',
   'admin.groups.usageTotal': 'Total',
@@ -57,8 +67,8 @@ vi.mock('@/api/admin', () => ({
       getUsageSummary,
       getCapacitySummary,
       getLiveCapability,
-      create: vi.fn(),
-      update: vi.fn(),
+      create: createGroupRequest,
+      update: updateGroupRequest,
       delete: vi.fn(),
       updateSortOrder: vi.fn(),
     },
@@ -114,6 +124,8 @@ const createGroup = (overrides: Partial<AdminGroup> = {}): AdminGroup => ({
   claude_code_only: false,
   fallback_group_id: null,
   fallback_group_id_on_invalid_request: null,
+  codex_overdraft_enabled: false,
+  codex_overdraft_next_group_id: null,
   allow_messages_dispatch: false,
   default_mapped_model: '',
   messages_dispatch_model_config: undefined,
@@ -157,6 +169,12 @@ const DataTableStub = {
       <div v-if="data.length" data-test="usage-cell">
         <slot name="cell-usage" :row="data[0]" />
       </div>
+      <div v-if="data.length" data-test="codex-overdraft-cell">
+        <slot name="cell-codex_overdraft" :row="data[0]" />
+      </div>
+      <div v-if="data.length" data-test="actions-cell">
+        <slot name="cell-actions" :row="data[0]" />
+      </div>
     </div>
   `,
 }
@@ -166,6 +184,7 @@ const SelectStub = {
   emits: ['update:modelValue', 'change'],
   template: `
     <select
+      v-bind="$attrs"
       :value="modelValue"
       @change="$emit('update:modelValue', $event.target.value); $emit('change')"
     >
@@ -236,6 +255,8 @@ describe('admin GroupsView column settings', () => {
     getModelsListCandidates.mockReset()
     getUsageSummary.mockReset()
     getCapacitySummary.mockReset()
+    createGroupRequest.mockReset()
+    updateGroupRequest.mockReset()
     listAccounts.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
@@ -254,6 +275,8 @@ describe('admin GroupsView column settings', () => {
     getUsageSummary.mockResolvedValue([])
     getCapacitySummary.mockResolvedValue([])
     getLiveCapability.mockResolvedValue({ supported: false })
+    createGroupRequest.mockResolvedValue({})
+    updateGroupRequest.mockResolvedValue({})
     listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     isCurrentStep.mockReturnValue(false)
   })
@@ -273,6 +296,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'codex_overdraft',
       'usage',
       'status',
       'actions',
@@ -298,6 +322,7 @@ describe('admin GroupsView column settings', () => {
       'rate_multiplier',
       'is_exclusive',
       'account_count',
+      'codex_overdraft',
       'status',
       'actions',
     ])
@@ -317,6 +342,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'codex_overdraft',
       'status',
       'actions',
     ])
@@ -340,6 +366,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'codex_overdraft',
       'status',
       'actions',
     ])
@@ -363,6 +390,7 @@ describe('admin GroupsView column settings', () => {
       'is_exclusive',
       'account_count',
       'capacity',
+      'codex_overdraft',
       'usage',
       'status',
       'actions',
@@ -405,5 +433,94 @@ describe('admin GroupsView column settings', () => {
     expect(text).toContain('Total$9.75')
     expect(text.indexOf('Today')).toBeLessThan(text.indexOf('Yesterday'))
     expect(text.indexOf('Yesterday')).toBeLessThan(text.indexOf('Total'))
+  })
+
+  it('在表格展示 OpenAI 分组的 Codex 透支接力目标', async () => {
+    const openAIPrimary = createGroup({
+      id: 1,
+      name: 'A 分组',
+      platform: 'openai',
+      codex_overdraft_enabled: true,
+      codex_overdraft_next_group_id: 2,
+    })
+    const openAINext = createGroup({
+      id: 2,
+      name: 'B 分组',
+      platform: 'openai',
+    })
+    listGroups.mockResolvedValueOnce({
+      items: [openAIPrimary, openAINext],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+
+    const wrapper = await mountView()
+    const text = wrapper.get('[data-test="codex-overdraft-cell"]').text()
+
+    expect(text).toContain('Enabled')
+    expect(text).toContain('B 分组')
+  })
+
+  it('创建 OpenAI 分组时提交 Codex 透支接力配置', async () => {
+    listGroups.mockResolvedValueOnce({
+      items: [createGroup({ id: 2, name: 'B 分组', platform: 'openai' })],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-tour="groups-create-btn"]').trigger('click')
+    await wrapper.get('[data-testid="create-group-name"]').setValue('A 分组')
+    await wrapper.get('[data-testid="create-group-platform"]').setValue('openai')
+    await wrapper.get('[data-testid="create-codex-overdraft-enabled"]').trigger('click')
+    await wrapper.get('[data-testid="create-codex-overdraft-next-group"]').setValue('2')
+    await wrapper.get('[data-testid="create-group-form"]').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createGroupRequest).toHaveBeenCalledTimes(1)
+    expect(createGroupRequest.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'openai',
+      codex_overdraft_enabled: true,
+      codex_overdraft_next_group_id: 2,
+    })
+  })
+
+  it('编辑 OpenAI 分组时保留 Codex 透支接力配置', async () => {
+    const openAIPrimary = createGroup({
+      id: 1,
+      name: 'A 分组',
+      platform: 'openai',
+      codex_overdraft_enabled: true,
+      codex_overdraft_next_group_id: 2,
+    })
+    const openAINext = createGroup({
+      id: 2,
+      name: 'B 分组',
+      platform: 'openai',
+    })
+    listGroups.mockResolvedValueOnce({
+      items: [openAIPrimary, openAINext],
+      total: 2,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-testid="group-edit"]').trigger('click')
+    await wrapper.get('[data-testid="edit-group-form"]').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateGroupRequest).toHaveBeenCalledTimes(1)
+    expect(updateGroupRequest.mock.calls[0]?.[0]).toBe(1)
+    expect(updateGroupRequest.mock.calls[0]?.[1]).toMatchObject({
+      platform: 'openai',
+      codex_overdraft_enabled: true,
+      codex_overdraft_next_group_id: 2,
+    })
   })
 })

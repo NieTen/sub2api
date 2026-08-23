@@ -416,6 +416,7 @@ type OpenAIGatewayService struct {
 	concurrencyService    *ConcurrencyService
 	billingService        *BillingService
 	rateLimitService      *RateLimitService
+	codexQuotaOverdraft   *CodexQuotaOverdraftCoordinator
 	billingCacheService   *BillingCacheService
 	userGroupRateResolver *userGroupRateResolver
 	httpUpstream          HTTPUpstream
@@ -435,6 +436,7 @@ type OpenAIGatewayService struct {
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
 	openaiSchedulerOnce            sync.Once
+	codexQuotaOverdraftOnce        sync.Once
 	openaiProxyStreamCircuitOnce   sync.Once
 	openaiWSPassthroughDialerOnce  sync.Once
 	openaiModelTransientOnce       sync.Once
@@ -450,6 +452,7 @@ type OpenAIGatewayService struct {
 
 	openaiWSFallbackUntil               sync.Map // key: int64(accountID), value: time.Time
 	openaiAccountRuntimeBlockUntil      sync.Map // key: int64(accountID), value: time.Time
+	openaiAccountRuntimeBlockReason     sync.Map // key: int64(accountID), value: string
 	openaiAccountRuntimeBlockLocks      sync.Map // key: int64(accountID), value: *sync.Mutex
 	openaiAccountRuntimeBlockGeneration sync.Map // key: int64(accountID), value: uint64
 	openaiAccountRuntimeBlockSequence   atomic.Uint64
@@ -498,6 +501,7 @@ func NewOpenAIGatewayService(
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
 	if cfg != nil {
 		SetCodexIdentityEnforcementEnabled(!cfg.Gateway.DisableCodexIdentityEnforcement)
+		SetCodexQuotaOverdraftEnabled(cfg.Gateway.CodexQuotaOverdraftEnabled)
 	}
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,

@@ -185,6 +185,19 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'modelPlaza.title'
     }
   },
+  {
+    path: '/img',
+    name: 'ImageLanding',
+    component: () => import('@/views/public/StaticEmbedView.vue'),
+    props: {
+      src: '/tu.html',
+      title: 'Image Landing'
+    },
+    meta: {
+      requiresAuth: false,
+      title: 'Image Landing'
+    }
+  },
 
   // ==================== User Routes ====================
   {

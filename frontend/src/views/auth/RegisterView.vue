@@ -1,12 +1,82 @@
 <template>
-  <AuthLayout>
+  <AuthLayout mode="split">
+    <template #aside>
+      <div class="space-y-6 text-center lg:text-left">
+        <div
+          class="inline-flex items-center gap-2 rounded-full border border-primary-200 bg-white/80 px-4 py-2 text-xs font-semibold text-primary-700 shadow-sm shadow-primary-500/10 dark:border-primary-500/20 dark:bg-dark-900/70 dark:text-primary-300"
+        >
+          <Icon name="shield" size="sm" class="text-primary-500" />
+          {{ t('auth.splitBadge') }}
+        </div>
+
+        <div class="space-y-4">
+          <h1 class="text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl dark:text-white">
+            {{ t('auth.signUp') }} {{ siteName }}
+          </h1>
+          <p class="max-w-2xl text-base leading-7 text-slate-600 dark:text-dark-300">
+            {{ t('auth.registerHeroDescription') }}
+          </p>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div
+            class="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:border-dark-700/70 dark:bg-dark-900/80"
+          >
+            <div
+              class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/15 dark:text-primary-300"
+            >
+              <Icon name="shield" size="md" />
+            </div>
+            <p class="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+              {{ t('auth.registerFeatureOneTitle') }}
+            </p>
+            <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-dark-400">
+              {{ t('auth.registerFeatureOneDesc') }}
+            </p>
+          </div>
+
+          <div
+            class="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:border-dark-700/70 dark:bg-dark-900/80"
+          >
+            <div
+              class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/15 dark:text-primary-300"
+            >
+              <Icon name="mail" size="md" />
+            </div>
+            <p class="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+              {{ t('auth.registerFeatureTwoTitle') }}
+            </p>
+            <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-dark-400">
+              {{ t('auth.registerFeatureTwoDesc') }}
+            </p>
+          </div>
+
+          <div
+            class="rounded-2xl border border-white/80 bg-white/90 p-4 shadow-[0_8px_24px_rgba(15,23,42,0.08)] dark:border-dark-700/70 dark:bg-dark-900/80"
+          >
+            <div
+              class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-500/15 dark:text-primary-300"
+            >
+              <Icon name="globe" size="md" />
+            </div>
+            <p class="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+              {{ t('auth.registerFeatureThreeTitle') }}
+            </p>
+            <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-dark-400">
+              {{ t('auth.registerFeatureThreeDesc') }}
+            </p>
+          </div>
+        </div>
+      </div>
+    </template>
+
     <div class="space-y-6">
       <!-- Title -->
       <div class="text-center">
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-          {{ t('auth.createAccount') }}
+        <h2 class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
+          {{ t('auth.signUp') }} {{ siteName }}
         </h2>
-        <p class="mt-2 text-sm text-gray-500 dark:text-dark-400">
+        <p class="mt-3 text-sm text-gray-500 dark:text-dark-400">
           {{ t('auth.signUpToStart', { siteName }) }}
         </p>
       </div>

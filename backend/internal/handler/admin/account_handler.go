@@ -1072,6 +1072,11 @@ type TestAccountRequest struct {
 	AudioDataURL string `json:"audio_data_url"`
 }
 
+type BatchTestAccountRequest struct {
+	AccountIDs []int64 `json:"account_ids"`
+	ModelID    string  `json:"model_id"`
+}
+
 type SyncFromCRSRequest struct {
 	BaseURL            string   `json:"base_url" binding:"required"`
 	Username           string   `json:"username" binding:"required"`
@@ -1115,6 +1120,42 @@ func (h *AccountHandler) Test(c *gin.Context) {
 			_ = c.Error(err)
 		}
 	}
+}
+
+// BatchTest handles batch account connectivity tests.
+// POST /api/v1/admin/accounts/batch-test
+func (h *AccountHandler) BatchTest(c *gin.Context) {
+	var req BatchTestAccountRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	accountIDs := make([]int64, 0, len(req.AccountIDs))
+	for _, accountID := range req.AccountIDs {
+		if accountID > 0 {
+			accountIDs = append(accountIDs, accountID)
+		}
+	}
+	if len(accountIDs) == 0 {
+		response.BadRequest(c, "account_ids is required")
+		return
+	}
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account test service is not configured")
+		return
+	}
+
+	result, err := h.accountTestService.BatchTestConnections(c.Request.Context(), service.BatchAccountConnectionTestInput{
+		AccountIDs: accountIDs,
+		ModelID:    req.ModelID,
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
 }
 
 // RecoverState handles unified recovery of recoverable account runtime state.

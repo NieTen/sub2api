@@ -1998,6 +1998,67 @@
       </div>
 
       <div
+        v-if="account?.platform === 'openai' && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token')"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="flex items-center justify-between gap-4">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexQuotaOverdraft') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.codexQuotaOverdraftDesc') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            data-testid="openai-codex-overdraft-toggle"
+            role="switch"
+            :aria-checked="openAICodexQuotaOverdraftEnabled"
+            @click="openAICodexQuotaOverdraftEnabled = !openAICodexQuotaOverdraftEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              openAICodexQuotaOverdraftEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                openAICodexQuotaOverdraftEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div
+          v-if="openAICodexQuotaOverdraftEnabled"
+          class="mt-4 grid gap-3 rounded-lg bg-gray-50 p-3 dark:bg-dark-700 sm:grid-cols-2"
+        >
+          <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="openAICodexQuotaOverdraftAllowOAuth"
+              data-testid="openai-codex-overdraft-allow-oauth"
+              type="checkbox"
+              class="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+            />
+            <span>
+              <span class="block font-medium">{{ t('admin.accounts.openai.codexQuotaOverdraftOAuth') }}</span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.codexQuotaOverdraftOAuthDesc') }}</span>
+            </span>
+          </label>
+          <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input
+              v-model="openAICodexQuotaOverdraftAllowSetupToken"
+              data-testid="openai-codex-overdraft-allow-setup-token"
+              type="checkbox"
+              class="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+            />
+            <span>
+              <span class="block font-medium">{{ t('admin.accounts.openai.codexQuotaOverdraftSetupToken') }}</span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.codexQuotaOverdraftSetupTokenDesc') }}</span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -2792,6 +2853,10 @@ import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
 import {
+  readOpenAICodexQuotaOverdraftControls,
+  writeOpenAICodexQuotaOverdraftControls
+} from '@/components/account/openaiCodexOverdraftControls'
+import {
   applyAntigravityProjectID,
   applyHeaderOverride,
   applyInterceptWarmup,
@@ -3104,6 +3169,9 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openAICodexQuotaOverdraftEnabled = ref(true)
+const openAICodexQuotaOverdraftAllowOAuth = ref(true)
+const openAICodexQuotaOverdraftAllowSetupToken = ref(false)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
 type CodexFingerprintMode = 'off' | 'device' | 'session' | 'full'
@@ -3579,6 +3647,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  openAICodexQuotaOverdraftEnabled.value = true
+  openAICodexQuotaOverdraftAllowOAuth.value = true
+  openAICodexQuotaOverdraftAllowSetupToken.value = false
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
   codexFingerprintMode.value = 'off'
@@ -3597,6 +3668,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       ? readPlanType(newAccount.credentials as Record<string, unknown> | undefined)
       : ''
     openAICompactMode.value = (extra?.openai_compact_mode as OpenAICompactMode) || 'auto'
+    if (newAccount.type === 'oauth' || newAccount.type === 'setup-token') {
+      const controls = readOpenAICodexQuotaOverdraftControls(extra)
+      openAICodexQuotaOverdraftEnabled.value = controls.enabled
+      openAICodexQuotaOverdraftAllowOAuth.value = controls.allowOAuth
+      openAICodexQuotaOverdraftAllowSetupToken.value = controls.allowSetupToken
+    }
     if (newAccount.type === 'apikey') {
       openAIResponsesMode.value = normalizeOpenAIResponsesMode(extra?.openai_responses_mode)
       openAIEndpointCapabilities.value = readOpenAIEndpointCapabilities(
@@ -4938,6 +5015,16 @@ const handleSubmit = async () => {
         delete newExtra.openai_long_context_billing_enabled
       } else {
         newExtra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+      }
+      if (!isSparkShadow.value && (props.account.type === 'oauth' || props.account.type === 'setup-token')) {
+        writeOpenAICodexQuotaOverdraftControls(newExtra, {
+          enabled: openAICodexQuotaOverdraftEnabled.value,
+          allowOAuth: openAICodexQuotaOverdraftAllowOAuth.value,
+          allowSetupToken: openAICodexQuotaOverdraftAllowSetupToken.value
+        })
+      } else {
+        delete newExtra.codex_quota_overdraft_enabled
+        delete newExtra.codex_quota_overdraft_account_types
       }
       if (openAICompactMode.value === 'auto') {
         delete newExtra.openai_compact_mode

@@ -486,6 +486,81 @@ func TestOpenAIGatewayService_UpdateCodexUsageSnapshot_ThrottlesExtraWrites(t *t
 	}
 }
 
+func TestOpenAIGatewayService_UpdateCodexUsageSnapshot_OverdraftDisabledKeepsPrearmThrottled(t *testing.T) {
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
+	SetCodexQuotaOverdraftEnabled(false)
+
+	repo := &openAICodexSnapshotAsyncRepo{
+		updateExtraCh: make(chan map[string]any, 2),
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:           repo,
+		codexSnapshotThrottle: newAccountWriteThrottle(time.Hour),
+	}
+	belowPrearm := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:         ptrFloat64WS(94),
+		PrimaryResetAfterSeconds:   ptrIntWS(3600),
+		PrimaryWindowMinutes:       ptrIntWS(10080),
+		SecondaryUsedPercent:       ptrFloat64WS(22),
+		SecondaryResetAfterSeconds: ptrIntWS(1200),
+		SecondaryWindowMinutes:     ptrIntWS(300),
+	}
+	atPrearm := *belowPrearm
+	atPrearm.PrimaryUsedPercent = ptrFloat64WS(95)
+
+	svc.updateCodexUsageSnapshot(context.Background(), 778, belowPrearm)
+	select {
+	case <-repo.updateExtraCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待首次 codex 快照落库超时")
+	}
+
+	svc.updateCodexUsageSnapshot(context.Background(), 778, &atPrearm)
+	select {
+	case updates := <-repo.updateExtraCh:
+		t.Fatalf("透支关闭时 95%% 预热快照仍应遵守原有节流，不应额外写入: %v", updates)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestOpenAIGatewayService_UpdateCodexUsageSnapshot_PrearmBypassesThrottle(t *testing.T) {
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
+	SetCodexQuotaOverdraftEnabled(true)
+
+	repo := &openAICodexSnapshotAsyncRepo{
+		updateExtraCh: make(chan map[string]any, 2),
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:           repo,
+		codexSnapshotThrottle: newAccountWriteThrottle(time.Hour),
+	}
+	belowPrearm := &OpenAICodexUsageSnapshot{
+		PrimaryUsedPercent:         ptrFloat64WS(94),
+		PrimaryResetAfterSeconds:   ptrIntWS(3600),
+		PrimaryWindowMinutes:       ptrIntWS(10080),
+		SecondaryUsedPercent:       ptrFloat64WS(22),
+		SecondaryResetAfterSeconds: ptrIntWS(1200),
+		SecondaryWindowMinutes:     ptrIntWS(300),
+	}
+	atPrearm := *belowPrearm
+	atPrearm.PrimaryUsedPercent = ptrFloat64WS(95)
+
+	svc.updateCodexUsageSnapshot(context.Background(), 778, belowPrearm)
+	select {
+	case <-repo.updateExtraCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("等待首次 codex 快照落库超时")
+	}
+
+	svc.updateCodexUsageSnapshot(context.Background(), 778, &atPrearm)
+	select {
+	case updates := <-repo.updateExtraCh:
+		require.Equal(t, 95.0, updates["codex_7d_used_percent"])
+	case <-time.After(2 * time.Second):
+		t.Fatal("95% 预热快照不应被写入节流拦截")
+	}
+}
+
 func ptrFloat64WS(v float64) *float64 { return &v }
 func ptrIntWS(v int) *int             { return &v }
 

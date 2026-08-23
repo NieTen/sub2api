@@ -348,6 +348,7 @@ func TestEnhanceCSPPolicy(t *testing.T) {
 
 	t.Run("default_policy_already_carries_tencent_captcha_domains", func(t *testing.T) {
 		// 默认策略与中间件强制注入表必须同形，否则 config.example.yaml 会误导自建用户
+		assert.Contains(t, config.DefaultCSPPolicy, "frame-src 'self'")
 		for _, required := range requiredCSPDirectiveValues {
 			assert.Equal(t, 1, countDirectiveValue(config.DefaultCSPPolicy, required.directive, required.value),
 				"DefaultCSPPolicy 缺少 %s %s", required.directive, required.value)

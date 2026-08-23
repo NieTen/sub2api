@@ -592,6 +592,8 @@ export interface Group {
   claude_code_only: boolean
   fallback_group_id: number | null
   fallback_group_id_on_invalid_request: number | null
+  codex_overdraft_enabled: boolean
+  codex_overdraft_next_group_id: number | null
   // OpenAI Messages 调度开关（用户侧需要此字段判断是否展示 Claude Code 教程）
   allow_messages_dispatch?: boolean
   // OpenAI Live 接口开关
@@ -801,6 +803,8 @@ export interface CreateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  codex_overdraft_enabled?: boolean
+  codex_overdraft_next_group_id?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
@@ -863,6 +867,8 @@ export interface UpdateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  codex_overdraft_enabled?: boolean
+  codex_overdraft_next_group_id?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   models_list_config?: ModelsListConfig
@@ -1245,6 +1251,23 @@ export interface AccountSchedulerGroupScore {
   sticky_weighted_enabled: boolean
 }
 
+export interface BatchAccountConnectionTestItem {
+  account_id: number
+  account_name: string
+  latency_ms: number
+  responded: boolean
+  success: boolean
+  response_text: string
+  error_message: string
+}
+
+export interface BatchAccountConnectionTestResult {
+  total: number
+  success: number
+  failed: number
+  results: BatchAccountConnectionTestItem[]
+}
+
 // Account Usage types
 export interface WindowStats {
   requests: number
@@ -1261,6 +1284,31 @@ export interface UsageProgress {
   window_stats?: WindowStats | null // 窗口期统计（从窗口开始到当前的使用量）
   used_requests?: number
   limit_requests?: number
+  overdraft_active?: boolean
+  overdraft_stats?: WindowStats | null
+  overdraft_started_at?: string | null
+  overdraft_recover_at?: string | null
+}
+
+export interface CodexQuotaOverdraftProbeState {
+  status: 'pending' | 'passed' | 'failed' | 'inconclusive' | 'recovered'
+  quota_window: '5h' | '7d' | 'multiple'
+  cycle_key: string
+  attempts: number
+  limit: number
+  model?: string
+  reason_code?: string
+  started_at: string
+  tested_at?: string | null
+  retry_at?: string | null
+  retry_count?: number
+  recover_at?: string | null
+  five_hour_recover_at?: string | null
+  seven_day_recover_at?: string | null
+  overdraft_started_at?: string | null
+  five_hour_overdraft_started_at?: string | null
+  seven_day_overdraft_started_at?: string | null
+  observed_rate_limit_reset_at?: string | null
 }
 
 // Antigravity 单个模型的配额信息
@@ -1317,6 +1365,7 @@ export interface AccountUsageInfo {
   updated_at: string | null
   five_hour: UsageProgress | null
   seven_day: UsageProgress | null
+  codex_quota_overdraft?: CodexQuotaOverdraftProbeState | null
   seven_day_sonnet: UsageProgress | null
   seven_day_fable?: UsageProgress | null
   thirty_day?: UsageProgress | null
@@ -2345,6 +2394,29 @@ export interface CreateScheduledTestPlanRequest {
   enabled?: boolean
   max_results?: number
   auto_recover?: boolean
+}
+
+export interface CreateScheduledTestPlansBatchRequest {
+  account_ids: number[]
+  model_id: string
+  cron_expression: string
+  enabled?: boolean
+  max_results?: number
+  auto_recover?: boolean
+}
+
+export interface BatchCreateScheduledTestPlanItem {
+  account_id: number
+  success: boolean
+  plan?: ScheduledTestPlan
+  error_message?: string
+}
+
+export interface BatchCreateScheduledTestPlansResult {
+  total: number
+  success: number
+  failed: number
+  results: BatchCreateScheduledTestPlanItem[]
 }
 
 export interface UpdateScheduledTestPlanRequest {

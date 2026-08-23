@@ -295,6 +295,45 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformComposite
 }
 
+func normalizeCodexOverdraftNextGroupID(groupID *int64) *int64 {
+	if groupID == nil || *groupID <= 0 {
+		return nil
+	}
+	value := *groupID
+	return &value
+}
+
+func sanitizeGroupCodexOverdraftFields(group *Group) {
+	if group == nil {
+		return
+	}
+	if group.Platform != PlatformOpenAI {
+		group.CodexOverdraftEnabled = false
+		group.CodexOverdraftNextGroupID = nil
+		return
+	}
+	if !group.CodexOverdraftEnabled {
+		group.CodexOverdraftNextGroupID = nil
+	}
+}
+
+func (s *adminServiceImpl) validateCodexOverdraftNextGroup(ctx context.Context, currentGroupID int64, nextGroupID int64) error {
+	if nextGroupID <= 0 {
+		return nil
+	}
+	if currentGroupID > 0 && currentGroupID == nextGroupID {
+		return fmt.Errorf("cannot set self as codex overdraft next group")
+	}
+	nextGroup, err := s.groupRepo.GetByIDLite(ctx, nextGroupID)
+	if err != nil {
+		return fmt.Errorf("codex overdraft next group not found: %w", err)
+	}
+	if nextGroup.Platform != PlatformOpenAI {
+		return fmt.Errorf("codex overdraft next group must be openai platform")
+	}
+	return nil
+}
+
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
@@ -392,6 +431,16 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	profitControlEnabled, profitMinMargin, profitSafetyBuffer := NormalizeProfitControlConfig(platform, input.ProfitControlEnabled, profitMinMargin, profitSafetyBuffer)
 	if err := ValidateProfitControlConfig(platform, profitControlEnabled, profitMinMargin, profitSafetyBuffer); err != nil {
 		return nil, err
+	}
+
+	codexOverdraftEnabled := input.CodexOverdraftEnabled && platform == PlatformOpenAI
+	codexOverdraftNextGroupID := normalizeCodexOverdraftNextGroupID(input.CodexOverdraftNextGroupID)
+	if !codexOverdraftEnabled {
+		codexOverdraftNextGroupID = nil
+	} else if codexOverdraftNextGroupID != nil {
+		if err := s.validateCodexOverdraftNextGroup(ctx, 0, *codexOverdraftNextGroupID); err != nil {
+			return nil, err
+		}
 	}
 
 	// 校验降级分组
@@ -508,12 +557,15 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
+		CodexOverdraftEnabled:           codexOverdraftEnabled,
+		CodexOverdraftNextGroupID:       codexOverdraftNextGroupID,
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 	if group.Platform != PlatformOpenAI {
 		group.AllowLive = false
 	}
 	sanitizeGroupReasoningEffortPolicy(group)
+	sanitizeGroupCodexOverdraftFields(group)
 	if err := s.groupRepo.Create(ctx, group); err != nil {
 		return nil, err
 	}
@@ -765,6 +817,18 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if err := ValidateProfitControlConfig(group.Platform, group.ProfitControlEnabled, group.ProfitMinMargin, group.ProfitSafetyBuffer); err != nil {
 		return nil, err
 	}
+	if input.CodexOverdraftEnabled != nil {
+		group.CodexOverdraftEnabled = *input.CodexOverdraftEnabled
+	}
+	if input.CodexOverdraftNextGroupID != nil {
+		group.CodexOverdraftNextGroupID = normalizeCodexOverdraftNextGroupID(input.CodexOverdraftNextGroupID)
+	}
+	sanitizeGroupCodexOverdraftFields(group)
+	if group.Platform == PlatformOpenAI && group.CodexOverdraftEnabled && group.CodexOverdraftNextGroupID != nil {
+		if err := s.validateCodexOverdraftNextGroup(ctx, id, *group.CodexOverdraftNextGroupID); err != nil {
+			return nil, err
+		}
+	}
 	if input.ImagePrice1K != nil {
 		group.ImagePrice1K = normalizePrice(input.ImagePrice1K)
 	}
@@ -894,6 +958,7 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.AllowLive = false
 	}
 	sanitizeGroupReasoningEffortPolicy(group)
+	sanitizeGroupCodexOverdraftFields(group)
 
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		return nil, err

@@ -107,6 +107,7 @@
           <iframe
             :src="embeddedUrl"
             class="custom-embed-frame"
+            allow="microphone; fullscreen"
             allowfullscreen
           ></iframe>
         </div>

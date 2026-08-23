@@ -1162,6 +1162,47 @@ func (_u *GroupUpdate) AddProfitSafetyBuffer(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (_u *GroupUpdate) SetCodexOverdraftEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetCodexOverdraftEnabled(v)
+	return _u
+}
+
+// SetNillableCodexOverdraftEnabled sets the "codex_overdraft_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCodexOverdraftEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetCodexOverdraftEnabled(*v)
+	}
+	return _u
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdate) SetCodexOverdraftNextGroupID(v int64) *GroupUpdate {
+	_u.mutation.ResetCodexOverdraftNextGroupID()
+	_u.mutation.SetCodexOverdraftNextGroupID(v)
+	return _u
+}
+
+// SetNillableCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCodexOverdraftNextGroupID(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetCodexOverdraftNextGroupID(*v)
+	}
+	return _u
+}
+
+// AddCodexOverdraftNextGroupID adds value to the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdate) AddCodexOverdraftNextGroupID(v int64) *GroupUpdate {
+	_u.mutation.AddCodexOverdraftNextGroupID(v)
+	return _u
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdate) ClearCodexOverdraftNextGroupID() *GroupUpdate {
+	_u.mutation.ClearCodexOverdraftNextGroupID()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdate) AddAPIKeyIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -1843,6 +1884,18 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedProfitSafetyBuffer(); ok {
 		_spec.AddField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CodexOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexOverdraftEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CodexOverdraftNextGroupID(); ok {
+		_spec.SetField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCodexOverdraftNextGroupID(); ok {
+		_spec.AddField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.CodexOverdraftNextGroupIDCleared() {
+		_spec.ClearField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -3283,6 +3336,47 @@ func (_u *GroupUpdateOne) AddProfitSafetyBuffer(v float64) *GroupUpdateOne {
 	return _u
 }
 
+// SetCodexOverdraftEnabled sets the "codex_overdraft_enabled" field.
+func (_u *GroupUpdateOne) SetCodexOverdraftEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetCodexOverdraftEnabled(v)
+	return _u
+}
+
+// SetNillableCodexOverdraftEnabled sets the "codex_overdraft_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCodexOverdraftEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCodexOverdraftEnabled(*v)
+	}
+	return _u
+}
+
+// SetCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdateOne) SetCodexOverdraftNextGroupID(v int64) *GroupUpdateOne {
+	_u.mutation.ResetCodexOverdraftNextGroupID()
+	_u.mutation.SetCodexOverdraftNextGroupID(v)
+	return _u
+}
+
+// SetNillableCodexOverdraftNextGroupID sets the "codex_overdraft_next_group_id" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCodexOverdraftNextGroupID(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCodexOverdraftNextGroupID(*v)
+	}
+	return _u
+}
+
+// AddCodexOverdraftNextGroupID adds value to the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdateOne) AddCodexOverdraftNextGroupID(v int64) *GroupUpdateOne {
+	_u.mutation.AddCodexOverdraftNextGroupID(v)
+	return _u
+}
+
+// ClearCodexOverdraftNextGroupID clears the value of the "codex_overdraft_next_group_id" field.
+func (_u *GroupUpdateOne) ClearCodexOverdraftNextGroupID() *GroupUpdateOne {
+	_u.mutation.ClearCodexOverdraftNextGroupID()
+	return _u
+}
+
 // AddAPIKeyIDs adds the "api_keys" edge to the APIKey entity by IDs.
 func (_u *GroupUpdateOne) AddAPIKeyIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddAPIKeyIDs(ids...)
@@ -3994,6 +4088,18 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedProfitSafetyBuffer(); ok {
 		_spec.AddField(group.FieldProfitSafetyBuffer, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CodexOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexOverdraftEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CodexOverdraftNextGroupID(); ok {
+		_spec.SetField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedCodexOverdraftNextGroupID(); ok {
+		_spec.AddField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64, value)
+	}
+	if _u.mutation.CodexOverdraftNextGroupIDCleared() {
+		_spec.ClearField(group.FieldCodexOverdraftNextGroupID, field.TypeInt64)
 	}
 	if _u.mutation.APIKeysCleared() {
 		edge := &sqlgraph.EdgeSpec{

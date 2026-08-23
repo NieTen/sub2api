@@ -128,22 +128,38 @@
 
       <!-- Regular User View -->
       <template v-else-if="!appStore.backendModeEnabled">
-        <div class="sidebar-section">
-          <router-link
-            v-for="item in userNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-            <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
-        </div>
+        <template v-for="section in userNavSections" :key="section.key">
+          <div class="sidebar-section">
+            <div
+              v-if="section.title"
+              class="sidebar-section-title"
+              :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }"
+              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+            >
+              <span
+                class="sidebar-section-title-text"
+                :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }"
+              >
+                {{ section.title }}
+              </span>
+            </div>
+
+            <router-link
+              v-for="item in section.items"
+              :key="item.path"
+              :to="item.path"
+              class="sidebar-link mb-1"
+              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+              :title="sidebarCollapsed ? item.label : undefined"
+              :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
+              @click="handleMenuItemClick(item.path)"
+            >
+              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            </router-link>
+          </div>
+        </template>
       </template>
     </nav>
 
@@ -192,6 +208,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'v
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
+import type { CustomMenuItem } from '@/types'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
@@ -217,6 +234,12 @@ interface NavItem {
    * 开关切换时菜单自动更新。
    */
   featureFlag?: () => boolean | undefined
+}
+
+interface SidebarSection {
+  key: string
+  title: string
+  items: NavItem[]
 }
 
 // applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
@@ -694,7 +717,7 @@ const flagBatchImageAccess = () => canUseBatchImage.value
 //
 // 条目顺序：密钥 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换/资料。
 // 可用渠道紧挨渠道状态之上，让用户"先看自己能用什么、再看对应状态"。
-function buildSelfNavItems(withDashboard: boolean): NavItem[] {
+function buildSelfNavItems(withDashboard: boolean, customItems: CustomMenuItem[] = []): NavItem[] {
   const items: NavItem[] = []
   if (withDashboard) {
     items.push({ path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon })
@@ -711,7 +734,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
-    ...customMenuItemsForUser.value.map((item): NavItem => ({
+    ...customItems.map((item): NavItem => ({
       path: `/custom/${item.id}`,
       label: item.label,
       icon: null,
@@ -727,14 +750,6 @@ function finalizeNav(items: NavItem[]): NavItem[] {
   return authStore.isSimpleMode ? visible.filter(item => !item.hideInSimpleMode) : visible
 }
 
-// User navigation items (for regular users)
-const userNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(true)))
-
-// Personal navigation items (for admin's "My Account" section, without Dashboard).
-// Admins access 可用渠道 from this section just like regular users — there is no
-// separate admin entry, since the page is purely a user-facing view.
-const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(false)))
-
 // Custom menu items filtered by visibility
 const customMenuItemsForUser = computed(() => {
   const items = appStore.cachedPublicSettings?.custom_menu_items ?? []
@@ -747,6 +762,63 @@ const customMenuItemsForAdmin = computed(() => {
   return adminSettingsStore.customMenuItems
     .filter((item) => item.visibility === 'admin')
     .sort((a, b) => a.sort_order - b.sort_order)
+})
+
+// User navigation items (for regular users)
+const userNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(true)))
+
+// Personal navigation items (for admin's "My Account" section, without Dashboard).
+// Admins access 可用渠道 from this section just like regular users — there is no
+// separate admin entry, since the page is purely a user-facing view.
+const personalNavItems = computed((): NavItem[] => finalizeNav(buildSelfNavItems(false, customMenuItemsForAdmin.value)))
+
+const userNavSections = computed((): SidebarSection[] => {
+  const consoleRoutes = ['/dashboard', '/keys', '/usage']
+  const accountRoutes = ['/subscriptions', '/purchase', '/orders', '/redeem', '/profile']
+  const hiddenRoutes = new Set(['/subscriptions', '/redeem'])
+  const purchaseLabel = t('nav.balanceRecharge')
+  const visibleItems = userNavItems.value
+    .filter((item) => !hiddenRoutes.has(item.path))
+    .map((item) =>
+      item.path === '/purchase'
+        ? { ...item, label: purchaseLabel }
+        : item,
+    )
+
+  const byPath = new Map(visibleItems.map((item) => [item.path, item] as const))
+  const pickItems = (routes: string[]) =>
+    routes
+      .map((route) => byPath.get(route))
+      .filter((item): item is NavItem => Boolean(item))
+
+  const consumedRoutes = new Set([...consoleRoutes, ...accountRoutes])
+  const consoleItems = pickItems(consoleRoutes)
+  const accountItems = [
+    ...pickItems(accountRoutes),
+    ...visibleItems.filter((item) => !consumedRoutes.has(item.path)),
+  ]
+
+  const sections: SidebarSection[] = []
+  if (consoleItems.length > 0) {
+    sections.push({ key: 'console', title: t('nav.console'), items: consoleItems })
+  }
+  if (accountItems.length > 0) {
+    sections.push({ key: 'account', title: t('nav.account'), items: accountItems })
+  }
+  if (customMenuItemsForUser.value.length > 0) {
+    sections.push({
+      key: 'extension',
+      title: t('nav.extension'),
+      items: customMenuItemsForUser.value.map((item): NavItem => ({
+        path: `/custom/${item.id}`,
+        label: item.label,
+        icon: null,
+        iconSvg: item.icon_svg,
+      })),
+    })
+  }
+
+  return sections
 })
 
 // Admin navigation items

@@ -326,6 +326,35 @@
             <span v-else class="text-xs text-gray-400">—</span>
           </template>
 
+          <template #cell-codex_overdraft="{ row }">
+            <div v-if="row.platform !== 'openai'" class="text-xs text-gray-400">
+              {{ t("admin.groups.codexOverdraft.notOpenAI") }}
+            </div>
+            <div v-else class="space-y-1 text-xs">
+              <span
+                :class="[
+                  'badge',
+                  row.codex_overdraft_enabled ? 'badge-success' : 'badge-gray',
+                ]"
+              >
+                {{
+                  row.codex_overdraft_enabled
+                    ? t("admin.groups.codexOverdraft.enabledShort")
+                    : t("admin.groups.codexOverdraft.disabledShort")
+                }}
+              </span>
+              <div
+                v-if="row.codex_overdraft_enabled"
+                class="text-gray-500 dark:text-gray-400"
+              >
+                {{ t("admin.groups.codexOverdraft.nextGroupShort") }}:
+                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                  {{ getGroupNameById(row.codex_overdraft_next_group_id) }}
+                </span>
+              </div>
+            </div>
+          </template>
+
           <template #cell-usage="{ row }">
             <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
             <div v-else class="space-y-0.5 text-xs">
@@ -377,6 +406,7 @@
             <div class="flex items-center gap-1">
               <button
                 @click="handleEdit(row)"
+                data-testid="group-edit"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
               >
                 <Icon name="edit" size="sm" />
@@ -472,6 +502,7 @@
     >
       <form
         id="create-group-form"
+        data-testid="create-group-form"
         @submit.prevent="handleCreateGroup"
         class="space-y-5"
       >
@@ -483,6 +514,7 @@
             required
             class="input"
             :placeholder="t('admin.groups.enterGroupName')"
+            data-testid="create-group-name"
             data-tour="group-form-name"
           />
         </div>
@@ -504,6 +536,7 @@
           <Select
             v-model="createForm.platform"
             :options="platformOptions"
+            data-testid="create-group-platform"
             data-tour="group-form-platform"
             @change="createForm.copy_accounts_from_group_ids = []"
           />
@@ -1464,6 +1497,51 @@
           </div>
         </div>
 
+        <div
+          v-if="createForm.platform === 'openai'"
+          class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.codexOverdraft.title") }}
+              </h4>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.codexOverdraft.description") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="create-codex-overdraft-enabled"
+              role="switch"
+              :aria-checked="createForm.codex_overdraft_enabled"
+              @click="createForm.codex_overdraft_enabled = !createForm.codex_overdraft_enabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                createForm.codex_overdraft_enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  createForm.codex_overdraft_enabled ? 'translate-x-5' : 'translate-x-0',
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="createForm.codex_overdraft_enabled" class="mt-3">
+            <label class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
+            <Select
+              v-model="createForm.codex_overdraft_next_group_id"
+              data-testid="create-codex-overdraft-next-group"
+              :options="codexOverdraftNextGroupOptions"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.codexOverdraft.nextGroupHint") }}
+            </p>
+          </div>
+        </div>
+
         <!-- Codex 网页搜索按次计费（仅 openai 平台） -->
         <div
           v-if="createForm.platform === 'openai'"
@@ -2197,6 +2275,7 @@
       <form
         v-if="editingGroup"
         id="edit-group-form"
+        data-testid="edit-group-form"
         @submit.prevent="handleUpdateGroup"
         class="space-y-5"
       >
@@ -2207,6 +2286,7 @@
             type="text"
             required
             class="input"
+            data-testid="edit-group-name"
             data-tour="edit-group-form-name"
           />
         </div>
@@ -2228,6 +2308,7 @@
             v-model="editForm.platform"
             :options="platformOptions"
             :disabled="true"
+            data-testid="edit-group-platform"
             data-tour="group-form-platform"
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
@@ -3182,6 +3263,51 @@
             />
             <p class="input-hint">
               {{ t("admin.groups.claudeCode.fallbackHint") }}
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-if="editForm.platform === 'openai'"
+          class="border-t border-gray-200 pt-4 mt-4 dark:border-dark-400"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t("admin.groups.codexOverdraft.title") }}
+              </h4>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t("admin.groups.codexOverdraft.description") }}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="edit-codex-overdraft-enabled"
+              role="switch"
+              :aria-checked="editForm.codex_overdraft_enabled"
+              @click="editForm.codex_overdraft_enabled = !editForm.codex_overdraft_enabled"
+              :class="[
+                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+                editForm.codex_overdraft_enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  editForm.codex_overdraft_enabled ? 'translate-x-5' : 'translate-x-0',
+                ]"
+              />
+            </button>
+          </div>
+          <div v-if="editForm.codex_overdraft_enabled" class="mt-3">
+            <label class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
+            <Select
+              v-model="editForm.codex_overdraft_next_group_id"
+              data-testid="edit-codex-overdraft-next-group"
+              :options="codexOverdraftNextGroupOptionsForEdit"
+            />
+            <p class="input-hint">
+              {{ t("admin.groups.codexOverdraft.nextGroupHint") }}
             </p>
           </div>
         </div>
@@ -4607,6 +4733,11 @@ const allColumns = computed<Column[]>(() => [
     label: t("admin.groups.columns.capacity"),
     sortable: false,
   },
+  {
+    key: "codex_overdraft",
+    label: t("admin.groups.columns.codexOverdraft"),
+    sortable: false,
+  },
   { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
   { key: "status", label: t("admin.groups.columns.status"), sortable: true },
   { key: "actions", label: t("admin.groups.columns.actions"), sortable: false },
@@ -4846,6 +4977,44 @@ const fallbackGroupOptionsForEdit = computed(() => {
   });
   return options;
 });
+
+const codexOverdraftNextGroupOptions = computed(() => {
+  const options: { value: number | null; label: string }[] = [
+    { value: null, label: t("admin.groups.codexOverdraft.noNextGroup") },
+  ];
+  const eligibleGroups = groups.value.filter(
+    (g) => g.platform === "openai" && g.status === "active",
+  );
+  eligibleGroups.forEach((g) => {
+    options.push({ value: g.id, label: g.name });
+  });
+  return options;
+});
+
+const codexOverdraftNextGroupOptionsForEdit = computed(() => {
+  const options: { value: number | null; label: string }[] = [
+    { value: null, label: t("admin.groups.codexOverdraft.noNextGroup") },
+  ];
+  const currentId = editingGroup.value?.id;
+  const eligibleGroups = groups.value.filter(
+    (g) =>
+      g.platform === "openai" &&
+      g.status === "active" &&
+      g.id !== currentId,
+  );
+  eligibleGroups.forEach((g) => {
+    options.push({ value: g.id, label: g.name });
+  });
+  return options;
+});
+
+const getGroupNameById = (groupId: number | null | undefined) => {
+  if (groupId == null) {
+    return t("admin.groups.codexOverdraft.noNextGroupShort");
+  }
+  const matched = groups.value.find((group) => group.id === groupId);
+  return matched?.name || `#${groupId}`;
+};
 
 // 无效请求兜底分组选项（创建时）- 仅包含 anthropic 平台、非订阅且未配置兜底的分组
 const invalidRequestFallbackOptions = computed(() => {
@@ -5087,6 +5256,8 @@ const createForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  codex_overdraft_enabled: false,
+  codex_overdraft_next_group_id: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   allow_live: false,
@@ -5448,6 +5619,8 @@ const editForm = reactive({
   claude_code_only: false,
   fallback_group_id: null as number | null,
   fallback_group_id_on_invalid_request: null as number | null,
+  codex_overdraft_enabled: false,
+  codex_overdraft_next_group_id: null as number | null,
   // OpenAI Messages 调度配置（仅 openai 平台使用）
   allow_messages_dispatch: false,
   allow_live: false,
@@ -5901,6 +6074,8 @@ const closeCreateModal = () => {
   createForm.claude_code_only = false;
   createForm.fallback_group_id = null;
   createForm.fallback_group_id_on_invalid_request = null;
+  createForm.codex_overdraft_enabled = false;
+  createForm.codex_overdraft_next_group_id = null;
   resetMessagesDispatchFormState(createForm);
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
@@ -5933,6 +6108,16 @@ const normalizeOptionalLimit = (
   }
 
   return Number.isFinite(value) && value > 0 ? value : null;
+};
+
+const normalizePositiveID = (
+  value: number | string | null | undefined,
+): number | null => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 
 const normalizeRateMultiplier = (
@@ -6009,6 +6194,14 @@ const handleCreateGroup = async () => {
         createForm.platform,
         createForm.supported_model_scopes,
       ),
+      codex_overdraft_enabled:
+        createForm.platform === "openai" && createForm.codex_overdraft_enabled,
+      codex_overdraft_next_group_id:
+        createForm.platform === "openai" && createForm.codex_overdraft_enabled
+          ? normalizePositiveID(
+              createForm.codex_overdraft_next_group_id as number | string | null,
+            )
+          : null,
       messages_dispatch_model_config:
         createForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
@@ -6153,6 +6346,10 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.fallback_group_id = group.fallback_group_id;
   editForm.fallback_group_id_on_invalid_request =
     group.fallback_group_id_on_invalid_request;
+  editForm.codex_overdraft_enabled =
+    group.platform === "openai" ? group.codex_overdraft_enabled : false;
+  editForm.codex_overdraft_next_group_id =
+    group.platform === "openai" ? group.codex_overdraft_next_group_id : null;
   const messagesDispatchFormState = messagesDispatchConfigToFormState(
     group.messages_dispatch_model_config,
   );
@@ -6212,6 +6409,8 @@ const closeEditModal = () => {
   editForm.profit_control_enabled = false;
   editForm.profit_min_margin_percent = 0;
   editForm.profit_safety_buffer_percent = 0;
+  editForm.codex_overdraft_enabled = false;
+  editForm.codex_overdraft_next_group_id = null;
   editForm.video_rate_independent = false;
   editForm.video_rate_multiplier = 1;
   editForm.video_price_480p = null;
@@ -6282,6 +6481,16 @@ const handleUpdateGroup = async () => {
         editForm.platform,
         editForm.supported_model_scopes,
       ),
+      codex_overdraft_enabled:
+        editForm.platform === "openai" && editForm.codex_overdraft_enabled,
+      codex_overdraft_next_group_id:
+        editForm.platform === "openai"
+          ? editForm.codex_overdraft_enabled
+            ? normalizePositiveID(
+                editForm.codex_overdraft_next_group_id as number | string | null,
+              ) ?? 0
+            : 0
+          : 0,
       messages_dispatch_model_config:
         editForm.platform === "openai"
           ? messagesDispatchFormStateToConfig({
@@ -6662,6 +6871,10 @@ watch(
       createForm.fallback_group_id_on_invalid_request = null;
     }
     if (newVal !== "openai") {
+      createForm.codex_overdraft_enabled = false;
+      createForm.codex_overdraft_next_group_id = null;
+    }
+    if (newVal !== "openai") {
       resetMessagesDispatchFormState(createForm);
       createForm.allow_live = false;
     }
@@ -6708,6 +6921,10 @@ watch(
   (newVal) => {
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
+    }
+    if (newVal !== "openai") {
+      editForm.codex_overdraft_enabled = false;
+      editForm.codex_overdraft_next_group_id = null;
     }
     if (newVal !== "openai") {
       resetMessagesDispatchFormState(editForm);

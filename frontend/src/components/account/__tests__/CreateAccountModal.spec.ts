@@ -145,6 +145,15 @@ async function openCodexImportStep(toggleClicks = 0) {
   return wrapper
 }
 
+async function openCodexImportStepWithOverdraftConfig(configure: (wrapper: ReturnType<typeof mountModal>) => Promise<void>) {
+  const wrapper = mountModal()
+  await selectButtonByText(wrapper, 'OpenAI')
+  await configure(wrapper)
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
+  await wrapper.get('form#create-account-form').trigger('submit.prevent')
+  return wrapper
+}
+
 describe('CreateAccountModal OpenAI long-context billing', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
@@ -337,5 +346,39 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('默认不写 Codex 透支账号类型，交给后端按 OAuth-only 处理', async () => {
+    const wrapper = await openCodexImportStep()
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    const extra = importCodexSessionMock.mock.calls[0]?.[0]?.extra
+    expect(extra?.codex_quota_overdraft_enabled).toBeUndefined()
+    expect(extra?.codex_quota_overdraft_account_types).toBeUndefined()
+  })
+
+  it('允许 Setup Token 参与 Codex 透支时写入账号类型白名单', async () => {
+    const wrapper = await openCodexImportStepWithOverdraftConfig(async (modal) => {
+      await modal.get('[data-testid="openai-codex-overdraft-allow-setup-token"]').setValue(true)
+    })
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_quota_overdraft_account_types).toEqual([
+      'oauth',
+      'setup-token',
+    ])
+  })
+
+  it('关闭账号级 Codex 透支时写入显式 false', async () => {
+    const wrapper = await openCodexImportStepWithOverdraftConfig(async (modal) => {
+      await modal.get('[data-testid="openai-codex-overdraft-toggle"]').trigger('click')
+    })
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_quota_overdraft_enabled).toBe(false)
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.codex_quota_overdraft_account_types).toBeUndefined()
   })
 })
