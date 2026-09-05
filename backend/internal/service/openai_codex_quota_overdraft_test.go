@@ -366,6 +366,26 @@ func TestCodexQuotaOverdraftSchedulingOnlyBypassesQuotaThresholds(t *testing.T) 
 	require.NotNil(t, account.TempUnschedulableUntil, "不能修改缓存或数据库账号原对象")
 }
 
+func TestCodexQuotaOverdraftPreservesExplicitAutoResetPriority(t *testing.T) {
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
+	SetCodexQuotaOverdraftEnabled(true)
+	ctx := WithCodexQuotaOverdraftScheduling(context.Background())
+	account := &Account{
+		ID: 9002, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Extra: map[string]any{
+			"codex_5h_used_percent":              100,
+			"codex_5h_reset_at":                  time.Now().Add(time.Hour).Format(time.RFC3339),
+			OpenAIAutoResetCreditEnabledExtraKey: true,
+		},
+	}
+	paused, reason := shouldAutoPauseOpenAIAccountByQuota(ctx, account)
+	require.True(t, paused, "显式开启自动重置时，应先处理重置卡，不能被透支开关跳过")
+	require.Equal(t, "quota_auto_reset_pending_5h", reason.reason)
+	account.Extra[OpenAIAutoResetCreditEnabledExtraKey] = false
+	paused, _ = shouldAutoPauseOpenAIAccountByQuota(ctx, account)
+	require.False(t, paused, "关闭自动重置后仍保留原有透支调度")
+}
+
 func TestCodexQuotaOverdraftRuntimeThresholdBlockIsContextAware(t *testing.T) {
 	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
 	SetCodexQuotaOverdraftEnabled(true)

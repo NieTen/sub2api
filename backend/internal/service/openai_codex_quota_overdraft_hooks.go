@@ -138,7 +138,9 @@ func (s *OpenAIGatewayService) processCodexQuotaOverdraftUsageSnapshot(
 		defer cancel()
 		if !enabled {
 			if persistSnapshot {
-				_ = s.accountRepo.UpdateExtra(updateCtx, accountID, updates)
+				if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
+					notifyOpenAIAutoReset(accountID)
+				}
 			}
 			return
 		}
@@ -156,6 +158,7 @@ func (s *OpenAIGatewayService) processCodexQuotaOverdraftUsageSnapshot(
 			if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err != nil {
 				return
 			}
+			notifyOpenAIAutoReset(accountID)
 		}
 		if s.codexQuotaOverdraft == nil {
 			return
