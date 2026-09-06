@@ -128,6 +128,9 @@ func provideCleanup(
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
+	supportDelivery *service.SupportDeliveryService,
+	bulkEmail *service.BulkEmailService,
+	community *service.CommunityService,
 ) func() {
 	return func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -140,6 +143,24 @@ func provideCleanup(
 
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
+			{"Community", func() error {
+				if community != nil {
+					community.Stop()
+				}
+				return nil
+			}},
+			{"SupportDelivery", func() error {
+				if supportDelivery != nil {
+					supportDelivery.Stop()
+				}
+				return nil
+			}},
+			{"BulkEmail", func() error {
+				if bulkEmail != nil {
+					bulkEmail.Stop()
+				}
+				return nil
+			}},
 			{"PluginManager", func() error {
 				if pluginManager != nil {
 					pluginManager.Stop()

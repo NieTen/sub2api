@@ -24,6 +24,10 @@ func RegisterUserRoutes(
 	authenticated.Use(panelRateLimiter.Global())
 	// 用户管理面变更类操作入审计（含 TOTP 启用/禁用、step-up 验证、密码修改等安全事件）
 	authenticated.Use(gin.HandlerFunc(auditLog))
+	registerSupportTicketRoutes(authenticated, h, false)
+	authenticated.GET("/community", h.Community.Get)
+	authenticated.POST("/community/verification", panelRateLimiter.Heavy(), h.Community.StartVerification)
+	authenticated.POST("/community/invite", panelRateLimiter.Heavy(), h.Community.CreateInvite)
 	{
 		// 用户接口
 		user := authenticated.Group("/user")

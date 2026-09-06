@@ -727,6 +727,58 @@ const routes: RouteRecordRaw[] = [
     }
   },
 
+  // 工单与批量邮件沿用现有登录及管理员权限守卫。
+  {
+    path: '/admin/communications',
+    name: 'AdminCommunications',
+    component: () => import('@/views/admin/SupportSettingsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: '机器人与群发', titleKey: 'communications.title', descriptionKey: 'communications.description' }
+  },
+  {
+    path: '/tickets/:id(\\d+)?',
+    name: 'SupportTickets',
+    component: () => import('@/views/support/TicketsView.vue'),
+    meta: { requiresAuth: true, title: 'My tickets', titleKey: 'support.title', descriptionKey: 'support.description' }
+  },
+  {
+    path: '/admin/tickets/:id(\\d+)?',
+    name: 'AdminSupportTickets',
+    component: () => import('@/views/support/TicketsView.vue'),
+    props: { admin: true },
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Support tickets', titleKey: 'support.adminTitle', descriptionKey: 'support.adminDescription' }
+  },
+  {
+    path: '/admin/support/settings',
+    name: 'SupportSettings',
+    component: () => import('@/views/admin/SupportSettingsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Ticket notifications', titleKey: 'support.settings', descriptionKey: 'support.settingsDescription' }
+  },
+  {
+    path: '/admin/bulk-emails/:id(\\d+)?',
+    name: 'BulkEmails',
+    component: () => import('@/views/admin/BulkEmailsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Bulk email', titleKey: 'bulkMail.title', descriptionKey: 'bulkMail.description' }
+  },
+
+  {
+    path: '/community',
+    name: 'Community',
+    component: () => import('@/views/community/CommunityView.vue'),
+    meta: { requiresAuth: true, title: 'Support & community', titleKey: 'community.title', descriptionKey: 'community.description' }
+  },
+  {
+    path: '/admin/community/settings',
+    name: 'CommunitySettings',
+    component: () => import('@/views/admin/CommunitySettingsView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Support & community settings', titleKey: 'community.settings', descriptionKey: 'community.settingsDescription' }
+  },
+  {
+    path: '/admin/community/members',
+    name: 'CommunityMembers',
+    component: () => import('@/views/admin/CommunityMembersView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Community members', titleKey: 'community.members.title', descriptionKey: 'community.members.description' }
+  },
+
   // ==================== 404 Not Found ====================
   {
     path: '/:pathMatch(.*)*',

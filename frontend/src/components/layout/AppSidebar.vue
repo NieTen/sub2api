@@ -743,6 +743,8 @@ function buildSelfNavItems(withDashboard: boolean, customItems: CustomMenuItem[]
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
+    { path: '/tickets', label: t('support.title'), icon: TicketIcon },
+    { path: '/community', label: t('community.title'), icon: UsersIcon },
     ...customItems.map((item): NavItem => ({
       path: `/custom/${item.id}`,
       label: item.label,
@@ -852,6 +854,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
+    { path: '/admin/communications', label: t('communications.title'), icon: BellIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',
@@ -951,6 +954,10 @@ function handleMenuItemClick(itemPath: string) {
 }
 
 function isActive(path: string): boolean {
+  if (path === '/admin/communications') {
+    return ['/admin/communications', '/admin/support/settings', '/admin/bulk-emails', '/admin/community', '/admin/tickets']
+      .some(section => route.path === section || route.path.startsWith(section + '/'))
+  }
   return route.path === path || route.path.startsWith(path + '/')
 }
 

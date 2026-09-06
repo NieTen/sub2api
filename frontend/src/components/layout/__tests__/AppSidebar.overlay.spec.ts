@@ -103,6 +103,9 @@ describe('AppSidebar regular user overlay', () => {
     adminSettingsStore.fetch.mockClear()
     onboardingStore.isCurrentStep.mockClear()
     onboardingStore.nextStep.mockClear()
+    authStore.isAdmin = false
+    authStore.isSimpleMode = false
+    route.path = '/dashboard'
     appStore.cachedPublicSettings = {
       ...appStore.cachedPublicSettings,
       custom_menu_items: [
@@ -144,11 +147,27 @@ describe('AppSidebar regular user overlay', () => {
     expect(linkTargets).toContain('/custom/toolbox')
     expect(linkTargets).not.toContain('/subscriptions')
     expect(linkTargets).not.toContain('/redeem')
+    expect(linkTargets).toContain('/tickets')
+    expect(linkTargets).toContain('/community')
+    expect(linkTargets).not.toContain('/admin/communications')
 
     const purchaseLink = wrapper
       .findAllComponents(RouterLinkStub)
       .find((node) => node.props('to') === '/purchase')
 
     expect(purchaseLink?.text()).toContain('nav.balanceRecharge')
+  })
+
+  it.each(['/admin/communications', '/admin/support/settings', '/admin/bulk-emails/7', '/admin/community/members', '/admin/tickets/3'])('管理员在 %s 可直接找到机器人与群发入口且菜单保持选中', (path) => {
+    authStore.isAdmin = true
+    authStore.isSimpleMode = true
+    route.path = path
+    const wrapper = mount(AppSidebar, {
+      global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: { template: '<span />' } } }
+    })
+    const link = wrapper.findAllComponents(RouterLinkStub).find(node => node.props('to') === '/admin/communications')
+    expect(link?.text()).toContain('communications.title')
+    expect(link?.classes()).toContain('sidebar-link-active')
+    wrapper.unmount()
   })
 })

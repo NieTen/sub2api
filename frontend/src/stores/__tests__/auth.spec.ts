@@ -55,6 +55,7 @@ describe('useAuthStore', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
+    sessionStorage.clear()
     vi.useFakeTimers()
     vi.clearAllMocks()
   })
@@ -136,6 +137,20 @@ describe('useAuthStore', () => {
   // --- logout ---
 
   describe('logout', () => {
+    it('显式退出仅清除当前账号 VIP 提醒记录，刷新令牌保留记录', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      mockLogout.mockResolvedValue(undefined)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+      sessionStorage.setItem('vip-community-prompt:1:group-1', '1')
+      sessionStorage.setItem('vip-community-prompt:2:group-1', '1')
+      store.token = 'refreshed-token'
+      expect(sessionStorage.getItem('vip-community-prompt:1:group-1')).toBe('1')
+      await store.logout()
+      expect(sessionStorage.getItem('vip-community-prompt:1:group-1')).toBeNull()
+      expect(sessionStorage.getItem('vip-community-prompt:2:group-1')).toBe('1')
+    })
+
     it('注销后清除所有状态和 localStorage', async () => {
       mockLogin.mockResolvedValue(fakeAuthResponse)
       mockLogout.mockResolvedValue(undefined)

@@ -12,6 +12,9 @@ export const useAnnouncementStore = defineStore('announcements', () => {
   const lastFetchTime = ref(0)
   const popupQueue = ref<UserAnnouncement[]>([])
   const currentPopup = ref<UserAnnouncement | null>(null)
+  const popupTransitioning = ref(false)
+  let popupTimer: ReturnType<typeof setTimeout> | undefined
+  let generation = 0
 
   // Session-scoped dedup set — not reactive, used as plain lookup only
   let shownPopupIds = new Set<number>()
@@ -20,6 +23,8 @@ export const useAnnouncementStore = defineStore('announcements', () => {
   const unreadCount = computed(() =>
     announcements.value.filter((a) => !a.read_at).length
   )
+  // 包括加载、队列间隔和关闭动画，供其他全局弹窗等待公告结束。
+  const popupBlocking = computed(() => loading.value || !!currentPopup.value || popupQueue.value.length > 0 || popupTransitioning.value)
 
   // Actions
   async function fetchAnnouncements(force = false) {
@@ -30,18 +35,21 @@ export const useAnnouncementStore = defineStore('announcements', () => {
 
     // Set immediately to prevent concurrent duplicate requests
     lastFetchTime.value = now
+    const currentGeneration = generation
 
     try {
       loading.value = true
       const all = await announcementsAPI.list(false)
+      if (currentGeneration !== generation) return
       announcements.value = all.slice(0, 20)
       enqueueNewPopups()
     } catch (err: any) {
+      if (currentGeneration !== generation) return
       // Revert throttle timestamp on failure so retry is allowed
       lastFetchTime.value = 0
       console.error('Failed to fetch announcements:', err)
     } finally {
-      loading.value = false
+      if (currentGeneration === generation) loading.value = false
     }
   }
 
@@ -57,7 +65,7 @@ export const useAnnouncementStore = defineStore('announcements', () => {
       }
     }
 
-    if (!currentPopup.value) {
+    if (!currentPopup.value && !popupTransitioning.value) {
       showNextPopup()
     }
   }
@@ -74,15 +82,18 @@ export const useAnnouncementStore = defineStore('announcements', () => {
   async function dismissPopup() {
     if (!currentPopup.value) return
     const id = currentPopup.value.id
+    popupTransitioning.value = true
     currentPopup.value = null
 
     // Mark as read (fire-and-forget, UI already updated)
     markAsRead(id)
 
-    // Show next popup after a short delay
-    if (popupQueue.value.length > 0) {
-      setTimeout(() => showNextPopup(), 300)
-    }
+    // 最后一条公告也等待关闭动画，避免其他弹窗提前覆盖。
+    popupTimer = setTimeout(() => {
+      popupTransitioning.value = false
+      showNextPopup()
+      popupTimer = undefined
+    }, 300)
   }
 
   async function markAsRead(id: number) {
@@ -118,6 +129,10 @@ export const useAnnouncementStore = defineStore('announcements', () => {
   }
 
   function reset() {
+    generation++
+    if (popupTimer) clearTimeout(popupTimer)
+    popupTimer = undefined
+    popupTransitioning.value = false
     announcements.value = []
     lastFetchTime.value = 0
     shownPopupIds = new Set()
@@ -133,6 +148,7 @@ export const useAnnouncementStore = defineStore('announcements', () => {
     currentPopup,
     // Getters
     unreadCount,
+    popupBlocking,
     // Actions
     fetchAnnouncements,
     dismissPopup,

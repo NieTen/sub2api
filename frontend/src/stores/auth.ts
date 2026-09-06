@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, readonly } from 'vue'
 import { authAPI, isTotp2FARequired, passkeyAPI, type LoginResponse } from '@/api'
+import { clearVipCommunityPrompts } from '@/utils/vipCommunityPrompt'
 import type {
   User,
   LoginRequest,
@@ -414,6 +415,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Clears all authentication state and persisted data
    */
   async function logout(): Promise<void> {
+    const logoutUserId = user.value?.id
     try {
       // Call API logout (revokes refresh token on server)
       await authAPI.logout()
@@ -421,6 +423,8 @@ export const useAuthStore = defineStore('auth', () => {
       // 服务端吊销失败（网络/5xx/超时）不应阻止本地登出，否则用户点了退出仍处于登录态。
       console.warn('Logout API call failed, clearing local session anyway', err)
     } finally {
+      // 仅显式退出重置入群提醒；刷新令牌或页面不会重置。
+      if (logoutUserId !== undefined) clearVipCommunityPrompts(logoutUserId)
       // Always clear local state (tokens, user data, refresh timers)
       clearAuth()
     }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
-import { onMounted, onBeforeUnmount, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
 import { resolveRouteDocumentTitle } from '@/router/title'
 import AnnouncementPopup from '@/components/common/AnnouncementPopup.vue'
+import VipCommunityPrompt from '@/components/common/VipCommunityPrompt.vue'
 import { useAppStore, useAuthStore, useSubscriptionStore, useAnnouncementStore, useAdminComplianceStore, useAdminSettingsStore } from '@/stores'
 import { getSetupStatus } from '@/api/setup'
 import { updateFavicon } from '@/utils/branding'
@@ -18,6 +19,9 @@ const subscriptionStore = useSubscriptionStore()
 const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
+const announcementStartupPending = ref(false)
+let announcementLoginTimer: ReturnType<typeof setTimeout> | undefined
+let authGeneration = 0
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -65,9 +69,17 @@ function onAdminComplianceRequired(event: Event) {
 }
 
 watch(
-  () => authStore.isAuthenticated,
-  (isAuthenticated, oldValue) => {
-    if (isAuthenticated) {
+  () => authStore.isAuthenticated ? authStore.user?.id ?? null : null,
+  (userId, oldUserId) => {
+    const currentGeneration = ++authGeneration
+    if (announcementLoginTimer) clearTimeout(announcementLoginTimer)
+    announcementLoginTimer = undefined
+    announcementStartupPending.value = false
+    if (oldUserId != null && oldUserId !== userId) {
+      announcementStore.reset()
+      adminComplianceStore.reset()
+    }
+    if (userId !== null) {
       if (authStore.isAdmin) {
         adminComplianceStore.fetchStatus().catch((error) => {
           console.error('Failed to fetch admin compliance status:', error)
@@ -81,12 +93,17 @@ watch(
       subscriptionStore.startPolling()
 
       // Announcements: new login vs page refresh restore
-      if (oldValue === false) {
+      announcementStartupPending.value = true
+      const fetchLoginAnnouncements = async (force = false) => {
+        try { await announcementStore.fetchAnnouncements(force) }
+        finally { if (currentGeneration === authGeneration) announcementStartupPending.value = false }
+      }
+      if (oldUserId !== undefined) {
         // New login: delay 3s then force fetch
-        setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
+        announcementLoginTimer = setTimeout(() => { void fetchLoginAnnouncements(true) }, 3000)
       } else {
         // Page refresh restore (oldValue was undefined)
-        announcementStore.fetchAnnouncements()
+        void fetchLoginAnnouncements()
       }
 
       // Register visibility change listener
@@ -110,6 +127,8 @@ router.afterEach(() => {
 })
 
 onBeforeUnmount(() => {
+  authGeneration++
+  if (announcementLoginTimer) clearTimeout(announcementLoginTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
@@ -142,4 +161,5 @@ onMounted(async () => {
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />
+  <VipCommunityPrompt :blocked="announcementStartupPending" />
 </template>
