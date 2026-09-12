@@ -40,6 +40,17 @@
                   t(`admin.settings.tabs.${tab.key}`)
                 }}</span>
               </button>
+              <!-- 机器人和群发使用独立接口，从系统设置提供统一入口。 -->
+              <router-link
+                to="/admin/communications"
+                class="settings-tab settings-tab-link"
+                :aria-label="t('admin.settings.tabs.communications')"
+              >
+                <span class="settings-tab-icon">
+                  <Icon name="chat" size="sm" />
+                </span>
+                <span class="settings-tab-label">{{ t('admin.settings.tabs.communications') }}</span>
+              </router-link>
             </div>
           </nav>
         </div>

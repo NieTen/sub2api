@@ -12,6 +12,7 @@ export default {
         email: 'Email',
         backup: 'Backup',
         payment: 'Payment',
+        communications: 'Bot & Bulk Mail',
       },
       features: {
         channelMonitor: {
