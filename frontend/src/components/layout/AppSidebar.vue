@@ -855,6 +855,10 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
     { path: '/admin/communications', label: t('communications.title'), icon: BellIcon },
+    { path: '/admin/tickets', label: t('communications.tickets'), icon: TicketIcon },
+    { path: '/admin/bulk-emails', label: t('communications.mail'), icon: OrderListIcon },
+    { path: '/admin/community/settings', label: t('communications.community'), icon: UsersIcon },
+    { path: '/admin/community/members', label: t('communications.members'), icon: KeyIcon },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',
