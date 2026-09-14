@@ -199,6 +199,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git show-ref --verify --quiet "refs/tags/${GORELEASER_CURRENT_TAG}"; then
             git tag -d "$GORELEASER_CURRENT_TAG"
           fi
