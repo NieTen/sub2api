@@ -185,3 +185,28 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
 }
+
+func TestCompareVersionsIncludesForkRevision(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		latest  string
+		want    int
+	}{
+		{name: "旧三段等同于第四段零", current: "0.2.4", latest: "v0.2.4.0", want: 0},
+		{name: "子版本升级", current: "0.2.4.1", latest: "0.2.4.2", want: -1},
+		{name: "子版本回退", current: "0.2.4.2", latest: "0.2.4.1", want: 1},
+		{name: "母版本优先比较", current: "0.2.4.99", latest: "0.2.5.1", want: -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, compareVersions(tt.current, tt.latest))
+		})
+	}
+}
+
+func TestParseVersionLegacyAndSuffix(t *testing.T) {
+	require.Equal(t, [4]int{0, 2, 4, 0}, parseVersion("v0.2.4"))
+	require.Equal(t, [4]int{0, 2, 4, 7}, parseVersion("0.2.4.7-rc1"))
+	require.Equal(t, [4]int{0, 2, 4, 7}, parseVersion("0.2.4.7+build.1"))
+}

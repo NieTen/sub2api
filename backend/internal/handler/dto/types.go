@@ -189,7 +189,7 @@ type AdminGroup struct {
 	// OpenAI Messages 调度配置（仅 openai 平台使用）
 	DefaultMappedModel          string                                   `json:"default_mapped_model"`
 	MessagesDispatchModelConfig domain.OpenAIMessagesDispatchModelConfig `json:"messages_dispatch_model_config"`
-	ModelsListConfig            domain.GroupModelsListConfig             `json:"models_list_config"`
+	ModelAllowlist              service.GroupModelAllowlist              `json:"model_allowlist"`
 	// Codex 额度透支接力配置（仅 openai 平台使用，管理员可见）。
 	CodexOverdraftEnabled     bool   `json:"codex_overdraft_enabled"`
 	CodexOverdraftNextGroupID *int64 `json:"codex_overdraft_next_group_id"`

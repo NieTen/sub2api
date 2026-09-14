@@ -44,7 +44,14 @@ const loading = ref(false)
 const loaded = ref(false)
 const saving = ref(false)
 const error = ref('')
-const webhookUrl = computed(() => form.value.telegram_webhook_url || `${window.location.origin}/api/v1/support/telegram/webhook`)
+const defaultWebhookPath = '/api/v1/support/telegram/webhook'
+const webhookUrl = computed(() => {
+  // 新版后端返回路径，旧版后端返回完整 URL；两者都保留以兼容滚动升级。
+  const path = form.value.telegram_webhook_path?.trim()
+  if (path) return new URL(path, window.location.origin).toString()
+  const legacyUrl = form.value.telegram_webhook_url?.trim()
+  return legacyUrl || new URL(defaultWebhookPath, window.location.origin).toString()
+})
 const split = (value: string) => value.split(/[\s,，;；]+/).map(item => item.trim()).filter(Boolean)
 
 function apply(data: SupportSettings) {

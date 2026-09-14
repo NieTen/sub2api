@@ -55,6 +55,9 @@ export interface SupportSettings {
   telegram_webhook_secret_configured?: boolean
   clear_telegram_bot_token?: boolean
   clear_telegram_webhook_secret?: boolean
+  /** 后端返回的回调路径，前端会按当前站点 origin 组合为完整地址。 */
+  telegram_webhook_path?: string
+  /** 兼容旧版后端返回的完整回调地址。 */
   telegram_webhook_url?: string
 }
 

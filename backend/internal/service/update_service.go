@@ -637,12 +637,13 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// compareVersions 按母版本号和子版本号逐段比较版本。
+// 旧版三段版本会自动补成第四段 0，确保升级和回滚都能识别 fork 子版本。
 func compareVersions(current, latest string) int {
 	currentParts := parseVersion(current)
 	latestParts := parseVersion(latest)
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 4; i++ {
 		if currentParts[i] < latestParts[i] {
 			return -1
 		}
@@ -653,14 +654,18 @@ func compareVersions(current, latest string) int {
 	return 0
 }
 
-func parseVersion(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
-	if idx := strings.IndexByte(v, '-'); idx != -1 {
-		v = v[:idx]
+// parseVersion 解析 A.B.C[.D] 数字版本。缺少的子版本按 0 处理，
+// 版本后缀（例如 -rc1 或 +build）不参与更新比较。
+func parseVersion(v string) [4]int {
+	v = strings.TrimSpace(strings.TrimPrefix(v, "v"))
+	for _, suffix := range []byte{'-', '+'} {
+		if idx := strings.IndexByte(v, suffix); idx != -1 {
+			v = v[:idx]
+		}
 	}
 	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
-	for i := 0; i < len(parts) && i < 3; i++ {
+	result := [4]int{0, 0, 0, 0}
+	for i := 0; i < len(parts) && i < 4; i++ {
 		if parsed, err := strconv.Atoi(parts[i]); err == nil {
 			result[i] = parsed
 		}

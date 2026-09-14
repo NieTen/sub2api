@@ -7,18 +7,17 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v1.0.0)'
+        description: '要发布的四段版本标签（例如 v0.2.4.1）'
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        description: '简化发布：仅构建 x86_64 GHCR 镜像'
         required: false
         type: boolean
         default: false
 
-# 环境变量：合并 workflow_dispatch 输入和 repository variable
-# tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
 env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
   SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
 
 permissions:
@@ -26,36 +25,91 @@ permissions:
   packages: write
 
 jobs:
-  # Update VERSION file with tag version
-  update-version:
+  validate-version:
     runs-on: ubuntu-latest
+    outputs:
+      display_version: ${{ steps.version.outputs.display_version }}
+      goreleaser_tag: ${{ steps.version.outputs.goreleaser_tag }}
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
-
-      - name: Update VERSION file
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
-          echo "$VERSION" > backend/cmd/server/VERSION
-          echo "Updated VERSION file to: $VERSION"
-
-      - name: Upload VERSION artifact
-        uses: actions/upload-artifact@v7
         with:
-          name: version-file
-          path: backend/cmd/server/VERSION
-          retention-days: 1
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate four-part version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "版本标签必须使用 v母版本.子版本 格式，例如 v0.2.4.1" >&2
+            exit 1
+          fi
+
+          display_version="${RELEASE_TAG#v}"
+          version_file="$(tr -d '\r\n' < backend/cmd/server/VERSION)"
+          if [[ "$version_file" != "$display_version" ]]; then
+            echo "VERSION 文件为 $version_file，但发布标签为 $display_version" >&2
+            exit 1
+          fi
+
+          IFS='.' read -r major minor patch custom <<< "$display_version"
+          previous_tag="$(
+            git tag --list 'v*.*.*.*' |
+              grep -E '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' |
+              grep -vxF "$RELEASE_TAG" |
+              sort -V |
+              tail -n 1 || true
+          )"
+
+          if [[ -n "$previous_tag" ]]; then
+            IFS='.' read -r previous_major previous_minor previous_patch previous_custom <<< "${previous_tag#v}"
+            if (( major == previous_major && minor == previous_minor && patch == previous_patch )); then
+              expected_custom=$((previous_custom + 1))
+              if (( custom != expected_custom )); then
+                echo "同一母版本的子版本必须连续递增：应为 v${major}.${minor}.${patch}.${expected_custom}" >&2
+                exit 1
+              fi
+            else
+              mother_is_newer=false
+              if (( major > previous_major )); then
+                mother_is_newer=true
+              elif (( major == previous_major && minor > previous_minor )); then
+                mother_is_newer=true
+              elif (( major == previous_major && minor == previous_minor && patch > previous_patch )); then
+                mother_is_newer=true
+              fi
+
+              if [[ "$mother_is_newer" != "true" ]]; then
+                echo "母版本必须高于上一版本 ${previous_tag}" >&2
+                exit 1
+              fi
+              if (( custom != 1 )); then
+                echo "合并新的源仓库母版本后，首个定制版本必须从子版本 1 开始" >&2
+                exit 1
+              fi
+            fi
+          elif (( custom != 1 )); then
+            echo "首个四段版本必须从子版本 1 开始" >&2
+            exit 1
+          fi
+
+          # GoReleaser 只接受 SemVer；该影子标签只用于内部解析，不作为发布版本。
+          goreleaser_tag="v${major}.${minor}.$((patch + 1))-0.${custom}"
+          echo "display_version=$display_version" >> "$GITHUB_OUTPUT"
+          echo "goreleaser_tag=$goreleaser_tag" >> "$GITHUB_OUTPUT"
+          echo "已验证发布版本 $RELEASE_TAG（GoReleaser 内部标签：$goreleaser_tag）"
 
   build-frontend:
+    needs: validate-version
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -85,20 +139,18 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [update-version, build-frontend]
+    needs: [validate-version, build-frontend]
     runs-on: ubuntu-latest
+    env:
+      DISPLAY_VERSION: ${{ needs.validate-version.outputs.display_version }}
+      GORELEASER_CURRENT_TAG: ${{ needs.validate-version.outputs.goreleaser_tag }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
     steps:
-      - name: Checkout
+      - name: Checkout release tag
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Download VERSION artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: version-file
-          path: backend/cmd/server/
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download frontend artifact
         uses: actions/download-artifact@v8
@@ -113,11 +165,9 @@ jobs:
           check-latest: false
           cache-dependency-path: backend/go.sum
 
-      - name: Verify Go version
-        run: |
-          go version | grep -q 'go1.27.0'
+      - name: Verify Go toolchain
+        run: go version
 
-      # Docker setup for GoReleaser
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -127,8 +177,6 @@ jobs:
       - name: Login to DockerHub
         if: ${{ env.DOCKERHUB_USERNAME != '' }}
         uses: docker/login-action@v3
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -140,167 +188,157 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch tags with annotations
-        run: |
-          # 确保获取完整的 annotated tag 信息
-          git fetch --tags --force
-
-      - name: Get tag message
-        id: tag_message
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          echo "Processing tag: $TAG_NAME"
-
-          # 获取完整的 tag message（跳过第一行标题）
-          TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$TAG_NAME")
-
-          # 调试输出
-          echo "Tag message length: ${#TAG_MESSAGE}"
-          echo "Tag message preview:"
-          echo "$TAG_MESSAGE" | head -10
-
-          # 使用 EOF 分隔符处理多行内容
-          echo "message<<EOF" >> $GITHUB_OUTPUT
-          echo "$TAG_MESSAGE" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Set lowercase owner for GHCR
         id: lowercase
-        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        shell: bash
+        env:
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: echo "owner=${REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Run GoReleaser
+      - name: Create local GoReleaser tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git show-ref --verify --quiet "refs/tags/${GORELEASER_CURRENT_TAG}"; then
+            git tag -d "$GORELEASER_CURRENT_TAG"
+          fi
+          git tag -a "$GORELEASER_CURRENT_TAG" "$RELEASE_TAG^{commit}" \
+            -m "仅供构建 ${RELEASE_TAG} 使用的内部标签"
+
+      - name: Run full GoReleaser
+        if: ${{ env.SIMPLE_RELEASE != 'true' }}
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
           GITHUB_REPO_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME || 'skip' }}
 
-      # Update DockerHub description
+      - name: Run simple GoReleaser
+        if: ${{ env.SIMPLE_RELEASE == 'true' }}
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          version: '~> v2'
+          args: release --clean --config=.goreleaser.simple.yaml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_OWNER_LOWER: ${{ steps.lowercase.outputs.owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+          DOCKERHUB_USERNAME: skip
+
+      - name: Prepare release notes
+        shell: bash
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git for-each-ref --format='%(contents:body)' "refs/tags/${RELEASE_TAG}" > tag-message.txt
+          ghcr_image="ghcr.io/${REPOSITORY,,}"
+
+          {
+            echo "> AI API 网关平台 - 订阅配额分发管理"
+            echo
+            cat tag-message.txt
+            echo
+            echo "---"
+            echo
+            echo "## 安装"
+            echo
+            echo '```bash'
+            if [[ -n "$DOCKERHUB_USERNAME" ]]; then
+              echo "docker pull ${DOCKERHUB_USERNAME}/sub2api:${DISPLAY_VERSION}"
+            fi
+            echo "docker pull ${ghcr_image}:${DISPLAY_VERSION}"
+            echo '```'
+            echo
+            echo "也可以在本页面下载与操作系统对应的压缩包。"
+          } > release-notes.md
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(dist/*.tar.gz dist/*.zip)
+          if [[ -f dist/checksums.txt ]]; then
+            assets+=(dist/checksums.txt)
+          fi
+          if [[ "$SIMPLE_RELEASE" != "true" && ${#assets[@]} -eq 0 ]]; then
+            echo "完整发布未生成任何可上传制品" >&2
+            exit 1
+          fi
+
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_TAG" \
+              --title "Sub2API ${DISPLAY_VERSION}" \
+              --notes-file release-notes.md
+            if (( ${#assets[@]} > 0 )); then
+              gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            fi
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --verify-tag \
+              --title "Sub2API ${DISPLAY_VERSION}" \
+              --notes-file release-notes.md
+          fi
+
       - name: Update DockerHub description
         if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_USERNAME != '' }}
         uses: peter-evans/dockerhub-description@v5
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ secrets.DOCKERHUB_USERNAME }}/sub2api
-          short-description: "Sub2API - AI API Gateway Platform"
+          short-description: 'Sub2API - AI API Gateway Platform'
           readme-filepath: ./deploy/DOCKER.md
 
-      # Send Telegram notification
-      - name: Send Telegram Notification
+      - name: Send Telegram notification
         if: ${{ env.SIMPLE_RELEASE != 'true' }}
+        continue-on-error: true
+        shell: bash
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-        continue-on-error: true
+          REPOSITORY: ${{ github.repository }}
         run: |
-          # 检查必要的环境变量
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
-            echo "Telegram credentials not configured, skipping notification"
+          set -euo pipefail
+          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
+            echo "未配置 Telegram 发布通知，跳过"
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          VERSION=${TAG_NAME#v}
-          REPO="${{ github.repository }}"
-          GHCR_IMAGE="ghcr.io/${REPO,,}"  # ${,,} converts to lowercase
-
-          # 获取 tag message 内容并转义 Markdown 特殊字符
-          TAG_MESSAGE='${{ steps.tag_message.outputs.message }}'
-          TAG_MESSAGE=$(echo "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
-
-          # 限制消息长度（Telegram 消息限制 4096 字符，预留空间给头尾固定内容）
-          if [ ${#TAG_MESSAGE} -gt 3500 ]; then
-            TAG_MESSAGE="${TAG_MESSAGE:0:3500}..."
+          ghcr_image="ghcr.io/${REPOSITORY,,}"
+          tag_message="$(cat tag-message.txt)"
+          if (( ${#tag_message} > 3000 )); then
+            tag_message="${tag_message:0:3000}..."
           fi
 
-          # 构建消息内容
-          MESSAGE="🚀 *Sub2API 新版本发布！*"$'\n'$'\n'
-          MESSAGE+="📦 版本号: \`${VERSION}\`"$'\n'$'\n'
-
-          # 添加更新内容
-          if [ -n "$TAG_MESSAGE" ]; then
-            MESSAGE+="${TAG_MESSAGE}"$'\n'$'\n'
+          message="🚀 Sub2API 新版本发布：${DISPLAY_VERSION}"
+          if [[ -n "$tag_message" ]]; then
+            message+=$'\n\n'
+            message+="$tag_message"
           fi
-
-          MESSAGE+="🐳 *Docker 部署:*"$'\n'
-          MESSAGE+="\`\`\`bash"$'\n'
-          # 根据是否配置 DockerHub 动态生成
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
-            DOCKER_IMAGE="${DOCKERHUB_USERNAME}/sub2api"
-            MESSAGE+="# Docker Hub"$'\n'
-            MESSAGE+="docker pull ${DOCKER_IMAGE}:${VERSION}"$'\n'
-            MESSAGE+="# GitHub Container Registry"$'\n'
+          message+=$'\n\nDocker：\n'
+          if [[ -n "$DOCKERHUB_USERNAME" ]]; then
+            message+="docker pull ${DOCKERHUB_USERNAME}/sub2api:${DISPLAY_VERSION}"
+            message+=$'\n'
           fi
-          MESSAGE+="docker pull ${GHCR_IMAGE}:${VERSION}"$'\n'
-          MESSAGE+="\`\`\`"$'\n'$'\n'
-          MESSAGE+="🔗 *相关链接:*"$'\n'
-          MESSAGE+="• [GitHub Release](https://github.com/${REPO}/releases/tag/${TAG_NAME})"$'\n'
-          if [ -n "$DOCKERHUB_USERNAME" ]; then
-            MESSAGE+="• [Docker Hub](https://hub.docker.com/r/${DOCKER_IMAGE})"$'\n'
-          fi
-          MESSAGE+="• [GitHub Packages](https://github.com/${REPO}/pkgs/container/sub2api)"$'\n'$'\n'
-          MESSAGE+="#Sub2API #Release #${TAG_NAME//./_}"
+          message+="docker pull ${ghcr_image}:${DISPLAY_VERSION}"
+          message+=$'\n\n'
+          message+="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
 
-          # 发送消息
-          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg chat_id "${TELEGRAM_CHAT_ID}" \
-              --arg text "${MESSAGE}" \
-              '{
-                chat_id: $chat_id,
-                text: $text,
-                parse_mode: "Markdown",
-                disable_web_page_preview: true
-              }')"
-
-  sync-version-file:
-    needs: [release]
-    if: ${{ needs.release.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout default branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-
-      - name: Sync VERSION file to released tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
-
-          CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
-          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "VERSION file already matches $VERSION"
-            exit 0
-          fi
-
-          echo "$VERSION" > backend/cmd/server/VERSION
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/cmd/server/VERSION
-          git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          jq -n \
+            --arg chat_id "$TELEGRAM_CHAT_ID" \
+            --arg text "$message" \
+            '{chat_id: $chat_id, text: $text, disable_web_page_preview: true}' |
+            curl --fail-with-body --silent --show-error \
+              -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              -H 'Content-Type: application/json' \
+              --data-binary @-

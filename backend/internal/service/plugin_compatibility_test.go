@@ -42,7 +42,31 @@ func TestEvaluatePluginCompatibilityRejectsProtocolMismatch(t *testing.T) {
 func TestMatchesSemverRange(t *testing.T) {
 	assert.True(t, matchesSemverRange("0.1.179", ">=0.1.170, <0.2.0"))
 	assert.True(t, matchesSemverRange("v1.2.3", "=1.2.3"))
+	assert.True(t, matchesSemverRange("v0.2.4.1", ">=0.2.4 <0.2.5"))
+	assert.False(t, matchesSemverRange("v0.2.4.1", ">=0.2.4.1"))
+	assert.False(t, matchesSemverRange("v0.2.4.1.0", ">=0.2.4 <0.2.5"))
 	assert.False(t, matchesSemverRange("0.1.169", ">=0.1.170 <0.2.0"))
 	assert.False(t, matchesSemverRange("dev", ">=0.1.0"))
 	assert.False(t, matchesSemverRange("0.1.179", "^0.1.0"))
+}
+
+func TestEvaluatePluginCompatibilityUsesMotherVersionForForkHost(t *testing.T) {
+	manifest := testPluginManifest(nil)
+	manifest.Requires.Sub2API = ">=0.2.4 <0.2.5"
+	manifest.Requires.TestedSub2APIVersions = []string{"0.2.4"}
+
+	result := EvaluatePluginCompatibility(manifest, PluginHostInfo{Version: "v0.2.4.1"})
+
+	require.True(t, result.Compatible)
+	require.True(t, result.Tested)
+	require.Equal(t, "v0.2.4.1", result.CurrentSub2API)
+}
+
+func TestNormalizeHostCompatibilitySemverRejectsFiveParts(t *testing.T) {
+	assert.Equal(t, "v0.2.4", normalizeHostCompatibilitySemver("v0.2.4.1"))
+	assert.Equal(t, "v0.2.4", normalizeHostCompatibilitySemver("0.2.4"))
+	assert.Empty(t, normalizeHostCompatibilitySemver("0.2.4.1.0"))
+	assert.Empty(t, normalizeHostCompatibilitySemver("0.2.4.foo"))
+	// 插件清单自身仍必须使用严格三段 SemVer。
+	assert.Empty(t, normalizeSemver("0.2.4.1"))
 }

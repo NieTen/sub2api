@@ -37,6 +37,24 @@ SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
 CONFIG_DIR="/etc/sub2api"
 
+# 版本号支持母版本 A.B.C 和 fork 子版本 A.B.C.D；五段版本不会被提取。
+VERSION_PATTERN='v?[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?'
+
+# 从程序 --version 输出中提取版本号，并移除预发布/构建后缀。
+extract_version() {
+    local version_output="$1"
+    local extracted
+    extracted=$(printf '%s\n' "$version_output" \
+        | grep -oE "(^|[^[:alnum:]_.])${VERSION_PATTERN}([^0-9.]|$)" \
+        | sed -E 's/^[^v0-9]*//; s/[^v0-9.].*$//' \
+        | head -1 || true)
+    if [ -n "$extracted" ]; then
+        printf '%s\n' "$extracted"
+    else
+        printf 'unknown\n'
+    fi
+}
+
 # Server configuration (will be set by user)
 SERVER_HOST="0.0.0.0"
 SERVER_PORT="8080"
@@ -606,8 +624,7 @@ validate_version() {
 # Get current installed version
 get_current_version() {
     if [ -f "$INSTALL_DIR/sub2api" ]; then
-        # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
+        extract_version "$("$INSTALL_DIR/sub2api" --version 2>/dev/null || true)"
     else
         echo "not_installed"
     fi
@@ -863,7 +880,7 @@ upgrade() {
     print_info "$(msg 'upgrading')"
 
     # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    CURRENT_VERSION=$(get_current_version)
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
     # Stop service

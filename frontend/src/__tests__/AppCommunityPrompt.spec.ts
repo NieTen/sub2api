@@ -21,6 +21,10 @@ vi.mock('vue-router', () => ({ RouterView: { template: '<main />' }, useRouter: 
 vi.mock('@/api/setup', () => ({ getSetupStatus: vi.fn().mockResolvedValue({ needs_setup: false }) }))
 vi.mock('@/router/title', () => ({ resolveRouteDocumentTitle: () => 'Test' }))
 vi.mock('@/utils/branding', () => ({ updateFavicon: vi.fn() }))
+vi.mock('@/utils/featureFlags', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/utils/featureFlags')>()),
+  isFeatureFlagEnabled: () => true
+}))
 vi.mock('@/components/common/Toast.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/common/NavigationProgress.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/components/common/AnnouncementPopup.vue', () => ({ default: { template: '<div />' } }))

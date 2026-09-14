@@ -159,7 +159,7 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		MCPXMLInject:                g.MCPXMLInject,
 		DefaultMappedModel:          g.DefaultMappedModel,
 		MessagesDispatchModelConfig: g.MessagesDispatchModelConfig,
-		ModelsListConfig:            g.ModelsListConfig,
+		ModelAllowlist:              g.ModelAllowlist,
 		CodexOverdraftEnabled:       g.CodexOverdraftEnabled,
 		CodexOverdraftNextGroupID:   g.CodexOverdraftNextGroupID,
 		CodexModelsManifestConfig:   g.CodexModelsManifestConfig,

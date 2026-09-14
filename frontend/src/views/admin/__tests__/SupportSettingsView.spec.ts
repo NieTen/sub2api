@@ -14,7 +14,7 @@ vi.mock('@/api/support', () => ({
 const settings: SupportSettings = {
   enabled: false, admin_emails: ['support@example.com'], telegram_chat_id: '-1001234567890',
   telegram_allowed_user_ids: [123], telegram_bot_token_configured: true,
-  telegram_webhook_secret_configured: true, telegram_webhook_url: 'https://site.example.com/api/v1/support/telegram/webhook'
+  telegram_webhook_secret_configured: true, telegram_webhook_path: '/api/v1/support/telegram/webhook'
 }
 const render = () => mount(SupportSettingsView, { global: { stubs: { RouterLink: RouterLinkStub } } })
 
@@ -58,7 +58,7 @@ describe('机器人与群发管理页面', () => {
   it('展示保存的 HTTPS 回调地址，配置加载失败时不得保存空值', async () => {
     const wrapper = render()
     await flushPromises()
-    expect((wrapper.find('input[readonly]').element as HTMLInputElement).value).toBe(settings.telegram_webhook_url)
+    expect((wrapper.find('input[readonly]').element as HTMLInputElement).value).toBe(`${window.location.origin}${settings.telegram_webhook_path}`)
     expect(wrapper.text()).toContain('support.webhookHelp')
     wrapper.unmount()
     vi.mocked(supportAPI.settings).mockRejectedValue(new Error('无法读取设置'))
@@ -68,5 +68,17 @@ describe('机器人与群发管理页面', () => {
     expect(failed.find('[role="alert"]').text()).toBe('support.loadFailed')
     expect(supportAPI.saveSettings).not.toHaveBeenCalled()
     failed.unmount()
+  })
+
+  it('兼容旧版后端返回的完整回调地址', async () => {
+    vi.mocked(supportAPI.settings).mockResolvedValue({
+      ...settings,
+      telegram_webhook_path: undefined,
+      telegram_webhook_url: 'https://legacy.example.com/api/v1/support/telegram/webhook'
+    })
+    const wrapper = render()
+    await flushPromises()
+    expect((wrapper.find('input[readonly]').element as HTMLInputElement).value).toBe('https://legacy.example.com/api/v1/support/telegram/webhook')
+    wrapper.unmount()
   })
 })

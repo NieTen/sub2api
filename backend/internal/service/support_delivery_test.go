@@ -60,12 +60,16 @@ func TestSupportDeliverySettingsPreserveAndRedactSecrets(t *testing.T) {
 	require.Empty(t, view.TelegramWebhookSecret)
 	require.True(t, view.TelegramBotTokenConfigured)
 	require.True(t, view.TelegramWebhookSecretConfigured)
+	require.Equal(t, SupportTelegramWebhookPath, view.TelegramWebhookPath)
+	view.TelegramWebhookPath = "/client-controlled-path"
 	view.AdminEmails = []string{"ADMIN@example.com", "admin@example.com"}
 	saved, err := s.UpdateSettings(context.Background(), *view)
 	require.NoError(t, err)
 	require.Equal(t, []string{"admin@example.com"}, saved.AdminEmails)
+	require.Equal(t, SupportTelegramWebhookPath, saved.TelegramWebhookPath)
 	stored, err := s.loadSettings(context.Background())
 	require.NoError(t, err)
+	require.Empty(t, stored.TelegramWebhookPath)
 	require.Equal(t, "123456:abcdefghijklmnopqrstuvwxyz123456", stored.TelegramBotToken)
 	require.Equal(t, "secret_12345678901234567890", stored.TelegramWebhookSecret)
 	saved.TelegramAllowedUserIDs = nil
