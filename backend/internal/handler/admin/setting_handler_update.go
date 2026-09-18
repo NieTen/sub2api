@@ -42,13 +42,14 @@ type UpdateSettingsRequest struct {
 	LoginAgreementDocuments             []dto.LoginAgreementDocument `json:"login_agreement_documents"`
 
 	// 邮件服务设置
-	SMTPHost     string `json:"smtp_host"`
-	SMTPPort     int    `json:"smtp_port"`
-	SMTPUsername string `json:"smtp_username"`
-	SMTPPassword string `json:"smtp_password"`
-	SMTPFrom     string `json:"smtp_from_email"`
-	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   bool   `json:"smtp_use_tls"`
+	SMTPHost                       string `json:"smtp_host"`
+	SMTPPort                       int    `json:"smtp_port"`
+	SMTPUsername                   string `json:"smtp_username"`
+	SMTPPassword                   string `json:"smtp_password"`
+	SMTPFrom                       string `json:"smtp_from_email"`
+	SMTPFromName                   string `json:"smtp_from_name"`
+	SMTPUseTLS                     bool   `json:"smtp_use_tls"`
+	SupportTicketReplyEmailEnabled bool   `json:"support_ticket_reply_email_enabled"`
 
 	// Cloudflare Turnstile 设置
 	TurnstileEnabled   bool   `json:"turnstile_enabled"`
@@ -1527,6 +1528,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                            req.SMTPFrom,
 		SMTPFromName:                        req.SMTPFromName,
 		SMTPUseTLS:                          req.SMTPUseTLS,
+		SupportTicketReplyEmailEnabled:      req.SupportTicketReplyEmailEnabled,
 		TurnstileEnabled:                    req.TurnstileEnabled,
 		TurnstileSiteKey:                    req.TurnstileSiteKey,
 		TurnstileSecretKey:                  req.TurnstileSecretKey,
@@ -2172,6 +2174,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SMTPFrom:                                               updatedSettings.SMTPFrom,
 		SMTPFromName:                                           updatedSettings.SMTPFromName,
 		SMTPUseTLS:                                             updatedSettings.SMTPUseTLS,
+		SupportTicketReplyEmailEnabled:                         updatedSettings.SupportTicketReplyEmailEnabled,
 		TurnstileEnabled:                                       updatedSettings.TurnstileEnabled,
 		TurnstileSiteKey:                                       updatedSettings.TurnstileSiteKey,
 		TurnstileSecretKeyConfigured:                           updatedSettings.TurnstileSecretKeyConfigured,

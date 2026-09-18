@@ -939,6 +939,12 @@ export default {
         sending: 'Sending...',
         enterRecipientHint: 'Please enter a recipient email address'
       },
+      supportTicketReplyEmail: {
+        title: 'Support Ticket Reply Email Notification',
+        description: 'Email the ticket user after an administrator replies from the web or Telegram.',
+        enabled: 'Enable ticket reply email notifications',
+        enabledHint: 'This switch is independent of bot notifications. Configure and save SMTP first. Edit the message below in Email Templates; images are sent inline.'
+      },
       emailTemplates: {
         title: 'Email Templates',
         description: 'Customize notification email subjects and HTML content for each event and locale.',

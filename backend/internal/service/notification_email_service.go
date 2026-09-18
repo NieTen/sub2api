@@ -33,6 +33,7 @@ const (
 	NotificationEmailEventCyberPolicyNotice           = "content_moderation.cyber_policy_notice"
 	NotificationEmailEventOpsAlert                    = "ops.alert"
 	NotificationEmailEventOpsScheduledReport          = "ops.scheduled_report"
+	NotificationEmailEventSupportTicketReply          = "support.ticket_reply"
 
 	notificationEmailTemplateKeyPrefix    = "notification_email_template:"
 	notificationEmailPreferenceKeyPrefix  = "notification_email_preference:"
@@ -49,6 +50,7 @@ const (
 
 var (
 	notificationEmailPlaceholderPattern = regexp.MustCompile(`{{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*}}`)
+	notificationEmailReplyImagesPattern = regexp.MustCompile(`^(?:<p><img src="cid:image-[0-9]+" style="max-width:100%" alt="工单附件图片"></p>)*$`)
 	notificationEmailLocales            = []string{notificationEmailDefaultLocale, notificationEmailLocaleChinese}
 	notificationEmailCommonPlaceholders = []string{"site_name", "recipient_name", "recipient_email"}
 	// Keep summary values separate so admins can rearrange or omit individual metrics in the template.
@@ -126,6 +128,8 @@ type NotificationEmailSendInput struct {
 	ReminderKey      string
 	Variables        map[string]string
 	RawHTMLVariables map[string]string
+	// Images 是工单回复等通知使用的内嵌图片，发送时会生成安全的 CID 图片 HTML。
+	Images []EmailInlineImage
 }
 
 type NotificationEmailUnsubscribeResult struct {
@@ -369,7 +373,12 @@ func (s *NotificationEmailService) PreviewTemplate(ctx context.Context, input No
 	for key, value := range input.Variables {
 		variables[key] = value
 	}
-	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, nil)
+	var rawHTMLVariables map[string]string
+	if normalizedEvent == NotificationEmailEventSupportTicketReply {
+		// 预览中的图片标签由服务端生成，避免把用户输入当作可信 HTML。
+		rawHTMLVariables = map[string]string{"reply_images": variables["reply_images"]}
+	}
+	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, rawHTMLVariables)
 }
 
 func (s *NotificationEmailService) Send(ctx context.Context, input NotificationEmailSendInput) error {
@@ -401,7 +410,12 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 		return notificationEmailTemplateErr(err)
 	}
 	variables := s.runtimeVariables(ctx, normalizedEvent, locale, input)
-	rendered, err := renderNotificationEmail(normalizedEvent, tmpl.Subject, tmpl.HTML, variables, input.RawHTMLVariables)
+	rawHTMLVariables := input.RawHTMLVariables
+	if normalizedEvent == NotificationEmailEventSupportTicketReply {
+		// 工单图片只允许使用本次邮件附件对应的 CID，忽略调用方传入的任意 HTML。
+		rawHTMLVariables = map[string]string{"reply_images": notificationEmailInlineImagesHTML(input.Images)}
+	}
+	rendered, err := renderNotificationEmail(normalizedEvent, tmpl.Subject, tmpl.HTML, variables, rawHTMLVariables)
 	if err != nil {
 		return notificationEmailTemplateErr(err)
 	}
@@ -420,8 +434,14 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 	if s.emailService == nil {
 		return notificationEmailConfigErr(errors.New("email service is not configured"))
 	}
-	if err := s.emailService.SendEmail(ctx, recipient, rendered.Subject, rendered.HTML); err != nil {
-		return notificationEmailDeliveryErr(err)
+	var sendErr error
+	if len(input.Images) > 0 {
+		sendErr = s.emailService.SendEmailWithImages(ctx, recipient, rendered.Subject, rendered.HTML, input.Images)
+	} else {
+		sendErr = s.emailService.SendEmail(ctx, recipient, rendered.Subject, rendered.HTML)
+	}
+	if sendErr != nil {
+		return notificationEmailDeliveryErr(sendErr)
 	}
 	if deliveryKey != "" {
 		if err := s.settingRepo.Set(ctx, deliveryKey, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
@@ -554,6 +574,14 @@ func (s *NotificationEmailService) runtimeVariables(ctx context.Context, event, 
 				variables["report_summary_display"] = "block"
 			} else {
 				variables["report_summary_display"] = "none"
+			}
+		}
+	}
+	if event == NotificationEmailEventSupportTicketReply {
+		// 实际发送不能泄漏预览中的工单示例，调用方未提供的字段统一置空。
+		for _, placeholder := range []string{"ticket_id", "ticket_subject", "reply_content", "reply_time", "ticket_url", "reply_images"} {
+			if _, ok := input.Variables[placeholder]; !ok {
+				variables[placeholder] = ""
 			}
 		}
 	}
@@ -745,6 +773,10 @@ func renderNotificationEmailString(event, raw string, variables map[string]strin
 		if escapeHTML && notificationEmailRawHTMLAllowed(event, name) {
 			if rawHTMLVariables != nil {
 				if rawValue, ok := rawHTMLVariables[name]; ok {
+					if event == NotificationEmailEventSupportTicketReply && name == "reply_images" && !notificationEmailReplyImagesPattern.MatchString(rawValue) {
+						renderErr = errors.New("工单图片 HTML 只能包含服务端生成的 CID 图片标签")
+						return ""
+					}
 					return rawValue
 				}
 			}
@@ -764,7 +796,20 @@ func renderNotificationEmailString(event, raw string, variables map[string]strin
 }
 
 func notificationEmailRawHTMLAllowed(event, placeholder string) bool {
-	return event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html"
+	return (event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html") ||
+		(event == NotificationEmailEventSupportTicketReply && placeholder == "reply_images")
+}
+
+// notificationEmailInlineImagesHTML 仅根据附件下标生成 CID 图片标签，不拼接文件名、类型或用户内容。
+func notificationEmailInlineImagesHTML(images []EmailInlineImage) string {
+	if len(images) == 0 {
+		return ""
+	}
+	var builder strings.Builder
+	for i := range images {
+		fmt.Fprintf(&builder, `<p><img src="cid:image-%d" style="max-width:100%%" alt="工单附件图片"></p>`, i)
+	}
+	return builder.String()
 }
 
 func notificationEmailAllowedPlaceholderSet(event string) map[string]struct{} {
@@ -941,6 +986,12 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 			"report_start_time":   "2026-07-18T01:00:26Z",
 			"report_end_time":     "2026-07-19T01:00:26Z",
 			"report_html":         "<h2>日报</h2><p>请求量：2,374</p>",
+			"ticket_id":           "1024",
+			"ticket_subject":      "无法访问模型",
+			"reply_content":       "您好，管理员已处理您的问题。\n请重新尝试。",
+			"reply_time":          "2026-09-18 10:30",
+			"ticket_url":          "https://example.com/tickets/1024",
+			"reply_images":        notificationEmailInlineImagesHTML([]EmailInlineImage{{}}),
 		}
 		addNotificationEmailOpsSummarySampleVariables(variables)
 		return variables
@@ -989,6 +1040,12 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 		"report_start_time":   "2026-07-18T01:00:26Z",
 		"report_end_time":     "2026-07-19T01:00:26Z",
 		"report_html":         "<h2>Daily summary</h2><p>Requests: 2,374</p>",
+		"ticket_id":           "1024",
+		"ticket_subject":      "Unable to access model",
+		"reply_content":       "Hello, the administrator has reviewed your request.\nPlease try again.",
+		"reply_time":          "2026-09-18 10:30",
+		"ticket_url":          "https://example.com/tickets/1024",
+		"reply_images":        notificationEmailInlineImagesHTML([]EmailInlineImage{{}}),
 	}
 	addNotificationEmailOpsSummarySampleVariables(variables)
 	return variables
@@ -1034,6 +1091,7 @@ var notificationEmailEventOrder = []string{
 	NotificationEmailEventCyberPolicyNotice,
 	NotificationEmailEventOpsAlert,
 	NotificationEmailEventOpsScheduledReport,
+	NotificationEmailEventSupportTicketReply,
 }
 
 var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
@@ -1151,6 +1209,15 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 			),
 			append(append([]string{}, notificationEmailOpsSummaryPlaceholders...), "report_detail_display", "report_html")...,
 		),
+	},
+	NotificationEmailEventSupportTicketReply: {
+		Event:       NotificationEmailEventSupportTicketReply,
+		Label:       "工单回复通知",
+		Description: "管理员回复工单后发送给用户的事务邮件。",
+		Category:    "support",
+		Optional:    false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
+			"ticket_id", "ticket_subject", "reply_content", "reply_time", "ticket_url", "reply_images"),
 	},
 }
 
@@ -1434,6 +1501,28 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 		notificationEmailLocaleChinese: {
 			Subject: "[运维报表] {{report_name}}",
 			HTML:    notificationEmailOpsScheduledReportTemplate(notificationEmailLocaleChinese),
+		},
+	},
+	NotificationEmailEventSupportTicketReply: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] Reply to support ticket #{{ticket_id}}",
+			HTML: notificationEmailCard("#2563eb", "Support ticket reply", `
+<p>Hello {{recipient_name}},</p>
+<p>An administrator replied to your support ticket <strong>#{{ticket_id}} {{ticket_subject}}</strong> at {{reply_time}}:</p>
+<div style="white-space: pre-wrap; overflow-wrap: anywhere;">{{reply_content}}</div>
+<div>{{reply_images}}</div>
+<p><a class="button" href="{{ticket_url}}">View ticket</a></p>
+<p class="muted">Sign in to the website to view and continue replying in the ticket page.</p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] 工单 #{{ticket_id}} 收到管理员回复",
+			HTML: notificationEmailCard("#2563eb", "工单回复提醒", `
+<p>{{recipient_name}}，您好：</p>
+<p>您的工单 <strong>#{{ticket_id}} {{ticket_subject}}</strong> 已于 {{reply_time}} 收到管理员回复：</p>
+<div style="white-space: pre-wrap; overflow-wrap: anywhere;">{{reply_content}}</div>
+<div>{{reply_images}}</div>
+<p><a class="button" href="{{ticket_url}}">查看工单</a></p>
+<p class="muted">请登录网站，在工单页面查看并继续回复。</p>`),
 		},
 	},
 }

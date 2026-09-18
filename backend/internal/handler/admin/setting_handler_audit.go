@@ -101,6 +101,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.SMTPUseTLS != after.SMTPUseTLS {
 		changed = append(changed, "smtp_use_tls")
 	}
+	if before.SupportTicketReplyEmailEnabled != after.SupportTicketReplyEmailEnabled {
+		changed = append(changed, "support_ticket_reply_email_enabled")
+	}
 	if before.TurnstileEnabled != after.TurnstileEnabled {
 		changed = append(changed, "turnstile_enabled")
 	}

@@ -402,6 +402,7 @@ const baseSettingsResponse = {
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  support_ticket_reply_email_enabled: false,
   turnstile_enabled: false,
   turnstile_site_key: "",
   turnstile_secret_key_configured: false,
@@ -718,6 +719,33 @@ describe("admin SettingsView payment visible method controls", () => {
     });
     fetchPublicSettings.mockResolvedValue(undefined);
     adminSettingsFetch.mockResolvedValue(undefined);
+  });
+
+  it("loads and saves the independent ticket reply email notification switch", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      support_ticket_reply_email_enabled: false,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    const emailTab = wrapper
+      .findAll("button")
+      .find((node) => node.text().includes("admin.settings.tabs.email"));
+    await emailTab?.trigger("click");
+    await flushPromises();
+
+    const toggle = wrapper.get<HTMLInputElement>(
+      '[data-testid="support-ticket-reply-email-toggle"]',
+    );
+    expect(toggle.element.checked).toBe(false);
+    await toggle.setValue(true);
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ support_ticket_reply_email_enabled: true }),
+    );
   });
 
   it("loads and saves the open button visibility for each custom menu", async () => {

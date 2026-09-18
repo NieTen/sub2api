@@ -310,6 +310,12 @@ const fallbackPlaceholders = [
   "{{report_tps_peak}}",
   "{{report_tps_avg}}",
   "{{report_html}}",
+  "{{ticket_id}}",
+  "{{ticket_subject}}",
+  "{{reply_content}}",
+  "{{reply_time}}",
+  "{{ticket_url}}",
+  "{{reply_images}}",
 ];
 
 const loadingList = ref(true);
@@ -400,6 +406,11 @@ const eventDisplayMeta: Record<string, EventDisplayMeta> = {
     timing: "运维日报、周报、错误摘要或账号健康报表到达配置的发送时间时发送；日报和周报的完整指标均可在模板中编辑。",
     categoryLabel: "运维",
   },
+  "support.ticket_reply": {
+    label: "工单回复通知",
+    timing: "管理员通过网页或 Telegram 回复工单后，向工单用户邮箱发送提醒。",
+    categoryLabel: "客服工单",
+  },
 };
 
 const eventDisplayMetaEn: Record<string, EventDisplayMeta> = {
@@ -463,6 +474,11 @@ const eventDisplayMetaEn: Record<string, EventDisplayMeta> = {
     timing: "Sent when a configured daily, weekly, error digest, or account health report reaches its scheduled send time. Every daily and weekly summary metric is editable in this template.",
     categoryLabel: "Ops",
   },
+  "support.ticket_reply": {
+    label: "Support Ticket Reply Notification",
+    timing: "Sent to the ticket user's email after an administrator replies from the web or Telegram.",
+    categoryLabel: "Support",
+  },
 };
 
 function normalizeEventOption(option: EmailTemplateEventOption): EmailTemplateOption {
@@ -507,6 +523,7 @@ function formatCategory(category: string): string {
     admin: { zh: "管理告警", en: "Admin" },
     risk_control: { zh: "风控", en: "Risk Control" },
     ops: { zh: "运维", en: "Ops" },
+    support: { zh: "客服工单", en: "Support" },
   };
   const item = labels[normalized];
   return item ? localText(item.zh, item.en) : category;

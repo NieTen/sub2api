@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,16 +41,30 @@ type SupportDeliverySettings struct {
 type SupportDeliveryService struct {
 	settings SettingRepository
 	email    *EmailService
-	repo     SupportTicketRepository
-	tickets  *SupportTicketService
-	client   *http.Client
-	mu       sync.Mutex
-	wg       sync.WaitGroup
-	cancel   context.CancelFunc
+	// notificationEmails 独立持有模板服务，避免启动过程中 EmailService 的回调指针发生竞态。
+	notificationEmails *NotificationEmailService
+	repo               SupportTicketRepository
+	tickets            *SupportTicketService
+	client             *http.Client
+	mu                 sync.Mutex
+	wg                 sync.WaitGroup
+	cancel             context.CancelFunc
+}
+
+type supportEmailRecipient struct {
+	address string
+	user    bool
 }
 
 func NewSupportDeliveryService(settings SettingRepository, email *EmailService, repo SupportTicketRepository, tickets *SupportTicketService) *SupportDeliveryService {
-	return &SupportDeliveryService{settings: settings, email: email, repo: repo, tickets: tickets, client: &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}}
+	return &SupportDeliveryService{
+		settings:           settings,
+		email:              email,
+		notificationEmails: &NotificationEmailService{settingRepo: settings, emailService: email},
+		repo:               repo,
+		tickets:            tickets,
+		client:             &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }},
+	}
 }
 
 func (s *SupportDeliveryService) loadSettings(ctx context.Context) (*SupportDeliverySettings, error) {
@@ -211,9 +226,40 @@ func (s *SupportDeliveryService) Stop() {
 	s.wg.Wait()
 }
 
+// loadTicketReplyEmailEnabled 读取管理员回复工单的用户邮件开关。历史安装没有该配置时默认开启，
+// 升级后无需额外开启机器人通知即可接收工单回复邮件。
+func (s *SupportDeliveryService) loadTicketReplyEmailEnabled(ctx context.Context) (bool, error) {
+	if s.settings == nil {
+		return true, nil
+	}
+	value, err := s.settings.GetValue(ctx, SettingKeySupportTicketReplyEmailEnabled)
+	if errors.Is(err, ErrSettingNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return !strings.EqualFold(strings.TrimSpace(value), "false"), nil
+}
+
 func (s *SupportDeliveryService) process(ctx context.Context) {
 	c, err := s.loadSettings(ctx)
-	if err != nil || !c.Enabled {
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("工单通知配置读取失败", "error", err)
+		}
+		return
+	}
+	replyEmailEnabled, err := s.loadTicketReplyEmailEnabled(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.Warn("工单回复邮件开关读取失败", "error", err)
+		}
+		return
+	}
+	// 机器人通知关闭时，管理员回复邮件仍应继续发送；两类通知都关闭时不领取队列，
+	// 避免无意义地读取附件或连接 SMTP。
+	if !c.Enabled && !replyEmailEnabled {
 		return
 	}
 	claimCtx, claimCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -231,9 +277,11 @@ func (s *SupportDeliveryService) process(ctx context.Context) {
 		if err == nil {
 			switch item.Channel {
 			case "email":
-				err = s.sendTicketEmail(deliveryCtx, item.ID, c, ticket, message)
+				err = s.sendTicketEmail(deliveryCtx, item.ID, c, replyEmailEnabled, ticket, message)
 			case "telegram":
-				err = s.sendTicketTelegram(deliveryCtx, item.ID, c, ticket, message)
+				if c.Enabled {
+					err = s.sendTicketTelegram(deliveryCtx, item.ID, c, ticket, message)
+				}
 			}
 		}
 		deliveryCancel()
@@ -262,40 +310,137 @@ func (s *SupportDeliveryService) messageImages(ctx context.Context, message *Sup
 	return images, nil
 }
 
-func (s *SupportDeliveryService) sendTicketEmail(ctx context.Context, notificationID int64, c *SupportDeliverySettings, ticket *SupportTicket, message *SupportTicketMessage) error {
-	recipients := append([]string{}, c.AdminEmails...)
-	if message.SenderRole == "admin" && hasBindableEmailIdentitySubject(ticket.UserEmail) {
-		recipients = append(recipients, ticket.UserEmail)
+func (s *SupportDeliveryService) sendTicketEmail(ctx context.Context, notificationID int64, c *SupportDeliverySettings, replyEmailEnabled bool, ticket *SupportTicket, message *SupportTicketMessage) error {
+	// 用户收件人排在管理员之前，管理员地址异常时也不会阻止用户收到回复提醒。
+	recipients := make([]supportEmailRecipient, 0, len(c.AdminEmails)+1)
+	if message.SenderRole == "admin" && replyEmailEnabled && hasBindableEmailIdentitySubject(ticket.UserEmail) {
+		recipients = append(recipients, supportEmailRecipient{address: ticket.UserEmail, user: true})
+	}
+	if c.Enabled {
+		for _, address := range c.AdminEmails {
+			recipients = append(recipients, supportEmailRecipient{address: address})
+		}
 	}
 	if len(recipients) == 0 {
 		return nil
+	}
+	if s.email == nil {
+		return errors.New("email service is not configured")
 	}
 	images, err := s.messageImages(ctx, message)
 	if err != nil {
 		return err
 	}
-	body := supportEmailHTML("工单 #"+strconv.FormatInt(ticket.ID, 10)+"："+ticket.Subject+"\n\n"+message.Content, images)
+	legacyBody := supportEmailHTML("工单 #"+strconv.FormatInt(ticket.ID, 10)+"："+ticket.Subject+"\n\n"+message.Content, images)
+	legacySubject := "[工单 #" + strconv.FormatInt(ticket.ID, 10) + "] " + ticket.Subject
+	ticketURL := ""
+	ticketURLLoaded := false
 	seen := map[string]bool{}
-	for _, to := range recipients {
-		key := strings.ToLower(strings.TrimSpace(to))
-		if seen[key] {
+	var firstErr error
+	for _, item := range recipients {
+		key := strings.ToLower(strings.TrimSpace(item.address))
+		if key == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
 		receiptKey := fmt.Sprintf("email:%x", sha256.Sum256([]byte(key)))
-		done, err := s.repo.HasNotificationReceipt(ctx, notificationID, receiptKey)
-		if err != nil {
-			return err
+		done, receiptErr := s.repo.HasNotificationReceipt(ctx, notificationID, receiptKey)
+		if receiptErr != nil {
+			if firstErr == nil {
+				firstErr = receiptErr
+			}
+			continue
 		}
 		if done {
 			continue
 		}
-		if err = s.email.SendEmailWithImages(ctx, to, "[工单 #"+strconv.FormatInt(ticket.ID, 10)+"] "+ticket.Subject, body, images); err != nil {
-			return err
+
+		if item.user {
+			if !ticketURLLoaded {
+				ticketURL, err = s.supportTicketURL(ctx, ticket.ID)
+				ticketURLLoaded = true
+				if err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
+				}
+			}
+			receiptErr = s.sendTicketReplyEmail(ctx, item.address, ticket, message, ticketURL, images)
+		} else {
+			receiptErr = s.email.SendEmailWithImages(ctx, item.address, legacySubject, legacyBody, images)
 		}
-		if err = s.repo.SaveNotificationReceipt(ctx, notificationID, receiptKey); err != nil {
-			return err
+		if receiptErr != nil {
+			// 每个收件人独立发送，记录错误后继续处理其他地址，尤其不能阻止用户地址。
+			if firstErr == nil {
+				firstErr = receiptErr
+			}
+			continue
+		}
+		if receiptErr = s.repo.SaveNotificationReceipt(ctx, notificationID, receiptKey); receiptErr != nil && firstErr == nil {
+			firstErr = receiptErr
 		}
 	}
-	return nil
+	return firstErr
+}
+
+// sendTicketReplyEmail 使用系统设置中的工单回复模板，并把图片作为安全的 CID 附件发送。
+func (s *SupportDeliveryService) sendTicketReplyEmail(ctx context.Context, recipient string, ticket *SupportTicket, message *SupportTicketMessage, ticketURL string, images []EmailInlineImage) error {
+	notificationEmails := s.notificationEmails
+	if notificationEmails == nil {
+		// 兼容测试或旧调用方直接构造 SupportDeliveryService 的情况。
+		notificationEmails = &NotificationEmailService{settingRepo: s.settings, emailService: s.email}
+	}
+	name := strings.TrimSpace(ticket.Username)
+	if name == "" {
+		name = emailRecipientName(recipient)
+	}
+	sourceID := strconv.FormatInt(message.ID, 10)
+	if message.ID <= 0 {
+		sourceID = strconv.FormatInt(ticket.ID, 10) + ":" + message.CreatedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return notificationEmails.Send(ctx, NotificationEmailSendInput{
+		Event:          NotificationEmailEventSupportTicketReply,
+		RecipientEmail: recipient,
+		RecipientName:  name,
+		UserID:         ticket.UserID,
+		SourceType:     "support_ticket_reply",
+		SourceID:       sourceID,
+		Variables: map[string]string{
+			"ticket_id":      strconv.FormatInt(ticket.ID, 10),
+			"ticket_subject": ticket.Subject,
+			"reply_content":  message.Content,
+			"reply_time":     message.CreatedAt.UTC().Format(time.RFC3339),
+			"ticket_url":     ticketURL,
+		},
+		Images: images,
+	})
+}
+
+// supportTicketURL 只读取管理员已保存的前端地址，不使用请求中的 Host，避免伪造邮件链接。
+func (s *SupportDeliveryService) supportTicketURL(ctx context.Context, ticketID int64) (string, error) {
+	path := "/tickets/" + strconv.FormatInt(ticketID, 10)
+	if s.settings == nil {
+		return "", nil
+	}
+	base, err := s.settings.GetValue(ctx, SettingKeyFrontendURL)
+	if errors.Is(err, ErrSettingNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
+	if base == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(base)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil {
+		return "", nil
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + path
+	parsed.RawPath = ""
+	return parsed.String(), nil
 }

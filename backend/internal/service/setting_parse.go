@@ -169,6 +169,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyForceEmailOnThirdPartySignup:              "false",
 		SettingKeySMTPPort:                                  "587",
 		SettingKeySMTPUseTLS:                                "false",
+		SettingKeySupportTicketReplyEmailEnabled:            "true",
 		// Model fallback defaults
 		SettingKeyEnableModelFallback:      "false",
 		SettingKeyFallbackModelAnthropic:   "claude-3-5-sonnet-20241022",
@@ -337,6 +338,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		SMTPFrom:                               settings[SettingKeySMTPFrom],
 		SMTPFromName:                           settings[SettingKeySMTPFromName],
 		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
+		SupportTicketReplyEmailEnabled:         settings[SettingKeySupportTicketReplyEmailEnabled] != "false",
 		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
 		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],

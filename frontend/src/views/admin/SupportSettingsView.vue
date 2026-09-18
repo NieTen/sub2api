@@ -9,7 +9,7 @@
           <h2 class="text-base font-semibold">{{ t('communications.emailSection') }}</h2>
           <label class="flex items-center gap-3 font-medium"><input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded" />{{ t('support.enabled') }}</label>
           <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.adminEmails') }}</span><textarea v-model="emailText" rows="3" class="input" :placeholder="'support@example.com'"></textarea><span class="mt-2 block text-xs text-gray-500">{{ t('support.adminEmailsHint') }}</span></label>
-          <p class="text-xs text-gray-500">{{ t('support.emailHelp') }} <router-link to="/admin/settings" class="text-primary-600 underline">{{ t('nav.settings') }}</router-link></p>
+          <p class="text-xs text-gray-500">{{ t('support.emailHelp') }} <router-link to="/admin/settings?tab=email" class="text-primary-600 underline">{{ t('nav.settings') }}</router-link></p>
         </fieldset>
         <fieldset :disabled="saving" class="min-w-0 space-y-5 rounded-xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-800">
           <div><h2 class="text-base font-semibold">{{ t('communications.botSection') }}</h2><p class="mt-2 text-sm leading-6 text-gray-500">{{ t('support.telegramHelp') }}</p><p class="mt-2 text-xs leading-5 text-gray-500">{{ t('communications.botCredentialsHint') }}</p></div>

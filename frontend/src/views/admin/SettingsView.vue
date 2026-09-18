@@ -8514,8 +8514,36 @@
             </div>
           </div>
 
-          <!-- Send Test Email - Only show when email verification is enabled -->
-          <div v-if="form.email_verify_enabled" class="card">
+          <!-- 工单回复邮件提醒不依赖机器人通知开关。 -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.supportTicketReplyEmail.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.supportTicketReplyEmail.description") }}
+              </p>
+            </div>
+            <div class="flex items-center justify-between gap-4 px-6 py-5">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t("admin.settings.supportTicketReplyEmail.enabled") }}
+                </label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.supportTicketReplyEmail.enabledHint") }}
+                </p>
+              </div>
+              <Toggle
+                data-testid="support-ticket-reply-email-toggle"
+                v-model="form.support_ticket_reply_email_enabled"
+              />
+            </div>
+          </div>
+
+          <!-- SMTP 测试邮件始终可见，便于校验工单通知所需的邮件配置。 -->
+          <div class="card">
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -9693,6 +9721,7 @@ const form = reactive<SettingsForm>({
   smtp_from_email: "",
   smtp_from_name: "",
   smtp_use_tls: true,
+  support_ticket_reply_email_enabled: true,
   // Cloudflare Turnstile
   turnstile_enabled: false,
   turnstile_site_key: "",
@@ -11311,6 +11340,7 @@ async function saveSettings() {
       smtp_from_email: form.smtp_from_email,
       smtp_from_name: form.smtp_from_name,
       smtp_use_tls: form.smtp_use_tls,
+      support_ticket_reply_email_enabled: form.support_ticket_reply_email_enabled,
       turnstile_enabled: form.turnstile_enabled,
       turnstile_site_key: form.turnstile_site_key,
       turnstile_secret_key: form.turnstile_secret_key || undefined,
@@ -12650,6 +12680,11 @@ async function handleDeleteProvider() {
 }
 
 onMounted(() => {
+  // 支持从工单配置页的链接直接打开邮件设置选项卡。
+  const requestedTab = new URLSearchParams(window.location.search).get("tab");
+  if (requestedTab && settingsTabs.some((tab) => tab.key === requestedTab)) {
+    activeTab.value = requestedTab as SettingsTab;
+  }
   loadSettings();
   loadSubscriptionGroups();
   loadAdminApiKey();

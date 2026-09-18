@@ -2,9 +2,13 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"mime/quotedprintable"
 	"net"
 	"net/mail"
@@ -123,6 +127,104 @@ func TestNotificationEmailAuthTemplatesAreListedAndPreviewable(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, resetPreview.Subject, "Password reset")
 	require.Contains(t, resetPreview.HTML, "https://example.com/reset?token=abc")
+}
+
+func TestNotificationEmailSupportTicketReplyTemplatePreview(t *testing.T) {
+	ctx := context.Background()
+	svc := NewNotificationEmailService(newNotificationEmailMemorySettingRepo(), nil)
+
+	infos := svc.ListEventInfos()
+	var info NotificationEmailEventInfo
+	for _, item := range infos {
+		if item.Event == NotificationEmailEventSupportTicketReply {
+			info = item
+			break
+		}
+	}
+	require.Equal(t, "support", info.Category)
+	require.False(t, info.Optional)
+	require.Contains(t, info.Placeholders, "reply_images")
+
+	preview, err := svc.PreviewTemplate(ctx, NotificationEmailPreviewInput{
+		Event:  NotificationEmailEventSupportTicketReply,
+		Locale: "zh-CN",
+		Variables: map[string]string{
+			"ticket_id":      "42",
+			"ticket_subject": "无法登录",
+			"reply_content":  "请重试 <script>alert(1)</script>\n第二行",
+			"reply_time":     "2026-09-18 12:00",
+			"ticket_url":     "javascript:alert(1)",
+		},
+	})
+	require.NoError(t, err)
+	require.Contains(t, preview.Subject, "工单 #42")
+	require.Contains(t, preview.HTML, "请重试 &lt;script&gt;alert(1)&lt;/script&gt;")
+	require.Contains(t, preview.HTML, "cid:image-0")
+	require.Contains(t, preview.HTML, `href=""`)
+}
+
+func TestNotificationEmailSupportTicketReplyRuntimeClearsPreviewSamples(t *testing.T) {
+	svc := NewNotificationEmailService(newNotificationEmailMemorySettingRepo(), nil)
+	variables := svc.runtimeVariables(context.Background(), NotificationEmailEventSupportTicketReply, "zh", NotificationEmailSendInput{})
+	for _, key := range []string{"ticket_id", "ticket_subject", "reply_content", "reply_time", "ticket_url", "reply_images"} {
+		require.Empty(t, variables[key], key)
+	}
+}
+
+func TestNotificationEmailSendSupportTicketReplyUsesTemplateAndInlineImages(t *testing.T) {
+	ctx := context.Background()
+	repo := newNotificationEmailMemorySettingRepo()
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, repo.SetMultiple(ctx, smtpServer.settings()))
+	svc := NewNotificationEmailService(repo, NewEmailService(repo, nil))
+
+	input := NotificationEmailSendInput{
+		Event:          NotificationEmailEventSupportTicketReply,
+		Locale:         "zh",
+		RecipientEmail: "user@example.com",
+		RecipientName:  "用户",
+		SourceType:     "support_ticket",
+		SourceID:       "42:7",
+		Variables: map[string]string{
+			"ticket_id":      "42",
+			"ticket_subject": "无法登录",
+			"reply_content":  "已处理 <b>内容</b>",
+			"reply_time":     "2026-09-18 12:00",
+			"ticket_url":     "/support/tickets/42",
+		},
+		Images: []EmailInlineImage{{FileName: "截图.png", MimeType: "image/png", Data: []byte("png")}},
+	}
+	require.NoError(t, svc.Send(ctx, input))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+	message, err := mail.ReadMessage(bytes.NewBufferString(smtpServer.lastMessage()))
+	require.NoError(t, err)
+	_, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	parts := multipart.NewReader(message.Body, params["boundary"])
+	textPart, err := parts.NextPart()
+	require.NoError(t, err)
+	text, err := io.ReadAll(textPart)
+	require.NoError(t, err)
+	require.Contains(t, string(text), "&lt;b&gt;内容&lt;/b&gt;")
+	require.Contains(t, string(text), "cid:image-0")
+	imagePart, err := parts.NextPart()
+	require.NoError(t, err)
+	require.Equal(t, "<image-0>", imagePart.Header.Get("Content-ID"))
+	imageData, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, imagePart))
+	require.NoError(t, err)
+	require.Equal(t, []byte("png"), imageData)
+}
+
+func TestNotificationEmailSupportTicketReplyRejectsUnsafeRawImages(t *testing.T) {
+	_, err := renderNotificationEmail(
+		NotificationEmailEventSupportTicketReply,
+		"主题",
+		"<div>{{reply_images}}</div>",
+		map[string]string{"reply_images": ""},
+		map[string]string{"reply_images": `<img src="https://evil.example/x">`},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CID")
 }
 
 func TestNotificationEmailAdditionalEventsAreListedAndPreviewable(t *testing.T) {

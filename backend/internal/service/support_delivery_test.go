@@ -3,7 +3,9 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -11,6 +13,7 @@ import (
 	"net/mail"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf16"
 
 	"github.com/stretchr/testify/require"
@@ -210,4 +213,88 @@ func TestSupportDeliveryTelegramRetryResumesAfterSuccessfulParts(t *testing.T) {
 	require.NoError(t, s.sendTicketTelegram(context.Background(), 1, c, ticket, message))
 	require.Equal(t, []string{"sendMessage", "sendDocument", "sendDocument"}, methods)
 	require.Len(t, repo.receipts, 2)
+}
+
+func TestSupportDeliveryAdminReplyEmailWorksWhenRobotNotificationsDisabled(t *testing.T) {
+	ctx := context.Background()
+	settings := supportDeliveryTestSettings(t)
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, settings.SetMultiple(ctx, smtpServer.settings()))
+	require.NoError(t, settings.Set(ctx, SettingKeySupportDelivery, `{"enabled":false}`))
+	require.NoError(t, settings.Set(ctx, SettingKeySupportTicketReplyEmailEnabled, "true"))
+	repo := &supportDeliveryReceiptTestRepository{supportTicketTestRepository: &supportTicketTestRepository{}, receipts: map[string]bool{}}
+	delivery := NewSupportDeliveryService(settings, NewEmailService(settings, nil), repo, nil)
+	ticket := &SupportTicket{ID: 12, UserID: 7, UserEmail: "user@example.com", Subject: "登录问题"}
+	message := &SupportTicketMessage{ID: 8, TicketID: 12, SenderRole: "admin", Content: "已经处理", CreatedAt: time.Now()}
+
+	require.NoError(t, delivery.sendTicketEmail(ctx, 3, &SupportDeliverySettings{}, true, ticket, message))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+}
+
+func TestSupportDeliveryUserReplyDoesNotEmailTheUser(t *testing.T) {
+	ctx := context.Background()
+	settings := supportDeliveryTestSettings(t)
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, settings.SetMultiple(ctx, smtpServer.settings()))
+	repo := &supportDeliveryReceiptTestRepository{supportTicketTestRepository: &supportTicketTestRepository{}, receipts: map[string]bool{}}
+	delivery := NewSupportDeliveryService(settings, NewEmailService(settings, nil), repo, nil)
+	ticket := &SupportTicket{ID: 12, UserID: 7, UserEmail: "user@example.com", Subject: "登录问题"}
+	message := &SupportTicketMessage{ID: 8, TicketID: 12, SenderRole: "user", Content: "补充信息", CreatedAt: time.Now()}
+
+	require.NoError(t, delivery.sendTicketEmail(ctx, 3, &SupportDeliverySettings{}, true, ticket, message))
+	require.Equal(t, int64(0), smtpServer.messageCount())
+}
+
+func TestSupportDeliveryAdminEmailFailureDoesNotBlockUserReply(t *testing.T) {
+	ctx := context.Background()
+	settings := supportDeliveryTestSettings(t)
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, settings.SetMultiple(ctx, smtpServer.settings()))
+	repo := &supportDeliveryReceiptTestRepository{supportTicketTestRepository: &supportTicketTestRepository{}, receipts: map[string]bool{}}
+	delivery := NewSupportDeliveryService(settings, NewEmailService(settings, nil), repo, nil)
+	ticket := &SupportTicket{ID: 12, UserID: 7, UserEmail: "user@example.com", Subject: "登录问题"}
+	message := &SupportTicketMessage{ID: 8, TicketID: 12, SenderRole: "admin", Content: "已经处理", CreatedAt: time.Now()}
+	config := &SupportDeliverySettings{Enabled: true, AdminEmails: []string{"bad\r\nTo: attacker@example.com"}}
+
+	require.Error(t, delivery.sendTicketEmail(ctx, 3, config, true, ticket, message))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+	got, ok := repo.receipts["email:"+fmt.Sprintf("%x", sha256.Sum256([]byte(ticket.UserEmail)))]
+	require.True(t, ok && got)
+	require.Error(t, delivery.sendTicketEmail(ctx, 3, config, true, ticket, message))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+}
+
+func TestSupportDeliveryReplyEmailUsesCustomTemplateAndReceipt(t *testing.T) {
+	ctx := context.Background()
+	settings := supportDeliveryTestSettings(t)
+	smtpServer := startNotificationEmailTestSMTPServer(t)
+	require.NoError(t, settings.SetMultiple(ctx, smtpServer.settings()))
+	templates := NewNotificationEmailService(settings, NewEmailService(settings, nil))
+	_, err := templates.UpdateTemplate(ctx, NotificationEmailEventSupportTicketReply, "zh", "自定义工单 {{ticket_id}}", "<p>专属提醒：{{reply_content}}</p>")
+	require.NoError(t, err)
+	templates.RememberRecipientLocale(ctx, 7, "user@example.com", "zh")
+	repo := &supportDeliveryReceiptTestRepository{supportTicketTestRepository: &supportTicketTestRepository{}, receipts: map[string]bool{}}
+	delivery := NewSupportDeliveryService(settings, templates.emailService, repo, nil)
+	ticket := &SupportTicket{ID: 12, UserID: 7, UserEmail: "user@example.com", Subject: "登录问题"}
+	message := &SupportTicketMessage{ID: 8, TicketID: 12, SenderRole: "admin", Content: "请重新登录", CreatedAt: time.Now()}
+
+	require.NoError(t, delivery.sendTicketEmail(ctx, 3, &SupportDeliverySettings{}, true, ticket, message))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+	require.Contains(t, smtpServer.lastMessageBody(t), "专属提醒：请重新登录")
+	require.NoError(t, delivery.sendTicketEmail(ctx, 3, &SupportDeliverySettings{}, true, ticket, message))
+	require.Equal(t, int64(1), smtpServer.messageCount())
+}
+
+func TestSupportDeliveryTicketURLUsesConfiguredFrontendOrigin(t *testing.T) {
+	ctx := context.Background()
+	settings := newNotificationEmailMemorySettingRepo()
+	delivery := NewSupportDeliveryService(settings, nil, nil, nil)
+	require.NoError(t, settings.Set(ctx, SettingKeyFrontendURL, "https://example.com/app/?tenant=one#tickets"))
+	url, err := delivery.supportTicketURL(ctx, 42)
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/app/tickets/42", url)
+	require.NoError(t, settings.Set(ctx, SettingKeyFrontendURL, "javascript:alert(1)"))
+	url, err = delivery.supportTicketURL(ctx, 42)
+	require.NoError(t, err)
+	require.Empty(t, url)
 }

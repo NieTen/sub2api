@@ -934,6 +934,12 @@ export default {
         sending: '发送中...',
         enterRecipientHint: '请输入收件人邮箱地址'
       },
+      supportTicketReplyEmail: {
+        title: '工单回复邮件通知',
+        description: '管理员通过网页或 Telegram 回复工单后，向工单用户邮箱发送提醒。',
+        enabled: '启用工单回复邮件通知',
+        enabledHint: '该开关独立于机器人通知；需要先配置并保存 SMTP 设置。邮件正文可在下方“邮件模板”中编辑，图片会以内嵌方式发送。'
+      },
       emailTemplates: {
         title: '邮件模板',
         description: '按事件和语言自定义通知邮件主题与 HTML 内容。',

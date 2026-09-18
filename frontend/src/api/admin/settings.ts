@@ -498,6 +498,8 @@ export interface SystemSettings {
   smtp_from_email: string;
   smtp_from_name: string;
   smtp_use_tls: boolean;
+  /** 管理员回复工单时，向工单用户发送邮件提醒。 */
+  support_ticket_reply_email_enabled: boolean;
   // Cloudflare Turnstile settings
   turnstile_enabled: boolean;
   turnstile_site_key: string;
@@ -841,6 +843,8 @@ export interface UpdateSettingsRequest {
   smtp_from_email?: string;
   smtp_from_name?: string;
   smtp_use_tls?: boolean;
+  /** 管理员回复工单时，向工单用户发送邮件提醒。 */
+  support_ticket_reply_email_enabled?: boolean;
   turnstile_enabled?: boolean;
   turnstile_site_key?: string;
   turnstile_secret_key?: string;

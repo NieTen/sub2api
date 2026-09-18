@@ -134,6 +134,7 @@ deploy/docker-compose.override.yml
 vite.config.js
 docs/*
 !docs/VERSION_POLICY_CN.md
+!docs/SUPPORT_REPLY_EMAIL_CN.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
