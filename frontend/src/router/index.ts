@@ -797,10 +797,14 @@ const routes: RouteRecordRaw[] = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, _from, savedPosition) {
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
+    }
+    // 首页的快速开始入口定位到介绍区；模型广场 hash 仍由首页切换视图。
+    if (to.path === '/home' && to.hash === '#support' && document.getElementById('support')) {
+      return { el: '#support', top: 96 }
     }
     // Scroll to top for new routes
     return { top: 0 }

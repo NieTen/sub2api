@@ -1,156 +1,209 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { runInNewContext } from 'node:vm'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import HomeView from '../HomeView.vue'
 
-const homeHtml = readFileSync(resolve(__dirname, '../../../public/i2.html'), 'utf8')
-const homeScript = readFileSync(resolve(__dirname, '../../../public/i2.js'), 'utf8')
+const { appStore, authStore, changeLocale } = vi.hoisted(() => ({
+  appStore: {
+    cachedPublicSettings: {} as Record<string, unknown>, siteName: '众智AI', siteLogo: '', docUrl: '',
+    publicSettingsLoaded: true, fetchPublicSettings: vi.fn(),
+  },
+  authStore: { isAuthenticated: false, isAdmin: false, user: null, checkAuth: vi.fn() },
+  changeLocale: vi.fn(),
+}))
+vi.mock('@/stores', () => ({ useAppStore: () => appStore, useAuthStore: () => authStore }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => appStore }))
+vi.mock('@/i18n', () => ({ setLocale: changeLocale }))
 
 const defaultModels = [{
   name: 'gpt-test', vendor: 'openai', type: 'text',
   input: 1, output: 2, cachedInput: null, flexInput: null,
 }]
+const wrappers: VueWrapper[] = []
+const fetchModels = vi.fn()
 
-function createBrandHome(embedded = false, responseBody: unknown = { code: 0, data: defaultModels }) {
-  const homeDocument = document.implementation.createHTMLDocument()
-  homeDocument.documentElement.innerHTML = homeHtml
-  const parentDocument = document.implementation.createHTMLDocument()
-  const handlers = new Map<string, () => void>()
-  const pageLocation = { hash: '', reload: vi.fn() }
-  const pageWindow: Record<string, unknown> = {
-    document: homeDocument,
-    addEventListener: vi.fn((name: string, handler: () => void) => handlers.set(name, handler)),
-    scrollTo: vi.fn(),
-    matchMedia: vi.fn(() => ({ matches: false })),
-  }
-  pageWindow.parent = embedded ? { document: parentDocument } : pageWindow
-  const fetchModels = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => responseBody,
+async function mountHome(path = '/home', payload: unknown = { code: 0, data: defaultModels }) {
+  fetchModels.mockResolvedValueOnce({ ok: true, json: async () => payload })
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/', component: HomeView },
+      { path: '/home', component: HomeView },
+      ...['/login', '/register', '/dashboard', '/admin/dashboard'].map(route => ({ path: route, component: { template: '<div />' } })),
+    ],
   })
-
-  // 在独立文档运行静态脚本，检查直接访问和 iframe 两种真实入口。
-  runInNewContext(homeScript, {
-    document: homeDocument,
-    window: pageWindow,
-    location: pageLocation,
-    localStorage,
-    fetch: fetchModels,
-    AbortSignal,
+  const i18n = createI18n({ legacy: false, locale: 'zh', messages: { zh: {}, en: {} } })
+  changeLocale.mockImplementation(async (locale: 'zh' | 'en') => { i18n.global.locale.value = locale })
+  await router.push(path)
+  await router.isReady()
+  const wrapper = mount(HomeView, {
+    global: { plugins: [router, i18n], stubs: { LocaleSwitcher: true, Icon: true } },
   })
-
-  return { homeDocument, parentDocument, pageLocation, handlers, fetchModels }
+  wrappers.push(wrapper)
+  await flushPromises()
+  return { wrapper, router }
 }
 
-describe('品牌首页静态页面集成', () => {
-  beforeEach(() => localStorage.clear())
-
-  it('通过同源外部脚本加载，兼容禁止内联脚本的 CSP', () => {
-    const { homeDocument } = createBrandHome()
-    const scripts = Array.from(homeDocument.querySelectorAll('script'))
-
-    expect(scripts).toHaveLength(1)
-    expect(scripts[0]?.getAttribute('src')).toBe('/i2.js')
-    expect(scripts[0]?.hasAttribute('defer')).toBe(true)
-    expect(scripts[0]?.textContent?.trim()).toBe('')
-    expect(homeHtml).not.toMatch(/\son\w+\s*=/i)
+describe('品牌首页原生 Home 集成', () => {
+  beforeEach(() => {
+    fetchModels.mockReset()
+    changeLocale.mockReset()
+    appStore.cachedPublicSettings = {}
+    authStore.isAuthenticated = false
+    authStore.isAdmin = false
+    localStorage.clear()
+    document.documentElement.classList.remove('dark')
+    vi.stubGlobal('fetch', fetchModels)
+    vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
+  })
+  afterEach(() => {
+    wrappers.splice(0).forEach(wrapper => wrapper.unmount())
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
-  it('直接访问仍能加载模型目录和切换模型广场', async () => {
-    const { homeDocument, pageLocation, handlers, fetchModels } = createBrandHome()
-
-    await vi.waitFor(() => expect(homeDocument.querySelector('.model-name')?.textContent).toBe('gpt-test'))
+  it.each(['/', '/home'])('%s 直接渲染首页内容，不创建 iframe 或请求静态首页', async path => {
+    const { wrapper } = await mountHome(path)
+    expect(wrapper.get('[data-testid="brand-home"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.get('h1').text()).toBe('众智AI')
+    expect(wrapper.findAll('.feature-card')).toHaveLength(4)
+    expect(fetchModels).toHaveBeenCalledOnce()
     expect(fetchModels).toHaveBeenCalledWith('/api/v1/settings/home-models', { cache: 'no-store', signal: expect.any(AbortSignal) })
-    expect(homeDocument.querySelector('#modelCount')?.textContent).toBe('1')
-    pageLocation.hash = '#pricing'
-    handlers.get('hashchange')?.()
-
-    expect(homeDocument.querySelector('#pricingView')?.hasAttribute('hidden')).toBe(false)
-    expect(homeDocument.querySelector('#homeView')?.hasAttribute('hidden')).toBe(true)
+    expect(wrapper.get('#modelCount').text()).toBe('1')
   })
 
-  it('应用导航使用顶层窗口，首页和模型广场继续在当前页面切换', () => {
-    const { homeDocument } = createBrandHome(true)
-    const appLinks = Array.from(homeDocument.querySelectorAll<HTMLAnchorElement>('a[href^="/"]'))
-    const viewLinks = Array.from(homeDocument.querySelectorAll<HTMLAnchorElement>('a[href^="#"]'))
-
-    expect(appLinks.map(link => link.getAttribute('href'))).toContain('/login')
-    expect(appLinks.map(link => link.getAttribute('href'))).toContain('/register')
-    expect(appLinks.every(link => link.target === '_top')).toBe(true)
-    expect(viewLinks.length).toBeGreaterThan(0)
-    expect(viewLinks.every(link => !link.target)).toBe(true)
-  })
-
-  it('展示后台文本和图片价格、零价、空价以及自定义厂商', async () => {
-    const { homeDocument } = createBrandHome(false, { code: 0, data: [
-      { ...defaultModels[0], input: 0, output: 0.000001, cachedInput: null, flexInput: 0 },
-      { name: '自定义图片模型', vendor: '自定义厂商', type: 'image', resolutionPrices: { '1K': 0, '2K': 0.25, '4K': 1.125 } },
-    ] })
-    await vi.waitFor(() => expect(homeDocument.querySelectorAll('.model-card')).toHaveLength(2))
-    const cards = homeDocument.querySelectorAll('.model-card')
-    expect(cards[0]?.textContent).toContain('$0/M')
-    expect(cards[0]?.textContent).toContain('$0.000001/M')
-    expect(cards[0]?.textContent).toContain('缓存输入—/M')
-    expect(cards[1]?.textContent).toContain('自定义厂商')
-    expect(cards[1]?.textContent).toContain('$0.25')
-    expect(cards[1]?.textContent).toContain('$1.125')
-    expect(homeDocument.querySelector('#modelCount')?.textContent).toBe('2')
-  })
-
-  it('后台清空目录后展示空状态，不恢复静态模型', async () => {
-    const { homeDocument, fetchModels } = createBrandHome(false, { code: 0, data: [] })
-    await vi.waitFor(() => expect(homeDocument.querySelector('#modelGrid')?.textContent).toBe('暂无模型数据'))
-    expect(homeDocument.querySelector('#modelCount')?.textContent).toBe('0')
+  it.each([' /i2.html ', '/i2.html?version=old', '/i2.html#pricing'])('兼容旧首页配置 %s，直接渲染 Home', async address => {
+    appStore.cachedPublicSettings = { home_content: address }
+    const { wrapper } = await mountHome()
+    expect(wrapper.find('iframe').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="brand-home"]').exists()).toBe(true)
     expect(fetchModels).toHaveBeenCalledOnce()
   })
 
-  it('后台配置的模型名和厂商按文本展示', async () => {
+  it('模型广场和浏览器历史都由应用路由切换', async () => {
+    const { wrapper, router } = await mountHome()
+    await wrapper.get('.desktop-nav a[href="/home#pricing"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.hash).toBe('#pricing')
+    expect(wrapper.get('#pricingView').attributes('hidden')).toBeUndefined()
+    expect(wrapper.get('#homeView').attributes('hidden')).toBeDefined()
+    router.back()
+    await flushPromises()
+    expect(wrapper.get('#homeView').attributes('hidden')).toBeUndefined()
+    expect(wrapper.get('#pricingView').attributes('hidden')).toBeDefined()
+    router.forward()
+    await flushPromises()
+    expect(wrapper.get('#pricingView').attributes('hidden')).toBeUndefined()
+    expect(fetchModels).toHaveBeenCalledOnce()
+  })
+
+  it('旧品牌配置保留自定义首页优先级及初始模型广场入口', async () => {
+    appStore.cachedPublicSettings = { home_content: '/i2.html#pricing', compact_home_enabled: true }
+    const { wrapper, router } = await mountHome('/home?view=classic')
+    expect(wrapper.find('[data-testid="brand-home"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
+    expect(wrapper.find('.terminal-container').exists()).toBe(false)
+    expect(wrapper.get('#pricingView').attributes('hidden')).toBeUndefined()
+    await router.push('/home?view=classic#home')
+    expect(wrapper.get('#homeView').attributes('hidden')).toBeUndefined()
+  })
+
+  it('直接进入模型广场可展示后台文本、图片、零价、空价和微小价格并筛选', async () => {
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [
+      { ...defaultModels[0], input: 0, output: 0.000001, cachedInput: null, flexInput: 0 },
+      { name: '自定义图片模型', vendor: '自定义厂商', type: 'image', resolutionPrices: { '1K': 0, '2K': 0.25, '4K': 1.125 } },
+    ] })
+    const cards = wrapper.findAll('.model-card')
+    expect(cards).toHaveLength(2)
+    expect(cards[0]?.text()).toContain('$0/M')
+    expect(cards[0]?.text()).toContain('$0.000001/M')
+    expect(cards[0]?.text()).toContain('缓存输入—/M')
+    expect(cards[1]?.text()).toContain('自定义厂商')
+    expect(cards[1]?.text()).toContain('$0.25')
+    expect(cards[1]?.text()).toContain('$1.125')
+    expect(wrapper.get('#modelCount').text()).toBe('2')
+    await wrapper.get('[data-filter-type="image"]').trigger('click')
+    expect(wrapper.findAll('.model-card')).toHaveLength(1)
+    expect(wrapper.get('.model-name').text()).toBe('自定义图片模型')
+    expect(wrapper.get('[data-filter-type="image"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('后台清空目录后展示空状态，不恢复静态模型', async () => {
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [] })
+    expect(wrapper.get('#modelGrid').text()).toBe('暂无模型数据')
+    expect(wrapper.get('#modelCount').text()).toBe('0')
+    expect(wrapper.findAll('.model-card')).toHaveLength(0)
+  })
+
+  it('后台模型名和厂商只按文本展示', async () => {
     const modelName = '<img src=x onerror=alert(1)>'
     const vendorName = '<svg onload=alert(1)>'
-    const { homeDocument } = createBrandHome(false, { code: 0, data: [
-      { ...defaultModels[0], name: modelName, vendor: vendorName },
-    ] })
-    await vi.waitFor(() => expect(homeDocument.querySelector('.model-name')?.textContent).toBe(modelName))
-    expect(homeDocument.querySelector('.vendor-label')?.textContent).toBe(vendorName)
-    expect(homeDocument.querySelector('#modelGrid img, #modelGrid [onload], #modelGrid [onerror]')).toBeNull()
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [{ ...defaultModels[0], name: modelName, vendor: vendorName }] })
+    expect(wrapper.get('.model-name').text()).toBe(modelName)
+    expect(wrapper.get('.vendor-label').text()).toBe(vendorName)
+    expect(wrapper.find('#modelGrid img, #modelGrid [onload], #modelGrid [onerror]').exists()).toBe(false)
   })
 
   it.each([
     { code: 1, data: defaultModels },
     { code: 0, data: [{ ...defaultModels[0], input: -1 }] },
-  ])('接口失败或价格非法时显示重试，恢复后展示最新报价', async (payload) => {
-    const { homeDocument, fetchModels } = createBrandHome(false, payload)
-    await vi.waitFor(() => expect(homeDocument.querySelector('[data-retry-models]')).not.toBeNull())
-    expect(homeDocument.querySelectorAll('.model-card')).toHaveLength(0)
-    expect(homeDocument.querySelector('#modelCount')?.textContent).toBe('—')
+  ])('接口失败或价格非法时可重试并恢复最新报价', async payload => {
+    const { wrapper } = await mountHome('/home#pricing', payload)
+    expect(wrapper.findAll('.model-card')).toHaveLength(0)
+    expect(wrapper.get('#modelCount').text()).toBe('—')
     fetchModels.mockResolvedValueOnce({ ok: true, json: async () => ({ code: 0, data: [{ ...defaultModels[0], input: 9.99 }] }) })
-    homeDocument.querySelector<HTMLButtonElement>('[data-retry-models]')?.click()
-    await vi.waitFor(() => expect(homeDocument.querySelector('.model-card')?.textContent).toContain('$9.99/M'))
+    await wrapper.get('[data-retry-models]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.model-card').text()).toContain('$9.99/M')
     expect(fetchModels).toHaveBeenCalledTimes(2)
   })
 
-  it('管理员控制台入口指向顶层管理仪表盘', () => {
-    localStorage.setItem('auth_token', 'test-token')
-    localStorage.setItem('auth_user', JSON.stringify({ role: 'admin' }))
-    const { homeDocument } = createBrandHome(true)
-
-    for (const link of homeDocument.querySelectorAll<HTMLAnchorElement>('.auth-only, #primaryCta')) {
-      expect(link.getAttribute('href')).toBe('/admin/dashboard')
-      expect(link.target).toBe('_top')
-      expect(link.hidden).toBe(false)
+  it.each([false, true])('登录用户的控制台路径匹配管理员状态 %s', async isAdmin => {
+    authStore.isAuthenticated = true
+    authStore.isAdmin = isAdmin
+    const { wrapper } = await mountHome()
+    for (const link of wrapper.findAll('.auth-only, #primaryCta')) {
+      expect(link.attributes('href')).toBe(isAdmin ? '/admin/dashboard' : '/dashboard')
     }
+    expect(wrapper.find('.guest-only').exists()).toBe(false)
   })
 
-  it('内嵌页面切换主题时同步父文档和持久化设置', () => {
-    const { homeDocument, parentDocument } = createBrandHome(true)
-    homeDocument.querySelector<HTMLButtonElement>('#themeButton')?.click()
+  it('游客登录注册导航与移动菜单保留，点击后菜单关闭', async () => {
+    const { wrapper } = await mountHome()
+    expect(wrapper.get('.login-button').attributes('href')).toBe('/login')
+    expect(wrapper.get('.register-button').attributes('href')).toBe('/register')
+    expect(wrapper.get('#primaryCta').attributes('href')).toBe('/register')
+    await wrapper.get('#menuButton').trigger('click')
+    expect(wrapper.get('#menuButton').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#mobileNav').attributes('hidden')).toBeUndefined()
+    await wrapper.get('#mobileNav a[href="/home#pricing"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('#mobileNav').attributes('hidden')).toBeDefined()
+  })
 
-    expect(homeDocument.documentElement.classList.contains('dark')).toBe(true)
-    expect(parentDocument.documentElement.classList.contains('dark')).toBe(true)
+  it('主题更新当前应用文档，语言通过应用国际化同步', async () => {
+    const { wrapper } = await mountHome()
+    await wrapper.get('#themeButton').trigger('click')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(wrapper.get('.brand-home').classes()).toContain('is-dark')
     expect(localStorage.getItem('theme')).toBe('dark')
+    await wrapper.get('#languageButton').trigger('click')
+    await flushPromises()
+    expect(changeLocale).toHaveBeenCalledWith('en')
+    expect(wrapper.get('.login-button').text()).toBe('Log in')
+    await wrapper.get('#themeButton').trigger('click')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+  })
 
-    homeDocument.querySelector<HTMLButtonElement>('#themeButton')?.click()
-    expect(parentDocument.documentElement.classList.contains('dark')).toBe(false)
-    expect(localStorage.getItem('theme')).toBe('light')
+  it('离开首页终止尚未完成的模型请求', async () => {
+    fetchModels.mockImplementationOnce(() => new Promise(() => {}))
+    const { wrapper } = await mountHome()
+    const signal = fetchModels.mock.calls[0]?.[1].signal as AbortSignal
+    expect(signal.aborted).toBe(false)
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
   })
 })

@@ -109,6 +109,39 @@ describe('RegisterView', () => {
     registerMock.mockResolvedValue({})
   })
 
+  it.each([
+    [true, 'auth.registerEmailVerificationDescription'],
+    [false, 'auth.registerAccountDescription']
+  ])('describes the configured email verification flow: %s', async (enabled, description) => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      site_name: '开发者服务',
+      email_verify_enabled: enabled
+    })
+
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.get('h2').text()).toBe('auth.signUp 开发者服务')
+    expect(wrapper.text()).toContain(description)
+    expect(wrapper.findAll('.auth-registration-benefits span')).toHaveLength(3)
+    expect(wrapper.get('#confirmPassword').exists()).toBe(true)
+  })
+
+  it('hides the registration form and benefits when registration is disabled', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      registration_enabled: false
+    })
+
+    const wrapper = mountRegister()
+    await flushPromises()
+
+    expect(wrapper.find('form').exists()).toBe(false)
+    expect(wrapper.find('.auth-registration-benefits').exists()).toBe(false)
+    expect(wrapper.text()).toContain('auth.registrationDisabled')
+  })
+
   it('does not flash the promo-code field before disabled settings finish loading', async () => {
     let resolveSettings!: (settings: typeof publicSettings) => void
     getPublicSettingsMock.mockReturnValueOnce(

@@ -90,14 +90,105 @@
     </footer>
   </div>
 
-  <!-- 品牌首页保持独立样式，登录等应用导航由页面跳转到顶层窗口。 -->
-  <iframe
-    v-else-if="!classicHomeEnabled"
-    src="/i2.html"
-    title="众智AI 首页"
-    data-testid="brand-home"
-    class="block h-screen w-full border-0"
-  ></iframe>
+  <!-- 品牌首页直接由 Home 渲染，复用应用路由、登录状态和后台模型配置。 -->
+  <div v-else-if="!classicHomeEnabled" class="brand-home" :class="{ 'is-dark': isDark }" data-testid="brand-home">
+    <header class="header">
+      <div class="nav">
+        <router-link class="brand" :to="{ hash: '#home', query: route.query }" :aria-label="brandSiteName + brandT('home')"><span class="logo"><img v-if="siteLogo" :src="siteLogo" alt="" /><template v-else>智</template></span><span>{{ brandSiteName }}</span></router-link>
+        <nav class="desktop-nav" aria-label="主要导航">
+          <router-link class="nav-link" :class="{ active: brandView === 'home' }" :to="{ hash: '#home', query: route.query }">{{ brandT('home') }}</router-link>
+          <router-link class="nav-link" :class="{ active: brandView === 'pricing' }" :to="{ hash: '#pricing', query: route.query }">{{ brandT('pricing') }}</router-link>
+        </nav>
+        <div class="actions">
+          <button class="icon-button language-button" id="languageButton" type="button" :disabled="brandLocaleSwitching" aria-label="切换语言 / Switch language" @click="toggleBrandLocale">{{ brandLocale === 'zh' ? '文A' : 'A文' }}</button>
+          <button class="icon-button" id="themeButton" type="button" :aria-label="brandT(isDark ? 'toLight' : 'toDark')" :title="brandT(isDark ? 'toLight' : 'toDark')" @click="toggleTheme"><Icon :name="isDark ? 'sun' : 'moon'" size="md" /></button>
+          <router-link class="auth-button login-button shine guest-only" to="/login" v-if="!isAuthenticated">{{ brandT('login') }}</router-link>
+          <router-link class="auth-button register-button guest-only" to="/register" v-if="!isAuthenticated">{{ brandT('register') }}</router-link>
+          <router-link class="auth-button console-button shine auth-only" :to="dashboardPath" v-if="isAuthenticated">
+            <span>{{ brandT('console') }}</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10"/></svg>
+          </router-link>
+          <button class="menu-button" id="menuButton" type="button" :aria-label="brandT(brandMenuOpen ? 'closeMenu' : 'openMenu')" :aria-expanded="brandMenuOpen" aria-controls="mobileNav" @click="brandMenuOpen = !brandMenuOpen"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path :d="brandMenuOpen ? 'M6 18 18 6M6 6l12 12' : 'M4 7h16M4 12h16M4 17h16'" /></svg></button>
+        </div>
+      </div>
+      <nav class="mobile-nav" id="mobileNav" aria-label="移动端导航" :hidden="!brandMenuOpen" @click="brandMenuOpen = false" @keydown.esc="brandMenuOpen = false">
+        <router-link :to="{ hash: '#home', query: route.query }">{{ brandT('home') }}</router-link>
+        <router-link :to="{ hash: '#pricing', query: route.query }">{{ brandT('pricing') }}</router-link>
+        <router-link class="guest-only" to="/login" v-if="!isAuthenticated">{{ brandT('login') }}</router-link>
+        <router-link class="guest-only" to="/register" v-if="!isAuthenticated">{{ brandT('register') }}</router-link>
+        <router-link class="auth-only" :to="dashboardPath" v-if="isAuthenticated">{{ brandT('console') }}</router-link>
+      </nav>
+    </header>
+
+    <main>
+      <section class="view" id="homeView" :hidden="brandView !== 'home'">
+        <div class="hero">
+          <div class="hero-glow" aria-hidden="true"></div>
+          <h1>{{ brandSiteName }}</h1>
+          <p class="brand-subtitle">{{ brandT('subtitle') }}</p>
+          <p class="tagline">{{ brandT('tagline') }}</p>
+          <router-link class="primary-cta shine" id="primaryCta" :to="isAuthenticated ? dashboardPath : '/register'"><span>{{ brandT(isAuthenticated ? 'console' : 'getKey') }}</span><svg v-if="isAuthenticated" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 17 17 7M7 7h10v10" /></svg></router-link>
+          <div class="stats" aria-label="平台数据">
+            <div class="stat"><strong id="modelCount">{{ modelLoadState === 'loaded' ? homeModels.length : '—' }}</strong><span>{{ brandT('modelsAvailable') }}</span></div>
+            <div class="stat"><strong>99.9%</strong><span>{{ brandT('availability') }}</span></div>
+            <div class="stat"><strong>200ms</strong><span>{{ brandT('latency') }}</span></div>
+          </div>
+        </div>
+        <section class="features" id="support" aria-label="平台能力">
+          <article class="feature-card"><div class="feature-icon"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 20V9l8-5 8 5v11M2 20h20M8 20v-6h8v6"/></svg></div><h2>{{ brandT('pool') }}</h2><p>{{ brandT('poolDesc') }}</p></article>
+          <article class="feature-card"><div class="feature-icon"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m13 2-9 12h7l-1 8 9-12h-7l1-8Z"/></svg></div><h2>{{ brandT('speed') }}</h2><p>{{ brandT('speedDesc') }}</p></article>
+          <article class="feature-card"><div class="feature-icon"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z"/><path d="m9 12 2 2 4-4"/></svg></div><h2>{{ brandT('reliable') }}</h2><p>{{ brandT('reliableDesc') }}</p></article>
+          <article class="feature-card"><div class="feature-icon"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 3v18h18M7 15l4-4 3 3 5-7"/></svg></div><h2>{{ brandT('billing') }}</h2><p>{{ brandT('billingDesc') }}</p></article>
+        </section>
+        <section class="families" aria-label="支持的模型家族"><span>GPT</span><span>Claude</span></section>
+      </section>
+
+      <section class="view pricing-view" id="pricingView" :hidden="brandView !== 'pricing'">
+        <div v-if="modelLoadState === 'loaded' && homeModels.length" class="filters" id="filters" aria-label="模型类型筛选">
+          <button v-for="filter in modelFilters" :key="filter.type" class="filter-button" :class="{ active: modelType === filter.type }" type="button" :data-filter-type="filter.type" :aria-pressed="modelType === filter.type" @click="modelType = filter.type">
+            <span>{{ brandT(filter.label) }}</span><span class="filter-count">{{ filter.count }}</span>
+          </button>
+        </div>
+        <section class="model-grid" id="modelGrid" aria-live="polite" :aria-busy="modelLoadState === 'loading'">
+          <div v-if="modelLoadState === 'loading'" class="model-status"><span>{{ brandT('loadingModels') }}</span></div>
+          <div v-else-if="modelLoadState === 'error'" class="model-status" role="alert">
+            <strong>{{ brandT('loadFailed') }}</strong><span>{{ brandT('loadFailedDesc') }}</span>
+            <button class="retry-button" type="button" data-retry-models @click="loadHomeModels">{{ brandT('retry') }}</button>
+          </div>
+          <div v-else-if="filteredHomeModels.length === 0" class="model-status"><span>{{ brandT('emptyModels') }}</span></div>
+          <template v-else>
+            <article v-for="(model, index) in filteredHomeModels" :key="index" class="model-card" :class="{ 'image-card': model.type === 'image' }">
+              <div class="model-head">
+                <h2 class="model-name">{{ model.name }}</h2>
+                <span class="vendor" :class="getBrandVendor(model.vendor) ? 'vendor-' + model.vendor.trim().toLowerCase() : ''">
+                  <span v-if="getBrandVendor(model.vendor)" class="vendor-icon" aria-hidden="true"><svg :viewBox="getBrandVendor(model.vendor)?.viewBox" fill="currentColor"><path :d="getBrandVendor(model.vendor)?.path" /></svg></span>
+                  <span class="vendor-label">{{ getBrandVendor(model.vendor)?.label || model.vendor }}</span>
+                </span>
+              </div>
+              <template v-if="model.type === 'text'">
+                <div class="cache-badge">{{ brandT('tokenUnit') }}</div>
+                <div class="price-grid">
+                  <div class="price"><span>{{ brandT('input') }}</span><strong>{{ formatHomePrice(model.input) }}<small>/M</small></strong></div>
+                  <div class="price"><span>{{ brandT('output') }}</span><strong>{{ formatHomePrice(model.output) }}<small>/M</small></strong></div>
+                </div>
+                <hr />
+                <div class="cache-row"><span>{{ brandT('cachedInput') }}</span><strong>{{ formatHomePrice(model.cachedInput) }}/M</strong></div>
+                <div class="cache-row"><span>{{ brandT('flexInput') }}</span><strong>{{ formatHomePrice(model.flexInput) }}/M</strong></div>
+              </template>
+              <template v-else>
+                <div class="cache-badge">{{ brandT('imageGeneration') }}</div>
+                <div class="image-price-grid">
+                  <div v-for="size in imageResolutions" :key="size" class="image-price"><span>{{ size }}</span><strong>{{ formatHomePrice(model.resolutionPrices[size]) }}</strong><small>{{ brandT('perImage') }}</small></div>
+                </div>
+                <p class="image-note">{{ brandT('resolutionPricing') }}</p>
+              </template>
+            </article>
+          </template>
+        </section>
+      </section>
+    </main>
+    <footer class="footer">&copy; <span id="year">{{ currentYear }}</span> {{ brandSiteName }}. <span>{{ brandT('rights') }}</span></footer>
+  </div>
 
   <!-- 经典首页可通过 ?view=classic 访问。 -->
   <div
@@ -503,7 +594,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 import { useAuthStore, useAppStore } from '@/stores'
@@ -512,7 +603,11 @@ import Icon from '@/components/icons/Icon.vue'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
-const { t } = useI18n()
+import { setLocale } from '@/i18n'
+import type { HomeModel } from '@/api/admin/homeModels'
+import { brandMessages, formatHomePrice, getBrandVendor, isValidHomeModel, type BrandMessageKey } from './home/brandHome'
+
+const { t, locale } = useI18n()
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -524,9 +619,18 @@ const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'AI API Gateway Platform')
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
-const hasHomeContent = computed(() => homeContent.value.trim().length > 0)
-const compactHomeEnabled = computed(() => appStore.cachedPublicSettings?.compact_home_enabled === true)
-const classicHomeEnabled = computed(() => route.query.view === 'classic')
+// 兼容已保存的旧首页地址，避免升级后再次进入静态页面 iframe。
+const legacyBrandHome = computed(() => {
+  try {
+    const url = new URL(homeContent.value.trim(), window.location.origin)
+    return url.origin === window.location.origin && url.pathname === '/i2.html' ? url : null
+  } catch {
+    return null
+  }
+})
+const hasHomeContent = computed(() => homeContent.value.trim().length > 0 && !legacyBrandHome.value)
+const compactHomeEnabled = computed(() => !legacyBrandHome.value && appStore.cachedPublicSettings?.compact_home_enabled === true)
+const classicHomeEnabled = computed(() => !legacyBrandHome.value && route.query.view === 'classic')
 const homeContentIframeSrc = computed(() => sanitizeUrl(homeContent.value, { allowRelative: true }))
 const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
 
@@ -579,6 +683,76 @@ function initTheme() {
   }
 }
 
+// 品牌首页保留原稿布局，动态数据通过 Vue 文本插值输出，避免模型配置注入 HTML。
+const brandSiteName = computed(() => siteName.value === 'Sub2API' ? '众智AI' : siteName.value)
+const brandLocale = computed(() => locale?.value === 'en' ? 'en' : 'zh')
+const brandLocaleSwitching = ref(false)
+const brandMenuOpen = ref(false)
+const brandView = computed(() => (route.hash || legacyBrandHome.value?.hash) === '#pricing' ? 'pricing' : 'home')
+const brandHomeActive = computed(() => !hasHomeContent.value && !compactHomeEnabled.value && !classicHomeEnabled.value)
+const homeModels = ref<HomeModel[]>([])
+const modelLoadState = ref<'loading' | 'loaded' | 'error'>('loading')
+const modelType = ref<'all' | 'text' | 'image'>('all')
+const imageResolutions = ['1K', '2K', '4K'] as const
+const filteredHomeModels = computed(() => modelType.value === 'all' ? homeModels.value : homeModels.value.filter(model => model.type === modelType.value))
+const modelFilters = computed(() => [
+  { type: 'all' as const, label: 'all' as const, count: homeModels.value.length },
+  { type: 'text' as const, label: 'textModels' as const, count: homeModels.value.filter(model => model.type === 'text').length },
+  { type: 'image' as const, label: 'imageModels' as const, count: homeModels.value.filter(model => model.type === 'image').length },
+])
+let modelRequest: AbortController | undefined
+
+function brandT(key: BrandMessageKey) {
+  return brandMessages[brandLocale.value][key]
+}
+
+async function toggleBrandLocale() {
+  if (brandLocaleSwitching.value) return
+  brandLocaleSwitching.value = true
+  try {
+    await setLocale(brandLocale.value === 'zh' ? 'en' : 'zh')
+  } finally {
+    brandLocaleSwitching.value = false
+  }
+}
+
+async function loadHomeModels() {
+  modelRequest?.abort()
+  const controller = new AbortController()
+  modelRequest = controller
+  modelLoadState.value = 'loading'
+  const timeout = window.setTimeout(() => controller.abort(), 15000)
+  try {
+    const response = await fetch('/api/v1/settings/home-models', { cache: 'no-store', signal: controller.signal })
+    if (!response.ok) throw new Error('模型接口请求失败')
+    const payload = await response.json()
+    if (payload.code !== 0 || !Array.isArray(payload.data) || !payload.data.every(isValidHomeModel)) throw new Error('模型数据格式无效')
+    if (modelRequest !== controller) return
+    homeModels.value = payload.data
+    modelLoadState.value = 'loaded'
+    if (modelType.value !== 'all' && !homeModels.value.some(model => model.type === modelType.value)) modelType.value = 'all'
+  } catch {
+    if (modelRequest !== controller) return
+    homeModels.value = []
+    modelLoadState.value = 'error'
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+watch(brandHomeActive, active => {
+  if (active) void loadHomeModels()
+  else {
+    modelRequest?.abort()
+    modelRequest = undefined
+  }
+}, { immediate: true })
+watch(() => route.hash, () => { brandMenuOpen.value = false })
+onBeforeUnmount(() => {
+  modelRequest?.abort()
+  modelRequest = undefined
+})
+
 onMounted(() => {
   initTheme()
 
@@ -593,6 +767,319 @@ onMounted(() => {
 </script>
 
 <style scoped>
+/* 原始首页样式限制在品牌根节点内，不影响紧凑首页和经典首页。 */
+
+    .brand-home {
+      color-scheme: light;
+      --page: #f9fafb;
+      --card: rgba(255,255,255,.82);
+      --text: #242b3a;
+      --body: #6b7280;
+      --muted: #8a90a1;
+      --purple: #5b21b6;
+      --purple-2: #a78bfa;
+      --purple-light: #ede9fe;
+      --line: #e5e7eb;
+      --shadow: rgba(15,23,42,.05);
+      --container: 1280px;
+    }
+    .brand-home.is-dark {
+      color-scheme: dark;
+      --page: #07111f;
+      --card: rgba(25,35,53,.84);
+      --text: #f3f4f6;
+      --body: #aeb7c7;
+      --muted: #8792a6;
+      --purple: #a78bfa;
+      --purple-2: #c4b5fd;
+      --purple-light: rgba(124,58,237,.18);
+      --line: #334155;
+      --shadow: rgba(0,0,0,.24);
+    }
+    .brand-home * { box-sizing: border-box; }
+    .brand-home { scroll-behavior: smooth; }
+    .brand-home {
+      margin: 0;
+      min-width: 320px;
+      overflow-x: hidden;
+      color: var(--text);
+      background: var(--page);
+      font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"PingFang SC","Microsoft YaHei",sans-serif;
+      line-height: normal;
+      transition: color .24s ease,background-color .24s ease;
+    }
+    .brand-home button,.brand-home a { font: inherit; }
+    .brand-home button { cursor: pointer; }
+    .brand-home a { color: inherit;text-decoration: none; }
+    .brand-home svg { display: block; }
+    .brand-home :focus-visible { outline: 3px solid rgba(124,58,237,.42);outline-offset: 3px; }
+    .brand-home [hidden] { display: none !important; }
+
+    .brand-home {
+      position: relative;
+      min-height: 100vh;
+      overflow: hidden;
+      isolation: isolate;
+      background:
+        radial-gradient(circle at 50% 48%,rgba(139,92,246,.11),transparent 480px),
+        linear-gradient(#fff,#fbfcff);
+      transition: background .24s ease;
+    }
+    .brand-home::before {
+      content: "";
+      position: fixed;
+      z-index: -2;
+      inset: 0;
+      pointer-events: none;
+      background-image: radial-gradient(rgba(17,24,39,.12) 1px,transparent 1px);
+      background-size: 24px 24px;
+      opacity: .34;
+      mask-image: linear-gradient(to bottom,#000,transparent 76%);
+    }
+    .brand-home::after {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      top: 108px;
+      left: 50%;
+      width: min(76vw,920px);
+      height: 560px;
+      pointer-events: none;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 24% 58%,rgba(59,130,246,.11),transparent 52%),
+        radial-gradient(circle at 72% 38%,rgba(139,92,246,.17),transparent 57%);
+      filter: blur(24px);
+      transform: translateX(-50%);
+      animation: background-drift 10s ease-in-out infinite alternate;
+    }
+    .brand-home.is-dark {
+      background:
+        radial-gradient(circle at 50% 44%,rgba(124,58,237,.17),transparent 520px),
+        linear-gradient(#081321,#07111f);
+    }
+    .brand-home.is-dark::before {
+      background-image: radial-gradient(rgba(148,163,184,.18) 1px,transparent 1px);
+      opacity: .25;
+    }
+    .brand-home.is-dark::after {
+      background:
+        radial-gradient(circle at 24% 58%,rgba(14,165,233,.14),transparent 50%),
+        radial-gradient(circle at 72% 38%,rgba(139,92,246,.24),transparent 58%);
+      opacity: .82;
+    }
+    @keyframes background-drift {
+      from { transform: translateX(-50%) translate3d(-18px,-8px,0) scale(.98); }
+      to { transform: translateX(-50%) translate3d(24px,14px,0) scale(1.04); }
+    }
+
+    .brand-home .header { position: relative;z-index: 20;height: 88px;padding: 20px 48px; }
+    .brand-home .nav { height: 48px;display: grid;grid-template-columns: 1fr auto 1fr;align-items: center; }
+    .brand-home .brand { justify-self: start;display: inline-flex;align-items: center;gap: 10px;font-size: 19.5px;font-weight: 850; }
+    .brand-home .logo {
+      width: 36px;height: 36px;display: grid;place-items: center;border-radius: 50%;
+      color: #fff;background: linear-gradient(135deg,#7c3aed,#db2777);
+      box-shadow: 0 8px 22px rgba(91,33,182,.24);font-size: 15px;font-weight: 900;
+    }
+    .brand-home .desktop-nav { display: flex;align-items: center;gap: 3px; }
+    .brand-home .nav-link,.brand-home .icon-button,.brand-home .auth-button,.brand-home .menu-button,.brand-home .filter-button,.brand-home .primary-cta {
+      border: 1px solid transparent;
+      transition: color .2s ease,background .2s ease,border-color .2s ease,box-shadow .2s ease,transform .2s ease;
+    }
+    .brand-home .nav-link {
+      min-height: 40px;display: inline-flex;align-items: center;border-radius: 999px;
+      padding: 0 14px;color: var(--body);font-size: 15.2px;font-weight: 750;
+    }
+    .brand-home .nav-link:hover,.brand-home .nav-link.active { color: var(--purple);background: rgba(124,58,237,.07);border-color: rgba(124,58,237,.3); }
+    .brand-home .actions { justify-self: end;display: flex;align-items: center;gap: 4px; }
+    .brand-home .icon-button,.brand-home .menu-button {
+      width: 40px;height: 38px;display: grid;place-items: center;border-radius: 999px;
+      color: var(--body);background: transparent;
+    }
+    .brand-home .icon-button:hover,.brand-home .menu-button:hover { color: var(--purple);border-color: rgba(124,58,237,.38);background: rgba(255,255,255,.72); }
+    .brand-home.is-dark .icon-button:hover,.brand-home.is-dark .menu-button:hover { background: rgba(255,255,255,.08); }
+    .brand-home .language-button { width: 44px;font-size: 13px;font-weight: 850; }
+    .brand-home .auth-button {
+      position: relative;overflow: hidden;min-width: 64px;height: 38px;display: inline-flex;
+      align-items: center;justify-content: center;gap: 6px;border-radius: 999px;padding: 0 15px;
+      font-size: 14.4px;font-weight: 850;
+    }
+    .brand-home .auth-button:hover { transform: scale(1.06); }
+    .brand-home .login-button { color: var(--purple);border-color: rgba(91,33,182,.34);background: rgba(255,255,255,.16); }
+    .brand-home .register-button,.brand-home .console-button {
+      color: #fff;background: linear-gradient(#5b21b6,#a78bfa);
+      box-shadow: 0 10px 20px rgba(91,33,182,.22);
+    }
+    .brand-home .register-button:hover,.brand-home .console-button:hover { border-color: rgba(255,255,255,.78);box-shadow: 0 14px 30px rgba(91,33,182,.36); }
+    .brand-home .shine::after {
+      content: "";position: absolute;inset: -160%;pointer-events: none;opacity: 0;
+      background: linear-gradient(135deg,transparent 43.5%,rgba(167,139,250,.08) 47%,rgba(255,255,255,.92) 50%,rgba(196,181,253,.58) 53%,transparent 56.5%);
+      transform: translate3d(-38%,-38%,0);will-change: transform,opacity;
+    }
+    .brand-home .shine:hover::after { animation: button-shine .84s cubic-bezier(.22,.61,.36,1) both; }
+    @keyframes button-shine {
+      0% { transform: translate3d(-38%,-38%,0);opacity: 0; }
+      14% { opacity: 1; }
+      86% { opacity: 1; }
+      100% { transform: translate3d(38%,38%,0);opacity: 0; }
+    }
+    .brand-home .menu-button { display: none; }
+    .brand-home .mobile-nav {
+      position: absolute;top: 70px;right: 16px;left: 16px;display: grid;gap: 3px;padding: 10px;
+      border: 1px solid var(--line);border-radius: 14px;background: var(--card);
+      box-shadow: 0 18px 50px rgba(40,25,80,.13);backdrop-filter: blur(18px);
+    }
+    .brand-home .mobile-nav a { min-height: 42px;display: flex;align-items: center;border-radius: 10px;padding: 0 12px;color: var(--body); }
+    .brand-home .mobile-nav a:hover { color: var(--purple);background: var(--purple-light); }
+
+    .brand-home .view { width: min(var(--container),calc(100% - 32px));margin: auto; }
+    .brand-home .hero {
+      position: relative;overflow: hidden;min-height: 497px;padding: 4px 32px 45px;
+      display: flex;flex-direction: column;align-items: center;text-align: center;
+    }
+    .brand-home .hero-glow {
+      position: absolute;z-index: -1;top: 94px;left: 50%;width: 420px;height: 330px;
+      pointer-events: none;background:
+        radial-gradient(circle,rgba(139,92,246,.22),transparent 58%),
+        radial-gradient(circle at 45% 65%,rgba(59,130,246,.1),transparent 62%);
+      filter: blur(18px);transform: translateX(-50%);animation: hero-breathe 6s ease-in-out infinite;
+    }
+    @keyframes hero-breathe {
+      0%,100% { opacity: .74;transform: translateX(-50%) scale(.96); }
+      50% { opacity: 1;transform: translateX(-50%) scale(1.06); }
+    }
+    .brand-home h1 {
+      width: 100%;margin: 0;background: linear-gradient(#111827,#374151 76%,#6b7280);
+      background-clip: text;-webkit-background-clip: text;-webkit-text-fill-color: transparent;
+      font-size: clamp(58px,5.95vw,85.6px);line-height: .95;font-weight: 950;
+    }
+    .brand-home.is-dark h1 { background: linear-gradient(#fff,#e5e7eb 72%,#94a3b8);background-clip: text;-webkit-background-clip: text; }
+    .brand-home .brand-subtitle { margin: 15px 0 0;color: var(--body);font-size: clamp(25px,2.33vw,33.6px);line-height: 1.5; }
+    .brand-home .tagline { margin: 5px 0 0;color: var(--muted);font-size: clamp(17px,1.42vw,20.5px);line-height: 1.62; }
+    .brand-home .primary-cta {
+      position: relative;overflow: hidden;width: 136px;height: 50px;display: inline-flex;align-items: center;
+      justify-content: center;gap: 7px;margin-top: 51px;border-color: #25252b;border-radius: 12px;
+      color: #fff;background: linear-gradient(#25252b,#141418);
+      box-shadow: 0 18px 34px rgba(17,24,39,.2),inset 0 1px 0 rgba(255,255,255,.14);
+      font-size: 14.4px;font-weight: 900;
+    }
+    .brand-home .primary-cta:hover { transform: translateY(-3px);border-color: #a78bfa;box-shadow: 0 22px 40px rgba(91,33,182,.25); }
+    .brand-home.is-dark .primary-cta { border-color: #6d28d9;background: linear-gradient(#7c3aed,#5b21b6); }
+    .brand-home .stats { display: grid;grid-template-columns: repeat(3,156.8px);justify-content: center;gap: 64.8px;margin-top: 44px; }
+    .brand-home .stat strong {
+      display: block;background: linear-gradient(#5b21b6,#a78bfa);background-clip: text;
+      -webkit-background-clip: text;-webkit-text-fill-color: transparent;font-size: 40.8px;line-height: 1;font-weight: 950;
+    }
+    .brand-home .stat span { display: block;margin-top: 8px;color: var(--body);font-size: 13px; }
+
+    .brand-home .features { display: grid;grid-template-columns: repeat(4,1fr);gap: 20px;padding: 0 32px 28px; }
+    .brand-home .feature-card,.brand-home .model-card {
+      border: 1px solid var(--line);border-radius: 18px;background: var(--card);
+      box-shadow: 0 22px 44px var(--shadow),inset 0 1px 0 rgba(255,255,255,.25);
+      transition: transform .26s cubic-bezier(.2,.8,.2,1),border-color .26s ease,box-shadow .26s ease,background .26s ease;
+    }
+    .brand-home .feature-card { min-height: 242px;padding: 26px 25px;text-align: left; }
+    .brand-home .feature-card:hover,.brand-home .model-card:hover { transform: translateY(-8px);border-color: #a78bfa;box-shadow: 0 30px 58px rgba(76,29,149,.16); }
+    .brand-home.is-dark .feature-card:hover,.brand-home.is-dark .model-card:hover { border-color: #7c3aed;box-shadow: 0 30px 60px rgba(0,0,0,.34),0 0 34px rgba(124,58,237,.11); }
+    .brand-home .feature-icon { width: 48px;height: 48px;display: grid;place-items: center;border-radius: 14px;color: var(--purple);background: var(--purple-light); }
+    .brand-home .feature-card h2 { margin: 23px 0 10px;font-size: 20px;font-weight: 850; }
+    .brand-home .feature-card p { margin: 0;color: var(--body);font-size: 14px;line-height: 1.75; }
+    .brand-home .families { min-height: 86px;display: flex;align-items: center;justify-content: center;gap: 34px;color: var(--body);font-size: 22px;font-weight: 850; }
+
+    .brand-home .pricing-view { min-height: calc(100vh - 88px);padding: 26px 32px 70px; }
+    .brand-home .filters { display: flex;flex-wrap: wrap;gap: 10px;padding: 15px 0 22px; }
+    .brand-home .filter-button {
+      min-height: 42px;display: inline-flex;align-items: center;gap: 9px;border-color: var(--line);
+      border-radius: 999px;padding: 0 17px;color: var(--body);background: var(--card);font-size: 14px;font-weight: 750;
+    }
+    .brand-home .filter-button:hover { transform: translateY(-2px);border-color: #a78bfa; }
+    .brand-home .filter-button.active { color: #fff;border-color: var(--purple);background: var(--purple); }
+    .brand-home .filter-count { min-width: 23px;padding: 2px 6px;border-radius: 999px;color: var(--purple);background: var(--purple-light);font-size: 11px; }
+    .brand-home .filter-button.active .filter-count { color: #4c1d95;background: #fff; }
+    .brand-home .model-grid { display: grid;grid-template-columns: repeat(4,1fr);gap: 16px; }
+    .brand-home .model-status {
+      grid-column: 1/-1;min-height: 280px;display: flex;flex-direction: column;align-items: center;
+      justify-content: center;gap: 13px;color: var(--body);text-align: center;
+    }
+    .brand-home .model-status strong { color: var(--text);font-size: 17px; }
+    .brand-home .retry-button {
+      min-height: 40px;border: 1px solid var(--line);border-radius: 10px;padding: 0 16px;
+      color: var(--purple);background: var(--card);font-weight: 800;
+    }
+    .brand-home .retry-button:hover { border-color: var(--purple);transform: translateY(-2px); }
+    .brand-home .model-card { min-height: 285px;padding: 23px;text-align: left; }
+    .brand-home .model-head { display: flex;align-items: flex-start;justify-content: space-between;gap: 12px; }
+    .brand-home .model-name { overflow-wrap: anywhere;margin: 0;font: 800 17px/1.3 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .brand-home .vendor { flex: 0 0 auto;display: inline-flex;flex-direction: column;align-items: center;gap: 4px;font-size: 10px;font-weight: 850; }
+    .brand-home .vendor-icon { width: 28px;height: 28px;display: grid;place-items: center;border-radius: 9px; }
+    .brand-home .vendor-icon svg { width: 20px;height: 20px;display: block;color: inherit; }
+    .brand-home .vendor-label { line-height: 1;text-align: center;letter-spacing: .025em; }
+    .brand-home .vendor-openai { color: rgb(22,163,74); }
+    .brand-home .vendor-openai .vendor-icon { background: rgb(236,253,245); }
+    .brand-home .vendor-anthropic { color: rgb(234,88,12); }
+    .brand-home .vendor-anthropic .vendor-icon { background: rgb(255,247,237); }
+    .brand-home .vendor-gemini { color: rgb(37,99,235); }
+    .brand-home .vendor-gemini .vendor-icon { background: rgb(239,246,255); }
+    .brand-home .vendor-grok { color: rgb(39,39,42); }
+    .brand-home .vendor-grok .vendor-icon { background: rgb(244,244,245); }
+    .brand-home .cache-badge { margin-top: 14px;color: var(--body);font-size: 11px; }
+    .brand-home .price-grid { display: grid;grid-template-columns: 1fr 1fr;gap: 18px;margin-top: 28px; }
+    .brand-home .price span { display: block;color: var(--body);font-size: 12px; }
+    .brand-home .price strong { display: block;margin-top: 6px;font-size: 20px; }
+    .brand-home .price small { color: var(--body);font-size: 10px; }
+    .brand-home .model-card hr { margin: 20px 0;border: 0;border-top: 1px solid var(--line); }
+    .brand-home .cache-row { display: flex;align-items: center;justify-content: space-between;gap: 10px;color: var(--body);font-size: 12px; }
+    .brand-home .cache-row + .cache-row { margin-top: 8px; }
+    .brand-home .cache-row strong { color: var(--text); }
+    .brand-home .image-card { grid-column: span 2;min-height: 285px; }
+    .brand-home .image-price-grid { display: grid;grid-template-columns: repeat(3,1fr);gap: 10px;margin-top: 20px; }
+    .brand-home .image-price {
+      min-width: 0;border: 1px solid var(--line);border-radius: 12px;padding: 17px 12px;
+      background: var(--purple-light);text-align: center;
+    }
+    .brand-home .image-price span { display: block;color: var(--body);font-size: 12px;font-weight: 750; }
+    .brand-home .image-price strong { display: block;margin-top: 8px;color: var(--purple);font-size: 24px; }
+    .brand-home .image-price small { display: block;margin-top: 4px;color: var(--body);font-size: 10px; }
+    .brand-home .image-note { margin: 18px 0 0;color: var(--body);font-size: 12px;line-height: 1.7; }
+    .brand-home .footer { padding: 28px 20px;color: var(--body);text-align: center;font-size: 13px; }
+
+    @media (max-width:1050px) {
+      .brand-home .features { grid-template-columns: repeat(2,1fr); }
+      .brand-home .model-grid { grid-template-columns: repeat(3,1fr); }
+      .brand-home .image-card { grid-column: span 2; }
+    }
+    @media (max-width:760px) {
+      .brand-home .header { height: 72px;padding: 16px; }
+      .brand-home .nav { height: 40px;grid-template-columns: 1fr auto; }
+      .brand-home .desktop-nav,.brand-home .auth-button { display: none; }
+      .brand-home .menu-button { display: grid; }
+      .brand-home .view { width: 100%; }
+      .brand-home .hero { min-height: 530px;padding: 44px 20px 42px;justify-content: center; }
+      .brand-home .hero-glow { width: min(420px,100vw); }
+      .brand-home h1 { font-size: clamp(54px,17vw,72px); }
+      .brand-home .brand-subtitle { font-size: 26px; }
+      .brand-home .tagline { margin-top: 10px;font-size: 17px; }
+      .brand-home .stats { width: 100%;grid-template-columns: repeat(3,1fr);gap: 0; }
+      .brand-home .stat { padding: 0 6px;border-right: 1px solid var(--line); }
+      .brand-home .stat:last-child { border-right: 0; }
+      .brand-home .stat strong { font-size: 27px; }
+      .brand-home .stat span { font-size: 11px; }
+      .brand-home .features { grid-template-columns: 1fr;gap: 12px;padding: 0 16px 24px; }
+      .brand-home .families { flex-wrap: wrap;gap: 20px;padding: 24px 16px; }
+      .brand-home .pricing-view { padding: 18px 16px 70px; }
+      .brand-home .model-grid { grid-template-columns: 1fr; }
+      .brand-home .image-card { grid-column: auto; }
+      .brand-home .image-price-grid { gap: 7px; }
+      .brand-home .image-price { padding: 15px 8px; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .brand-home { scroll-behavior: auto; }
+      .brand-home::before,.brand-home::after,.brand-home *,.brand-home *::before,.brand-home *::after { animation-duration: .01ms !important;animation-iteration-count: 1 !important;transition-duration: .01ms !important; }
+    }
+
+.brand-home .logo img { width: 100%; height: 100%; border-radius: inherit; object-fit: contain; }
+.brand-home .vendor { max-width: 45%; overflow-wrap: anywhere; }
+
 /* Terminal Container */
 .terminal-container {
   position: relative;

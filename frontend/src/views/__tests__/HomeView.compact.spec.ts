@@ -81,6 +81,7 @@ describe('HomeView compact mode', () => {
     authStore.checkAuth.mockClear()
     appStore.fetchPublicSettings.mockClear()
     localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ code: 0, data: [] }) }))
     vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
   })
 
@@ -104,13 +105,13 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
   })
 
-  it('renders same-origin custom URL content in iframe mode', () => {
+  it('其他同源自定义页面地址仍使用 iframe 模式', () => {
     const wrapper = mountHome({
       compact_home_enabled: true,
-      home_content: ' /i2.html ',
+      home_content: ' /custom-home.html ',
     })
 
-    expect(wrapper.get('iframe').attributes('src')).toBe('/i2.html')
+    expect(wrapper.get('iframe').attributes('src')).toBe('/custom-home.html')
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
   })
 
@@ -125,7 +126,8 @@ describe('HomeView compact mode', () => {
     const wrapper = mountHome(settings)
 
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="brand-home"]').attributes('src')).toBe('/i2.html')
+    expect(wrapper.get('[data-testid="brand-home"]').element.tagName).toBe('DIV')
+    expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.find('.terminal-container').exists()).toBe(false)
   })
 
