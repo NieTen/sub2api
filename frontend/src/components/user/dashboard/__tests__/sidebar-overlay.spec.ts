@@ -234,7 +234,7 @@ describe('仪表盘页面模块', () => {
     const deepLink = new URL(assign.mock.calls[0][0])
     expect(deepLink.protocol).toBe('ccswitch:')
     expect(deepLink.searchParams.get('app')).toBe('codex')
-    expect(deepLink.searchParams.get('endpoint')).toBe('https://api.example.test')
+    expect(deepLink.searchParams.get('endpoint')).toBe('https://api.example.test/v1')
     expect(deepLink.searchParams.get('apiKey')).toBe('sk-test-abcdef123456')
     expect(deepLink.searchParams.get('usageEnabled')).toBe('true')
     expect(deepLink.searchParams.get('usageAutoInterval')).toBe('30')
