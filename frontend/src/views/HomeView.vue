@@ -90,7 +90,16 @@
     </footer>
   </div>
 
-  <!-- Default Home Page -->
+  <!-- 品牌首页保持独立样式，登录等应用导航由页面跳转到顶层窗口。 -->
+  <iframe
+    v-else-if="!classicHomeEnabled"
+    src="/i2.html"
+    title="众智AI 首页"
+    data-testid="brand-home"
+    class="block h-screen w-full border-0"
+  ></iframe>
+
+  <!-- 经典首页可通过 ?view=classic 访问。 -->
   <div
     v-else
     class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
@@ -496,6 +505,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute } from 'vue-router'
 import { useAuthStore, useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -506,6 +516,7 @@ const { t } = useI18n()
 
 const authStore = useAuthStore()
 const appStore = useAppStore()
+const route = useRoute()
 
 // Site settings - directly from appStore (already initialized from injected config)
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
@@ -515,6 +526,7 @@ const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const hasHomeContent = computed(() => homeContent.value.trim().length > 0)
 const compactHomeEnabled = computed(() => appStore.cachedPublicSettings?.compact_home_enabled === true)
+const classicHomeEnabled = computed(() => route.query.view === 'classic')
 const homeContentIframeSrc = computed(() => sanitizeUrl(homeContent.value, { allowRelative: true }))
 const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
 

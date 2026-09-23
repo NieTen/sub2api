@@ -128,38 +128,30 @@
 
       <!-- Regular User View -->
       <template v-else-if="!appStore.backendModeEnabled">
-        <template v-for="section in userNavSections" :key="section.key">
-          <div class="sidebar-section">
-            <div
-              v-if="section.title"
-              class="sidebar-section-title"
-              :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }"
-              :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
-            >
-              <span
-                class="sidebar-section-title-text"
-                :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }"
-              >
-                {{ section.title }}
-              </span>
-            </div>
-
+        <div class="sidebar-section sidebar-user-section">
+          <template v-for="section in userNavSections" :key="section.key">
             <router-link
-              v-for="item in section.items"
+              v-for="(item, itemIndex) in section.items"
               :key="item.path"
               :to="item.path"
               class="sidebar-link mb-1"
               :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+              :data-sidebar-group="itemIndex === 0 ? section.key : undefined"
               :title="sidebarCollapsed ? item.label : undefined"
               :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
               @click="handleMenuItemClick(item.path)"
             >
+              <span
+                v-if="itemIndex === 0 && !sidebarCollapsed"
+                class="sidebar-user-group-title"
+                aria-hidden="true"
+              >{{ section.title }}</span>
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
             </router-link>
-          </div>
-        </template>
+          </template>
+        </div>
       </template>
     </nav>
 
@@ -1059,6 +1051,69 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* 普通用户菜单沿用参考文件的分组间距，折叠后不保留标题或分隔线占位。 */
+.sidebar-user-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-user-section > .sidebar-link {
+  transition-property:
+    color,
+    background-color,
+    border-color,
+    text-decoration-color,
+    fill,
+    stroke,
+    opacity,
+    box-shadow,
+    transform,
+    filter,
+    backdrop-filter,
+    max-width,
+    padding-left,
+    padding-right,
+    gap;
+}
+
+.sidebar-user-section > .sidebar-link[data-sidebar-group] {
+  position: relative;
+  margin-top: 2.1rem;
+  overflow: visible;
+}
+
+.sidebar-user-section > .sidebar-link[data-sidebar-group='console'] {
+  margin-top: 1.475rem;
+}
+
+.sidebar-user-group-title {
+  position: absolute;
+  top: -1.35rem;
+  right: 0.75rem;
+  left: 0.75rem;
+  display: block;
+  box-sizing: border-box;
+  height: 1rem;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1rem;
+  letter-spacing: 0;
+  pointer-events: none;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-section > .sidebar-link-collapsed[data-sidebar-group] {
+  margin-top: 0;
+}
+
+.dark .sidebar-user-group-title {
+  color: #64748b;
+}
+
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;

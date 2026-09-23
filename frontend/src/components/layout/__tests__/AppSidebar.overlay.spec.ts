@@ -10,6 +10,8 @@ const { appStore, authStore, adminSettingsStore, onboardingStore, batchImageAcce
       appStore: {
         backendModeEnabled: false,
         cachedPublicSettings: {
+          available_channels_enabled: true,
+          affiliate_enabled: true,
           custom_menu_items: [
             {
               id: 'toolbox',
@@ -92,7 +94,7 @@ vi.mock('@/composables/useBatchImageAccess', () => ({
   useBatchImageAccess: () => batchImageAccess,
 }))
 
-describe('AppSidebar regular user overlay', () => {
+describe('AppSidebar 普通用户参考布局', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     vi.spyOn(window, 'matchMedia').mockReturnValue({
@@ -106,6 +108,8 @@ describe('AppSidebar regular user overlay', () => {
     authStore.isAdmin = false
     authStore.isSimpleMode = false
     route.path = '/dashboard'
+    appStore.sidebarCollapsed = false
+    batchImageAccess.canUseBatchImage.value = true
     appStore.cachedPublicSettings = {
       ...appStore.cachedPublicSettings,
       custom_menu_items: [
@@ -121,7 +125,7 @@ describe('AppSidebar regular user overlay', () => {
     }
   })
 
-  it('renders overlay sections directly from Vue code', () => {
+  it('按参考文件的顺序分组，隐藏指定入口并保留其他已有功能', () => {
     const wrapper = mount(AppSidebar, {
       global: {
         stubs: {
@@ -132,24 +136,35 @@ describe('AppSidebar regular user overlay', () => {
     })
 
     const sectionTitles = wrapper
-      .findAll('.sidebar-section-title-text')
+      .findAll('.sidebar-user-group-title')
       .map((node) => node.text())
 
-    expect(sectionTitles).toContain('nav.console')
-    expect(sectionTitles).toContain('nav.account')
-    expect(sectionTitles).toContain('nav.extension')
+    expect(sectionTitles).toEqual(['nav.console', 'nav.account', 'nav.extension'])
+    expect(wrapper.findAll('.sidebar-user-section')).toHaveLength(1)
 
     const linkTargets = wrapper
+      .get('.sidebar-nav')
       .findAllComponents(RouterLinkStub)
       .map((node) => node.props('to'))
 
-    expect(linkTargets).toContain('/purchase')
-    expect(linkTargets).toContain('/custom/toolbox')
     expect(linkTargets).not.toContain('/subscriptions')
     expect(linkTargets).not.toContain('/redeem')
-    expect(linkTargets).toContain('/tickets')
-    expect(linkTargets).toContain('/community')
     expect(linkTargets).not.toContain('/admin/communications')
+    expect(linkTargets).toEqual([
+      '/dashboard',
+      '/keys',
+      '/usage',
+      '/purchase',
+      '/orders',
+      '/profile',
+      '/batch-image',
+      '/available-channels',
+      '/monitor',
+      '/affiliate',
+      '/tickets',
+      '/community',
+      '/custom/toolbox',
+    ])
 
     const purchaseLink = wrapper
       .findAllComponents(RouterLinkStub)
@@ -170,4 +185,47 @@ describe('AppSidebar regular user overlay', () => {
     expect(link?.classes()).toContain('sidebar-link-active')
     wrapper.unmount()
   })
+
+  it('折叠时不保留分组标题或分隔线占位，并保留各组入口', () => {
+    appStore.sidebarCollapsed = true
+    const wrapper = mount(AppSidebar, {
+      global: {
+        stubs: {
+          RouterLink: RouterLinkStub,
+          VersionBadge: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.sidebar-user-group-title').exists()).toBe(false)
+    expect(wrapper.find('.sidebar-section-title').exists()).toBe(false)
+    expect(wrapper.findAll('.sidebar-user-section > .sidebar-link')).toHaveLength(13)
+    const groupLinks = wrapper.findAll('.sidebar-user-section > [data-sidebar-group]')
+    expect(groupLinks.map((link) => link.attributes('data-sidebar-group'))).toEqual([
+      'console',
+      'account',
+      'extension',
+    ])
+    expect(groupLinks.every((link) => link.classes().includes('sidebar-link-collapsed'))).toBe(true)
+  })
+
+  it('管理员仍使用原有菜单及个人账户入口', () => {
+    authStore.isAdmin = true
+    const wrapper = mount(AppSidebar, {
+      global: {
+        stubs: {
+          RouterLink: RouterLinkStub,
+          VersionBadge: { template: '<span />' },
+        },
+      },
+    })
+
+    expect(wrapper.find('.sidebar-user-section').exists()).toBe(false)
+    expect(wrapper.get('.sidebar-section-title-text').text()).toBe('nav.myAccount')
+    const links = wrapper.findAllComponents(RouterLinkStub)
+    expect(links.some((link) => link.props('to') === '/subscriptions')).toBe(true)
+    expect(links.some((link) => link.props('to') === '/redeem')).toBe(true)
+    expect(links.find((link) => link.props('to') === '/purchase')?.text()).toBe('nav.buySubscription')
+  })
+
 })

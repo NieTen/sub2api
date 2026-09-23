@@ -3,7 +3,8 @@ import { mount, RouterLinkStub } from '@vue/test-utils'
 
 import HomeView from '../HomeView.vue'
 
-const { appStore, authStore } = vi.hoisted(() => ({
+const { appStore, authStore, route } = vi.hoisted(() => ({
+  route: { query: {} as Record<string, string> },
   appStore: {
     cachedPublicSettings: {} as Record<string, unknown>,
     siteName: 'Fallback site',
@@ -27,6 +28,11 @@ vi.mock('@/stores', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => appStore,
+}))
+
+vi.mock('vue-router', async (importOriginal) => ({
+  ...await importOriginal<typeof import('vue-router')>(),
+  useRoute: () => route,
 }))
 
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -68,6 +74,7 @@ function modelPlazaDestination(wrapper: ReturnType<typeof mountHome>) {
 
 describe('HomeView compact mode', () => {
   beforeEach(() => {
+    route.query = {}
     authStore.isAuthenticated = false
     authStore.isAdmin = false
     authStore.user = null
@@ -118,7 +125,24 @@ describe('HomeView compact mode', () => {
     const wrapper = mountHome(settings)
 
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="brand-home"]').attributes('src')).toBe('/i2.html')
+    expect(wrapper.find('.terminal-container').exists()).toBe(false)
+  })
+
+  it('保留经典首页查询入口', () => {
+    route.query = { view: 'classic' }
+    const wrapper = mountHome()
+
     expect(wrapper.find('.terminal-container').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="brand-home"]').exists()).toBe(false)
+  })
+
+  it('经典首页查询参数不覆盖管理员配置的紧凑首页', () => {
+    route.query = { view: 'classic' }
+    const wrapper = mountHome({ compact_home_enabled: true })
+
+    expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(true)
+    expect(wrapper.find('.terminal-container').exists()).toBe(false)
   })
 
   it('links unauthenticated visitors to login', () => {
@@ -173,7 +197,8 @@ describe('HomeView compact mode', () => {
     expect(modelPlazaDestination(wrapper)).toBe('/model-plaza')
   })
 
-  it('shows the model plaza link in the default home header', () => {
+  it('经典首页在允许公开访问时显示模型广场入口', () => {
+    route.query = { view: 'classic' }
     const wrapper = mountHome({
       model_plaza_enabled: true,
       model_plaza_require_auth: false,
