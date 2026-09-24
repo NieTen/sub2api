@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/shopspring/decimal"
 )
 
 // HomeModelPriceQuery 只查询管理员已经选择的模型，不会导入系统目录中的其他模型。
@@ -71,9 +72,9 @@ func (s *BillingService) populateHomeTextPrice(result *HomeModelSystemPrice) {
 		result.Reason = "系统暂时无法读取此模型价格，请保留手动价格"
 		return
 	}
-	input := pricing.InputPricePerToken * 1e6
-	output := pricing.OutputPricePerToken * 1e6
-	cached := pricing.CacheReadPricePerToken * 1e6
+	input := scaleHomeModelDisplayPrice(pricing.InputPricePerToken, 1e6)
+	output := scaleHomeModelDisplayPrice(pricing.OutputPricePerToken, 1e6)
+	cached := scaleHomeModelDisplayPrice(pricing.CacheReadPricePerToken, 1e6)
 	if !validHomeModelPrice(input) || !validHomeModelPrice(output) || !validHomeModelPrice(cached) {
 		result.Reason = "系统价格不是有效的非负数字，请手动填写"
 		return
@@ -81,7 +82,7 @@ func (s *BillingService) populateHomeTextPrice(result *HomeModelSystemPrice) {
 	identified := s.pricingService.GetIdentifiedModelPricing(result.Name)
 	var flex *float64
 	if identified != nil && identified.InputCostPerTokenFlex != nil {
-		value := *identified.InputCostPerTokenFlex * 1e6
+		value := scaleHomeModelDisplayPrice(*identified.InputCostPerTokenFlex, 1e6)
 		if !validHomeModelPrice(value) {
 			result.Reason = "系统 Flex 价格不是有效的非负数字，请手动填写"
 			return
@@ -108,7 +109,17 @@ func (s *BillingService) populateHomeImagePrice(result *HomeModelSystemPrice) {
 	}
 	prices := make(map[string]float64, 3)
 	for _, size := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
-		price := s.getDefaultImagePrice(result.Name, size)
+		price, _ := getDefaultGrokImagineImagePrice(result.Name, size)
+		if !hasGrokPrice {
+			// 与 getDefaultImagePrice 的尺寸倍率一致，只对首页展示采用十进制换算。
+			multiplier := 1.0
+			if size == ImageBillingSize2K {
+				multiplier = 1.5
+			} else if size == ImageBillingSize4K {
+				multiplier = 2
+			}
+			price = scaleHomeModelDisplayPrice(identified.OutputCostPerImage, multiplier)
+		}
 		if !validHomeModelPrice(price) {
 			result.Reason = "系统图片价格不是有效的非负数字，请手动填写"
 			return
@@ -117,4 +128,13 @@ func (s *BillingService) populateHomeImagePrice(result *HomeModelSystemPrice) {
 	}
 	result.Found = true
 	result.ResolutionPrices = prices
+}
+
+// scaleHomeModelDisplayPrice 避免二进制浮点乘法把 0.2 等价格显示为长尾数。
+// 不按固定小数位舍入，以保留低价模型的有效精度；实际计费值和计算保持不变。
+func scaleHomeModelDisplayPrice(price, multiplier float64) float64 {
+	if !validHomeModelPrice(price) {
+		return price
+	}
+	return decimal.NewFromFloat(price).Mul(decimal.NewFromFloat(multiplier)).InexactFloat64()
 }

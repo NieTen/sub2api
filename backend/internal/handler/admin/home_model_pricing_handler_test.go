@@ -72,3 +72,14 @@ func TestHomeModelPricingAPI_EnforcesFullBodySizeLimit(t *testing.T) {
 	result := callHomeModelPricingAPI(`{"models":[]}` + strings.Repeat(" ", homeModelPricingRequestBodyLimit))
 	require.Equal(t, http.StatusRequestEntityTooLarge, result.Code)
 }
+
+func TestHomeModelPricingAPI_ReturnsCleanDecimalPrices(t *testing.T) {
+	result := callHomeModelPricingAPI(`{"models":[{"name":"claude-3-5-haiku","type":"text"}]}`)
+	require.Equal(t, http.StatusOK, result.Code)
+	var body struct {
+		Data []map[string]json.RawMessage `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(result.Body.Bytes(), &body))
+	require.Len(t, body.Data, 1)
+	require.Equal(t, "0.1", string(body.Data[0]["cachedInput"]), "API 不应向编辑器返回浮点运算尾数")
+}

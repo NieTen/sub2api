@@ -1,4 +1,5 @@
 import type { HomeModel } from '@/api/admin/homeModels'
+import { normalizeHomeModelPrice } from '@/utils/homeModelPrice'
 
 // 保留参考首页的厂商标志与中英文文案，价格统一读取后台配置。
 export const brandVendors: Record<string, { label: string; viewBox: string; path: string }> = {
@@ -34,7 +35,10 @@ export function getBrandVendor(vendor: string) {
 export function formatHomePrice(value: number | null): string {
   if (value === null) return '—'
   if (value === 0) return '$0'
-  return '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 20, useGrouping: false })
+  const price = normalizeHomeModelPrice(value)
+  const formatted = price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 20, useGrouping: false })
+  // 超出格式化精度的极小价格保留原数值表示，避免丢失有效数字或显示为免费。
+  return '$' + (Number(formatted) === price ? formatted : price.toString())
 }
 
 function isPrice(value: unknown): value is number {

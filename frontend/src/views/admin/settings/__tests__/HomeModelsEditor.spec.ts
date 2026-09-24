@@ -79,6 +79,78 @@ describe('首页模型与价格编辑器', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('模型价格已保存，刷新首页即可查看')
   })
 
+  it('已保存的浮点尾数回读时显示简洁价格，再次保存不带计算误差', async () => {
+    const wrapper = await mountEditor([
+      { ...textModel(), input: 0.09999999999999999, output: 0.19999999999999998, cachedInput: 0.049999999999999996 },
+      {
+        name: 'image-test', vendor: 'OpenAI', type: 'image',
+        resolutionPrices: { '1K': 0.09999999999999999, '2K': 0.19999999999999998, '4K': 0.049999999999999996 },
+      },
+    ])
+    const rows = wrapper.findAll('[data-testid="model-row"]')
+
+    expect(['input', 'output', 'cachedInput', 'flexInput'].map(field => fieldValue(rows[0], field))).toEqual(['0.1', '0.2', '0.05', ''])
+    expect(['1K', '2K', '4K'].map(field => fieldValue(rows[1], field))).toEqual(['0.1', '0.2', '0.05'])
+    expect(getHomeModelSystemPrices).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="save-models"]').trigger('click')
+    await flushPromises()
+    expect(saveHomeModels).toHaveBeenCalledWith([
+      { ...textModel(), input: 0.1, output: 0.2, cachedInput: 0.05 },
+      { name: 'image-test', vendor: 'OpenAI', type: 'image', resolutionPrices: { '1K': 0.1, '2K': 0.2, '4K': 0.05 } },
+    ])
+  })
+
+  it('一键同步得到的浮点尾数也显示为简洁价格，微小 Flex 价格保持精度', async () => {
+    getHomeModelSystemPrices.mockResolvedValueOnce([
+      systemTextPrice('gpt-test', {
+        input: 0.09999999999999999, output: 0.19999999999999998, cachedInput: 0.049999999999999996, flexInput: 0.000000125,
+      }),
+      {
+        name: 'image-test', type: 'image', found: true, cachedInput: null, flexInput: null,
+        resolutionPrices: { '1K': 0.09999999999999999, '2K': 0.19999999999999998, '4K': 0.049999999999999996 },
+      },
+    ])
+    const wrapper = await mountEditor([
+      textModel(),
+      { name: 'image-test', vendor: 'OpenAI', type: 'image', resolutionPrices: { '1K': 1, '2K': 2, '4K': 3 } },
+    ])
+    await wrapper.get('[data-testid="sync-prices"]').trigger('click')
+    await flushPromises()
+    const rows = wrapper.findAll('[data-testid="model-row"]')
+
+    expect(['input', 'output', 'cachedInput'].map(field => fieldValue(rows[0], field))).toEqual(['0.1', '0.2', '0.05'])
+    expect(Number(fieldValue(rows[0], 'flexInput'))).toBe(0.000000125)
+    expect(['1K', '2K', '4K'].map(field => fieldValue(rows[1], field))).toEqual(['0.1', '0.2', '0.05'])
+    expect(saveHomeModels).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="save-models"]').trigger('click')
+    await flushPromises()
+    expect(saveHomeModels).toHaveBeenCalledWith([
+      { ...textModel(), input: 0.1, output: 0.2, cachedInput: 0.05, flexInput: 0.000000125 },
+      { name: 'image-test', vendor: 'OpenAI', type: 'image', resolutionPrices: { '1K': 0.1, '2K': 0.2, '4K': 0.05 } },
+    ])
+  })
+
+  it('已保存和手动输入的真实高精度价格不被截断，零价与 null 保持原意', async () => {
+    const wrapper = await mountEditor([{
+      ...textModel(), input: 0.000000125, output: 0.1234567890123, cachedInput: 0, flexInput: null,
+    }])
+    expect(Number(fieldValue(wrapper, 'input'))).toBe(0.000000125)
+    expect(fieldValue(wrapper, 'output')).toBe('0.1234567890123')
+    expect(fieldValue(wrapper, 'cachedInput')).toBe('0')
+    expect(fieldValue(wrapper, 'flexInput')).toBe('')
+
+    await wrapper.get('[data-field="input"]').setValue('0.1234567890123')
+    await wrapper.get('[data-field="output"]').setValue('0.000000125')
+    await wrapper.get('[data-testid="save-models"]').trigger('click')
+    await flushPromises()
+
+    expect(saveHomeModels).toHaveBeenCalledWith([{
+      ...textModel(), input: 0.1234567890123, output: 0.000000125, cachedInput: 0, flexInput: null,
+    }])
+    expect(fieldValue(wrapper, 'input')).toBe('0.1234567890123')
+    expect(Number(fieldValue(wrapper, 'output'))).toBe(0.000000125)
+  })
+
   it.each([
     ['input', '-1', '输入价格必须是大于或等于 0 的有效数字'],
     ['output', '', '输出价格必填'],

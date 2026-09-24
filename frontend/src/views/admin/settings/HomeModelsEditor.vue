@@ -107,6 +107,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { getHomeModels, getHomeModelSystemPrices, saveHomeModels, type HomeModel, type HomeModelPriceQuery, type HomeModelSystemPrice } from '@/api/admin/homeModels'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { normalizeHomeModelPrice } from '@/utils/homeModelPrice'
 
 type PriceKey = 'input' | 'output' | 'cachedInput' | 'flexInput' | '1K' | '2K' | '4K'
 interface PriceField {
@@ -168,12 +169,12 @@ function toDraft(model: HomeModel): HomeModelDraft {
   draft.name = model.name
   draft.vendor = model.vendor
   if (model.type === 'text') {
-    draft.prices.input = model.input
-    draft.prices.output = model.output
-    draft.prices.cachedInput = model.cachedInput ?? ''
-    draft.prices.flexInput = model.flexInput ?? ''
+    draft.prices.input = normalizeHomeModelPrice(model.input)
+    draft.prices.output = normalizeHomeModelPrice(model.output)
+    draft.prices.cachedInput = model.cachedInput == null ? '' : normalizeHomeModelPrice(model.cachedInput)
+    draft.prices.flexInput = model.flexInput == null ? '' : normalizeHomeModelPrice(model.flexInput)
   } else {
-    for (const size of ['1K', '2K', '4K'] as const) draft.prices[size] = model.resolutionPrices[size]
+    for (const size of ['1K', '2K', '4K'] as const) draft.prices[size] = normalizeHomeModelPrice(model.resolutionPrices[size])
   }
   return draft
 }
@@ -263,7 +264,7 @@ function applySystemPrices(draft: HomeModelDraft, result: HomeModelSystemPrice, 
     if (value == null) {
       unavailable.push(field.label)
     } else if (overwrite || String(draft.prices[field.key]).trim() === '') {
-      draft.prices[field.key] = value
+      draft.prices[field.key] = normalizeHomeModelPrice(value)
       filled++
     }
   }

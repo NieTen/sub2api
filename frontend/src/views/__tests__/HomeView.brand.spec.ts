@@ -131,6 +131,39 @@ describe('品牌首页原生 Home 集成', () => {
     expect(wrapper.get('[data-filter-type="image"]').attributes('aria-pressed')).toBe('true')
   })
 
+  it('系统换算产生的浮点尾数在文本和图片报价中显示为简洁价格', async () => {
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [
+      { ...defaultModels[0], input: 0.09999999999999999, output: 0.19999999999999998, cachedInput: 0.049999999999999996 },
+      {
+        name: '图片精度回归', vendor: 'OpenAI', type: 'image',
+        resolutionPrices: { '1K': 0.09999999999999999, '2K': 0.19999999999999998, '4K': 0.049999999999999996 },
+      },
+    ] })
+    const cards = wrapper.findAll('.model-card')
+
+    expect(cards[0].findAll('.price strong').map(price => price.text())).toEqual(['$0.10/M', '$0.20/M'])
+    expect(cards[0].findAll('.cache-row strong').map(price => price.text())).toEqual(['$0.05/M', '—/M'])
+    expect(cards[1].findAll('.image-price strong').map(price => price.text())).toEqual(['$0.10', '$0.20', '$0.05'])
+  })
+
+  it('简化浮点尾数时保留真实小数精度以及零价和空价', async () => {
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [{
+      ...defaultModels[0], input: 0.000000125, output: 0.1234567890123, cachedInput: 0, flexInput: null,
+    }] })
+    const card = wrapper.get('.model-card')
+
+    expect(card.findAll('.price strong').map(price => price.text())).toEqual(['$0.000000125/M', '$0.1234567890123/M'])
+    expect(card.findAll('.cache-row strong').map(price => price.text())).toEqual(['$0/M', '—/M'])
+  })
+
+  it.each([1.25e-24, 1.25e-20])('极小价格 %s 保留真实精度，不会被舍入或显示成免费', async price => {
+    const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [{
+      ...defaultModels[0], input: price,
+    }] })
+
+    expect(wrapper.get('.price strong').text()).toBe(`$${price}/M`)
+  })
+
   it('后台清空目录后展示空状态，不恢复静态模型', async () => {
     const { wrapper } = await mountHome('/home#pricing', { code: 0, data: [] })
     expect(wrapper.get('#modelGrid').text()).toBe('暂无模型数据')

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"math"
 	"strings"
 	"testing"
@@ -129,4 +130,41 @@ func TestHomeModelSystemPrices_InvalidCatalogValueDoesNotOverwrite(t *testing.T)
 	require.NoError(t, err)
 	require.False(t, prices[0].Found)
 	require.Nil(t, prices[0].Input)
+}
+
+func TestHomeModelSystemPrices_DecimalConversionProducesCleanJSON(t *testing.T) {
+	// 从 JSON 读取运行时 float64，避免编译器把常量乘法直接折叠为准确的十进制预期值。
+	catalog := NewPricingService(nil, nil)
+	var err error
+	catalog.pricingData, err = catalog.parsePricingData([]byte(`{
+		"fractional-text": {"input_cost_per_token":0.0000002,"output_cost_per_token":0.0000001,"cache_read_input_token_cost":0.00000005,"input_cost_per_token_flex":0.00000005},
+		"fractional-image": {"output_cost_per_image":0.1},
+		"tiny-text": {"input_cost_per_token":0.0000000000000123456789,"output_cost_per_token":0.0000000000000000123456789,"cache_read_input_token_cost":0.00000000000000000001,"input_cost_per_token_flex":0.00000000000000000123},
+		"tiny-image": {"output_cost_per_image":0.0000000000123456789}
+	}`))
+	require.NoError(t, err)
+	svc := NewBillingService(nil, catalog)
+	prices, err := svc.GetHomeModelSystemPrices([]HomeModelPriceQuery{
+		{Name: "fractional-text", Type: "text"},
+		{Name: "fractional-image", Type: "image"},
+		{Name: "tiny-text", Type: "text"},
+		{Name: "tiny-image", Type: "image"},
+	})
+	require.NoError(t, err)
+	for _, price := range prices {
+		require.True(t, price.Found, price.Name)
+	}
+	encoded, err := json.Marshal(prices)
+	require.NoError(t, err)
+	require.JSONEq(t, `[
+		{"name":"fractional-text","type":"text","found":true,"input":0.2,"output":0.1,"cachedInput":0.05,"flexInput":0.05},
+		{"name":"fractional-image","type":"image","found":true,"cachedInput":null,"flexInput":null,"resolutionPrices":{"1K":0.1,"2K":0.15,"4K":0.2}},
+		{"name":"tiny-text","type":"text","found":true,"input":0.0000000123456789,"output":0.0000000000123456789,"cachedInput":0.00000000000001,"flexInput":0.00000000000123},
+		{"name":"tiny-image","type":"image","found":true,"cachedInput":null,"flexInput":null,"resolutionPrices":{"1K":0.0000000000123456789,"2K":0.00000000001851851835,"4K":0.0000000000246913578}}
+	]`, string(encoded))
+	require.Contains(t, string(encoded), `"input":0.2,"output":0.1,"cachedInput":0.05,"flexInput":0.05`)
+	require.Contains(t, string(encoded), `"resolutionPrices":{"1K":0.1,"2K":0.15,"4K":0.2}`)
+	// 展示换算不修改目录中的每 token 价或每张基础价。
+	require.Equal(t, 0.0000002, catalog.pricingData["fractional-text"].InputCostPerToken)
+	require.Equal(t, 0.1, catalog.pricingData["fractional-image"].OutputCostPerImage)
 }
