@@ -15,23 +15,6 @@ import (
 // SettingKeyHomeModelCatalog 是首页 I2 模型目录在 settings 表中的键。
 const SettingKeyHomeModelCatalog = "home_model_catalog"
 
-const defaultHomeModelsJSON = `[
-  {"name":"gpt-5.6-sol","vendor":"OpenAI","type":"text","input":5,"output":30,"cachedInput":0.5,"flexInput":6.25},
-  {"name":"gpt-5.6-terra","vendor":"OpenAI","type":"text","input":2.5,"output":15,"cachedInput":0.25,"flexInput":3.125},
-  {"name":"gpt-5.6-luna","vendor":"OpenAI","type":"text","input":1,"output":6,"cachedInput":0.1,"flexInput":1.25},
-  {"name":"gpt-5.5","vendor":"OpenAI","type":"text","input":5,"output":30,"cachedInput":0.5,"flexInput":null},
-  {"name":"gpt-5.4","vendor":"OpenAI","type":"text","input":2.5,"output":15,"cachedInput":0.25,"flexInput":null},
-  {"name":"gpt-5.4-mini","vendor":"OpenAI","type":"text","input":0.75,"cachedInput":0.075,"flexInput":null,"output":4.5},
-  {"name":"gpt-5.3-codex","vendor":"OpenAI","type":"text","input":1.75,"cachedInput":0.175,"flexInput":null,"output":14},
-  {"name":"gpt-image-2","vendor":"OpenAI","type":"image","resolutionPrices":{"1K":2,"2K":3,"4K":5}},
-  {"name":"gpt-image-1","vendor":"OpenAI","type":"image","resolutionPrices":{"1K":2,"2K":3,"4K":5}},
-  {"name":"claude-fable-5","vendor":"ANTHROPIC","type":"text","input":10,"output":50,"cachedInput":12.5,"flexInput":1},
-  {"name":"claude-opus-4-8","vendor":"ANTHROPIC","type":"text","input":5,"output":25,"cachedInput":6.25,"flexInput":0.5},
-  {"name":"claude-opus-4-7","vendor":"ANTHROPIC","type":"text","input":5,"output":25,"cachedInput":6.25,"flexInput":0.5},
-  {"name":"claude-opus-4-6","vendor":"ANTHROPIC","type":"text","input":5,"output":25,"cachedInput":6.25,"flexInput":0.5},
-  {"name":"claude-sonnet-4-6","vendor":"ANTHROPIC","type":"text","input":3,"output":15,"cachedInput":3.75,"flexInput":0.3}
-]`
-
 // HomeModel 是首页 I2 展示用的模型和价格条目。
 // 输入输出价格单位为美元/百万 tokens，图片价格单位为美元/张。
 type HomeModel struct {
@@ -45,7 +28,7 @@ type HomeModel struct {
 	ResolutionPrices map[string]*float64 `json:"resolutionPrices,omitempty"`
 }
 
-// GetHomeModels 获取首页模型目录。数据库未配置时使用内嵌的默认目录；已配置但损坏时直接返回错误。
+// GetHomeModels 只返回管理员配置的首页模型，尚未配置时返回空目录；已配置但损坏时直接返回错误。
 func (s *SettingService) GetHomeModels(ctx context.Context) ([]HomeModel, error) {
 	if s == nil || s.settingRepo == nil {
 		return nil, fmt.Errorf("home model catalog setting repository is unavailable")
@@ -53,7 +36,7 @@ func (s *SettingService) GetHomeModels(ctx context.Context) ([]HomeModel, error)
 	raw, err := s.settingRepo.GetValue(ctx, SettingKeyHomeModelCatalog)
 	if err != nil {
 		if errors.Is(err, ErrSettingNotFound) {
-			return parseHomeModelsJSON([]byte(defaultHomeModelsJSON))
+			return []HomeModel{}, nil
 		}
 		return nil, fmt.Errorf("get home model catalog: %w", err)
 	}

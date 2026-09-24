@@ -75,7 +75,8 @@ func TestHomeModelsAPI_SaveReadAndClear(t *testing.T) {
 	repo := &homeModelsAPIRepository{}
 	router := newHomeModelsAPIRouter(repo)
 	initial := callHomeModelsAPI(router, http.MethodGet, "/api/v1/settings/home-models", "")
-	require.Len(t, readHomeModelsAPIResponse(t, initial).Data, 14)
+	require.NotNil(t, readHomeModelsAPIResponse(t, initial).Data)
+	require.Empty(t, readHomeModelsAPIResponse(t, initial).Data)
 	require.Equal(t, "no-store", initial.Header().Get("Cache-Control"))
 
 	body := `{"models":[{"name":" 后台文本模型 ","vendor":"自定义厂商","type":"text","input":0,"output":3.125,"cachedInput":null,"flexInput":0.000001},{"name":"图片模型","vendor":"OpenAI","type":"image","resolutionPrices":{"1K":0,"2K":0.25,"4K":1}}]}`

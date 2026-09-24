@@ -74,8 +74,8 @@ func TestSettingServiceHomeModels_DefaultRoundTripAndClear(t *testing.T) {
 
 	models, err := svc.GetHomeModels(context.Background())
 	require.NoError(t, err)
-	require.Len(t, models, 14)
-	require.Equal(t, "gpt-5.6-sol", models[0].Name)
+	require.NotNil(t, models)
+	require.Empty(t, models)
 
 	toSave := []HomeModel{validHomeTextModel("custom-model")}
 	require.NoError(t, svc.SaveHomeModels(context.Background(), toSave))
