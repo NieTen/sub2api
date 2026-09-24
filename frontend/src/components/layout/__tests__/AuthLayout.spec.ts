@@ -96,7 +96,7 @@ describe('AuthLayout', () => {
     expect(wrapper.find('.auth-header').exists()).toBe(false)
   })
 
-  it('links to the site home, model catalog and quick start with the configured brand', () => {
+  it('使用配置品牌，导航与首页一致仅显示首页和模型广场', () => {
     appStoreMock.siteName = '开发者服务'
     const wrapper = mount(AuthLayout, {
       props: { mode: 'split', activePage: 'login' },
@@ -106,22 +106,22 @@ describe('AuthLayout', () => {
     expect(wrapper.get('.auth-brand').attributes('href')).toBe('/home')
     expect(wrapper.get('.auth-brand').text()).toBe('开发者服务')
     expect(wrapper.get('.auth-navigation a[href="/home#pricing"]').exists()).toBe(true)
-    expect(wrapper.get('.auth-navigation a[href="/home#support"]').exists()).toBe(true)
+    expect(wrapper.findAll('.auth-navigation a').map(link => link.attributes('href'))).toEqual(['/home', '/home#pricing'])
     expect(wrapper.get('a[href="/login"]').attributes('aria-current')).toBe('page')
   })
 
   it.each([
-    ['https://docs.example.com/start', 'https://docs.example.com/start'],
-    ['/docs/start', '/docs/start'],
-    ['javascript:alert(1)', '/home#support']
-  ])('uses a safe documentation link for quick start: %s', (url, expected) => {
+    'https://docs.example.com/start',
+    '/docs/start',
+    'javascript:alert(1)'
+  ])('配置文档链接时也不显示快速开始入口：%s', (url) => {
     appStoreMock.docUrl = url
     const wrapper = mount(AuthLayout, {
       props: { mode: 'split' },
       global: { stubs: linkStubs }
     })
 
-    expect(wrapper.findAll('.auth-navigation a')[2].attributes('href')).toBe(expected)
+    expect(wrapper.findAll('.auth-navigation a').map(link => link.attributes('href'))).toEqual(['/home', '/home#pricing'])
   })
 
   it('hides registration when disabled and supports an explicit loaded view setting', () => {

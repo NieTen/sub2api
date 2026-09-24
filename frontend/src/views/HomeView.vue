@@ -908,6 +908,7 @@ onMounted(() => {
     .brand-home .login-button { color: var(--purple);border-color: rgba(91,33,182,.34);background: rgba(255,255,255,.16); }
     .brand-home .register-button,.brand-home .console-button {
       color: #fff;background: linear-gradient(#5b21b6,#a78bfa);
+      background-origin: border-box;background-repeat: no-repeat;
       box-shadow: 0 10px 20px rgba(91,33,182,.22);
     }
     .brand-home .register-button:hover,.brand-home .console-button:hover { border-color: rgba(255,255,255,.78);box-shadow: 0 14px 30px rgba(91,33,182,.36); }

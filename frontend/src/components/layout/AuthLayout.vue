@@ -9,8 +9,6 @@
       <nav class="auth-navigation" :aria-label="t('auth.navigationLabel')">
         <router-link to="/home">{{ t('auth.homeLink') }}</router-link>
         <router-link to="/home#pricing">{{ t('auth.modelsLink') }}</router-link>
-        <a v-if="documentationUrl" :href="documentationUrl">{{ t('auth.quickStartLink') }}</a>
-        <router-link v-else to="/home#support">{{ t('auth.quickStartLink') }}</router-link>
       </nav>
 
       <div class="auth-header-actions">
@@ -154,9 +152,6 @@ const siteLogo = computed(() =>
 )
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'Subscription to API Conversion Platform')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
-const documentationUrl = computed(() =>
-  sanitizeUrl(appStore.docUrl || '', { allowRelative: true })
-)
 const registrationAvailable = computed(() =>
   (props.showRegistration ?? appStore.cachedPublicSettings?.registration_enabled === true) &&
   appStore.cachedPublicSettings?.backend_mode_enabled !== true
