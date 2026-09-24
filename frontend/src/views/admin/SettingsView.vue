@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-6xl space-y-6">
+    <div class="mx-auto w-full min-w-0 max-w-6xl space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <div
@@ -13,7 +13,7 @@
         <!-- Tab Navigation -->
         <div class="settings-tabs-shell">
           <nav
-            class="settings-tabs-scroll"
+            class="settings-tabs-nav"
             role="tablist"
             :aria-label="t('admin.settings.title')"
           >
@@ -53,6 +53,11 @@
               </router-link>
             </div>
           </nav>
+        </div>
+
+        <!-- 首页模型独立展示和保存，避免入口埋在通用设置长表单中。 -->
+        <div v-show="activeTab === 'models'" class="space-y-6">
+          <HomeModelsEditor />
         </div>
 
         <!-- Tab: Security — Admin API Key -->
@@ -6764,8 +6769,6 @@
             </div>
           </div>
 
-          <HomeModelsEditor />
-
           <!-- Custom Menu Items -->
           <div class="card">
             <div
@@ -8923,7 +8926,7 @@
         </div>
 
         <!-- Save Button -->
-        <div v-show="activeTab !== 'backup'" class="flex justify-end">
+        <div v-show="activeTab !== 'backup' && activeTab !== 'models'" class="flex justify-end">
           <button
             type="submit"
             :disabled="saving || loadFailed"
@@ -9105,6 +9108,7 @@ const paymentMethodsHref = computed(() =>
 
 type SettingsTab =
   | "general"
+  | "models"
   | "agreement"
   | "features"
   | "security"
@@ -9116,6 +9120,7 @@ type SettingsTab =
 const activeTab = ref<SettingsTab>("general");
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
+  { key: "models" as SettingsTab, icon: "cube" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
   { key: "features" as SettingsTab, icon: "bolt" as const },
   { key: "security" as SettingsTab, icon: "shield" as const },
@@ -12892,7 +12897,7 @@ async function handleDeleteProvider() {
 }
 
 onMounted(() => {
-  // 支持从工单配置页的链接直接打开邮件设置选项卡。
+  // 支持通过链接直接打开模型价格、邮件等设置选项卡。
   const requestedTab = new URLSearchParams(window.location.search).get("tab");
   if (requestedTab && settingsTabs.some((tab) => tab.key === requestedTab)) {
     activeTab.value = requestedTab as SettingsTab;
@@ -13292,42 +13297,35 @@ watch(
 
 /* ============ 系统设置 Tab 导航 ============ */
 .settings-tabs-shell {
-  @apply sticky z-20 -mx-1 rounded-2xl border border-white/80 bg-white/90 p-1.5 backdrop-blur-xl;
-  top: 4.75rem;
+  @apply relative z-20 rounded-2xl border border-white/80 bg-white/90 p-1.5 backdrop-blur-xl;
   box-shadow:
     0 12px 28px rgb(15 23 42 / 0.07),
     0 1px 0 rgb(255 255 255 / 0.9) inset;
 }
 
-.settings-tabs-scroll {
-  @apply overflow-x-auto;
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* 窄屏或矮窗口不固定多行导航，为设置内容保留可用高度。 */
+@media (min-width: 768px) and (min-height: 640px) {
+  .settings-tabs-shell {
+    position: sticky;
+    top: 4.75rem;
+  }
 }
 
-.settings-tabs-scroll::-webkit-scrollbar {
-  display: none;
+.settings-tabs-nav {
+  @apply min-w-0;
 }
 
 .settings-tabs {
-  @apply flex min-w-max items-center gap-1;
+  @apply grid grid-cols-2 gap-1;
 }
 
 .settings-tab {
-  @apply relative isolate flex h-10 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
+  @apply relative isolate flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-xl border border-transparent px-2 py-2 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .settings-tabs {
-    @apply min-w-full;
-  }
-
-  .settings-tab {
-    @apply min-w-0 flex-1 basis-0 overflow-hidden px-2 text-[13px];
-  }
-
-  .settings-tab-icon {
-    @apply h-6 w-6;
+    grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
   }
 }
 
@@ -13382,7 +13380,7 @@ watch(
 }
 
 .settings-tab-label {
-  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
+  @apply min-w-0 whitespace-normal break-words text-center leading-5;
 }
 </style>
 
