@@ -312,7 +312,7 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 	if pendingMember && invite != nil && invite.ID == membership.AuthorizedInviteID && invite.UserID == userID &&
 		invite.TelegramUserID == membership.TelegramUserID && invite.GroupChatID == groupID && invite.BotID == c.BotID &&
 		invite.Status == "active" && invite.ExpiresAt.After(time.Now()) {
-		updated, reconcileErr := s.reconcilePendingMembership(ctx, c, membership)
+		updated, reconcileErr := s.reconcilePendingMembership(ctx, c, membership, invite)
 		if reconcileErr != nil {
 			return nil, reconcileErr
 		}
@@ -352,7 +352,7 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 }
 
 // 刷新页面时补偿已授权的等待状态；不会凭任意 Telegram ID 建立新绑定。
-func (s *CommunityService) reconcilePendingMembership(ctx context.Context, expected *CommunitySettings, membership *CommunityMembership) (bool, error) {
+func (s *CommunityService) reconcilePendingMembership(ctx context.Context, expected *CommunitySettings, membership *CommunityMembership, invite *CommunityInvite) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	c, shared, err := s.checkedConfiguration(ctx)
@@ -371,7 +371,7 @@ func (s *CommunityService) reconcilePendingMembership(ctx context.Context, expec
 		return false, err
 	}
 	// 使用读取时的授权事件版本，防止覆盖核对期间已经发生的离群或重新申请。
-	err = s.repo.MarkMembership(ctx, membership.TelegramUserID, membership.GroupChatID, "joined", membership.LastEventDate, membership.LastUpdateID)
+	err = s.completeCommunityJoin(ctx, c, shared, membership, invite, membership.LastEventDate, membership.LastUpdateID)
 	if err != nil && !communityPermanentError(err) {
 		return false, err
 	}
@@ -580,17 +580,17 @@ func (s *CommunityService) reconcileConfirmedMembership(ctx context.Context, c *
 		return err
 	}
 	if membership.AuthorizedInviteID == invite.ID {
-		return s.repo.MarkMembership(ctx, membership.TelegramUserID, groupID, "joined", membership.LastEventDate, membership.LastUpdateID)
+		return s.completeCommunityJoin(ctx, c, shared, membership, invite, membership.LastEventDate, membership.LastUpdateID)
 	}
 	identity := CommunityTelegramIdentity{ID: membership.TelegramUserID, Username: member.User.Username, Name: strings.TrimSpace(member.User.FirstName + " " + member.User.LastName)}
 	// 授权仍消费当前用户的有效专属邀请，数据库事务继续保证网站账号与 Telegram 身份双向唯一。
-	if _, _, err = s.repo.AuthorizeJoin(ctx, invite.URLHash, identity, groupID, eventDate, 0, c.BotID, c.RequirePaidRecharge); err != nil {
+	if membership, invite, err = s.repo.AuthorizeJoin(ctx, invite.URLHash, identity, groupID, eventDate, 0, c.BotID, c.RequirePaidRecharge); err != nil {
 		return err
 	}
 	if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
 		return err
 	}
-	return s.repo.MarkMembership(ctx, membership.TelegramUserID, groupID, "joined", eventDate, 0)
+	return s.completeCommunityJoin(ctx, c, shared, membership, invite, eventDate, 0)
 }
 
 func communityValidInviteURL(value string) bool {

@@ -10,7 +10,7 @@ export default {
     pending: 'Invitation issued, waiting to join', joined: 'Joined the group', left: 'Left the group',
     joinedAt: 'Joined: {time}', join: 'Join with my personal link',
     getInvite: 'Get my personal invitation', inviteDescription: 'Get an invitation assigned to your website account. Your Telegram account is linked when you join through it.',
-    inviteHint: 'This is your time-limited, single-use invitation. Do not share it. The first Telegram account that successfully joins through this link will be linked to your website account.',
+    inviteHint: 'Each invitation is for one Telegram account. It is reserved for the first account that requests to join and becomes invalid after a successful join. Do not share it. Other accounts must sign in to their own website account to get an invitation.',
     inviteExpired: 'The invitation has expired or is unavailable. You can request a new link.', reissue: 'Get a new invitation', issuing: 'Creating invitation…',
     statusHint: 'Refresh to check your status after joining or leaving the group.',
     verifyExisting: 'Already in the group? Verify identity', verifyingIdentity: 'Creating verification link…',

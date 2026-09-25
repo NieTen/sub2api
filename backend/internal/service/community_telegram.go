@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -251,7 +252,7 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 		return s.declineJoin(ctx, shared.TelegramBotToken, c.GroupChatID, request.From.ID)
 	}
 	identity := CommunityTelegramIdentity{ID: request.From.ID, Username: request.From.Username, Name: strings.TrimSpace(request.From.FirstName + " " + request.From.LastName)}
-	membership, _, err := s.repo.AuthorizeJoin(ctx, communityHash(request.InviteLink.InviteLink), identity, request.Chat.ID, request.Date, updateID, c.BotID, c.RequirePaidRecharge)
+	membership, invite, err := s.repo.AuthorizeJoin(ctx, communityHash(request.InviteLink.InviteLink), identity, request.Chat.ID, request.Date, updateID, c.BotID, c.RequirePaidRecharge)
 	if err != nil {
 		if errors.Is(err, ErrCommunityVIPRequired) {
 			return s.rejectIneligibleJoin(ctx, c, shared, updateID, request, existing)
@@ -297,11 +298,37 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 		}
 		return err
 	}
-	if err = s.repo.MarkMembership(ctx, request.From.ID, request.Chat.ID, "joined", request.Date, updateID); err != nil {
+	if err = s.completeCommunityJoin(ctx, c, shared, membership, invite, request.Date, updateID); err != nil {
 		if communityPermanentError(err) {
 			return nil
 		}
 		return err
+	}
+	return nil
+}
+
+// 先持久化入群与撤销任务，再尽力立即关闭专属链接；远端失败由原有任务重试，不回滚已完成的入群。
+func (s *CommunityService) completeCommunityJoin(ctx context.Context, c *CommunitySettings, shared *SupportDeliverySettings, membership *CommunityMembership, invite *CommunityInvite, eventDate, updateID int64) error {
+	if invite == nil && membership.Status != "joined" {
+		// 成员事件重试可能已存在授权，仍从服务端读取原邀请，不能使用回调中任意链接执行撤销。
+		_, _, storedInvite, readErr := s.repo.GetState(ctx, membership.UserID)
+		if readErr == nil {
+			invite = storedInvite
+		}
+	}
+	if err := s.repo.MarkMembership(ctx, membership.TelegramUserID, membership.GroupChatID, "joined", eventDate, updateID); err != nil {
+		return err
+	}
+	if invite == nil || invite.ID <= 0 || invite.ID != membership.AuthorizedInviteID || invite.UserID != membership.UserID ||
+		invite.TelegramUserID != membership.TelegramUserID || invite.GroupChatID != membership.GroupChatID ||
+		invite.BotID != c.BotID || strconv.FormatInt(invite.GroupChatID, 10) != c.GroupChatID || !communityValidInviteURL(invite.URL) {
+		return nil
+	}
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	err := s.delivery.telegramJSON(cleanup, shared.TelegramBotToken, "revokeChatInviteLink", communityRevokeInviteRequest{ChatID: c.GroupChatID, InviteLink: invite.URL}, nil)
+	if err != nil && !communityTelegramBadRequest(err) {
+		slog.Warn("社群邀请即时撤销失败，将由后台任务重试")
 	}
 	return nil
 }
@@ -364,15 +391,17 @@ func (s *CommunityService) processMemberUpdate(ctx context.Context, c *Community
 		return nil
 	}
 	// 管理员先批准、或申请事件丢失时，仍须通过原专属邀请事务核验唯一归属和当前资格。
+	var authorizedInvite *CommunityInvite
 	needsAuthorization := membership == nil || membership.GroupChatID != update.Chat.ID || (membership.Status != "joined" && membership.AuthorizedInviteID == 0)
 	if needsAuthorization && !member.User.IsBot && update.InviteLink != nil && communityValidInviteURL(update.InviteLink.InviteLink) {
 		identity := CommunityTelegramIdentity{ID: id, Username: member.User.Username, Name: strings.TrimSpace(member.User.FirstName + " " + member.User.LastName)}
-		authorized, _, authorizeErr := s.repo.AuthorizeJoin(ctx, communityHash(update.InviteLink.InviteLink), identity, update.Chat.ID, update.Date, updateID, c.BotID, c.RequirePaidRecharge)
+		authorized, invite, authorizeErr := s.repo.AuthorizeJoin(ctx, communityHash(update.InviteLink.InviteLink), identity, update.Chat.ID, update.Date, updateID, c.BotID, c.RequirePaidRecharge)
 		if authorizeErr != nil && !communityPermanentError(authorizeErr) {
 			return authorizeErr
 		}
 		if authorizeErr == nil {
 			membership = authorized
+			authorizedInvite = invite
 		}
 	}
 	if membership != nil && membership.GroupChatID == update.Chat.ID {
@@ -399,7 +428,7 @@ func (s *CommunityService) processMemberUpdate(ctx context.Context, c *Community
 			return activeErr
 		}
 		if activeErr == nil && (membership.Status == "joined" || membership.AuthorizedInviteID > 0) && !member.User.IsBot {
-			if err = s.repo.MarkMembership(ctx, id, update.Chat.ID, "joined", update.Date, updateID); err != nil {
+			if err = s.completeCommunityJoin(ctx, c, shared, membership, authorizedInvite, update.Date, updateID); err != nil {
 				if communityPermanentError(err) {
 					return nil
 				}

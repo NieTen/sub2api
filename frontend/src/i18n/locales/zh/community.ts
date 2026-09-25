@@ -10,7 +10,7 @@ export default {
     pending: '已领取邀请，等待入群', joined: '已加入群组', left: '已离开群组',
     joinedAt: '加入时间：{time}', join: '使用个人链接加入群组',
     getInvite: '领取个人入群链接', inviteDescription: '领取分配给您网站账号的独立邀请链接，打开链接加入群组后会自动绑定 Telegram 账号。',
-    inviteHint: '这是您的限时单次入群凭证，请勿转发。首次通过链接成功入群的 Telegram 账号将绑定到当前网站账号。',
+    inviteHint: '每条邀请链接仅供一个 Telegram 账号使用，首次申请后即锁定该账号，成功入群后自动失效。请勿转发，其他账号需登录各自的网站账号领取邀请。',
     inviteExpired: '入群链接已过期或不可用，可以重新领取。', reissue: '重新领取入群链接', issuing: '正在领取…',
     statusHint: '加入或离开群组后，点击刷新查看最新状态。',
     verifyExisting: '已在群内，核对身份', verifyingIdentity: '正在生成核对链接…',

@@ -158,7 +158,7 @@ func TestCommunityRefreshRecoversAuthorizedPendingMember(t *testing.T) {
 	require.Nil(t, state.Invite)
 	require.Equal(t, int64(200), repo.member.LastEventDate)
 	require.Equal(t, int64(25), repo.member.LastUpdateID)
-	require.Equal(t, []string{"getMe", "getChatMember"}, telegram.methods)
+	require.Equal(t, []string{"getMe", "getChatMember", "revokeChatInviteLink"}, telegram.methods)
 }
 
 func TestCommunityRefreshNeverInventsOrReassignsMembership(t *testing.T) {

@@ -367,7 +367,8 @@ func (r *communityRepository) MarkMembership(ctx context.Context, telegramID, gr
 			}
 			return communityChanged(tx.ExecContext(ctx, `DELETE FROM community_memberships WHERE user_id=$1 AND telegram_user_id=$2 AND group_chat_id=$3 AND joined_at IS NULL`, userID, telegramID, groupID))
 		}
-		if err = communityChanged(tx.ExecContext(ctx, `UPDATE community_memberships SET status=$2,last_event_date=$3,last_update_id=$4,joined_at=CASE WHEN $2='joined' THEN COALESCE(joined_at,NOW()) ELSE joined_at END,authorized_invite_id=CASE WHEN $2='left' THEN NULL ELSE authorized_invite_id END,updated_at=NOW() WHERE user_id=$1`, userID, status, eventDate, updateID)); err != nil {
+		// 状态参数同时用于列赋值和 CASE 判断，显式指定类型以避免 PostgreSQL 将其分别推断为 varchar 和 text。
+		if err = communityChanged(tx.ExecContext(ctx, `UPDATE community_memberships SET status=$2::varchar,last_event_date=$3,last_update_id=$4,joined_at=CASE WHEN $2='joined' THEN COALESCE(joined_at,NOW()) ELSE joined_at END,authorized_invite_id=CASE WHEN $2='left' THEN NULL ELSE authorized_invite_id END,updated_at=NOW() WHERE user_id=$1`, userID, status, eventDate, updateID)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE community_invites SET status='revoke_pending',available_at=NOW() WHERE user_id=$1 AND status='active'`, userID)
