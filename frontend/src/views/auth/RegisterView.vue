@@ -349,7 +349,7 @@
           @open="showAgreementModal = true"
         />
 
-        <p v-if="errorMessage" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
+        <p v-if="errorMessage" role="alert" class="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
 
         <!-- Submit Button -->
         <button
@@ -847,7 +847,7 @@ async function validatePromoCodeDebounced(code: string): Promise<void> {
     console.error('Failed to validate promo code:', error)
     promoValidation.valid = false
     promoValidation.invalid = true
-    promoValidation.message = t('auth.promoCodeInvalid')
+    promoValidation.message = buildRegistrationErrorMessage(error, t('auth.promoCodeInvalid'))
   } finally {
     promoValidating.value = false
   }
@@ -910,10 +910,10 @@ async function validateInvitationCodeDebounced(code: string): Promise<void> {
       invitationValidation.invalid = true
       invitationValidation.message = getInvitationErrorMessage(result.error_code)
     }
-  } catch {
+  } catch (error) {
     invitationValidation.valid = false
     invitationValidation.invalid = true
-    invitationValidation.message = t('auth.invitationCodeInvalid')
+    invitationValidation.message = buildRegistrationErrorMessage(error, t('auth.invitationCodeInvalid'))
   } finally {
     invitationValidating.value = false
   }
@@ -996,12 +996,7 @@ async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
     )
     window.location.href = result.authorize_url
   } catch (error: unknown) {
-    errorMessage.value = extractI18nErrorMessage(
-      error,
-      t,
-      'auth.errors',
-      t('auth.turnstileFailed')
-    )
+    errorMessage.value = buildRegistrationErrorMessage(error, t('auth.turnstileFailed'))
     appStore.showError(errorMessage.value)
   } finally {
     resetCaptchaProof()
@@ -1179,7 +1174,7 @@ async function handleRegister(): Promise<void> {
     }
     // If promo code is invalid, block submission
     if (promoValidation.invalid) {
-      errorMessage.value = t('auth.promoCodeInvalidCannotRegister')
+      errorMessage.value = promoValidation.message || t('auth.promoCodeInvalidCannotRegister')
       return
     }
   }
@@ -1195,14 +1190,14 @@ async function handleRegister(): Promise<void> {
         return
       }
       if (invitationValidation.invalid) {
-        errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
+        errorMessage.value = invitationValidation.message || t('auth.invitationCodeInvalidCannotRegister')
         return
       }
       if (formData.invitation_code.trim() && !invitationValidation.valid) {
         errorMessage.value = t('auth.invitationCodeValidating')
         await validateInvitationCodeDebounced(formData.invitation_code.trim())
         if (!invitationValidation.valid) {
-          errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
+          errorMessage.value = invitationValidation.message || t('auth.invitationCodeInvalidCannotRegister')
           return
         }
         errorMessage.value = ''
@@ -1254,13 +1249,17 @@ async function handleRegister(): Promise<void> {
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
-  if (extractApiErrorCode(error) === 'EMAIL_VERIFY_REQUIRED') {
-    return t('auth.emailVerificationRequired')
-  }
-  if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
-    return t('auth.emailDomainRegistrationLimit')
-  }
-  return extractI18nErrorMessage(error, t, 'auth.errors', buildAuthErrorMessage(error, { fallback }))
+  return buildAuthErrorMessage(error, {
+    fallback: () => {
+      if (extractApiErrorCode(error) === 'EMAIL_VERIFY_REQUIRED') {
+        return t('auth.emailVerificationRequired')
+      }
+      if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
+        return t('auth.emailDomainRegistrationLimit')
+      }
+      return extractI18nErrorMessage(error, t, 'auth.errors', fallback)
+    }
+  })
 }
 </script>
 

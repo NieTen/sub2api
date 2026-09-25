@@ -105,6 +105,8 @@
           />
         </div>
 
+        <p v-if="errorMessage" role="alert" class="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
+
         <!-- Submit Button -->
         <button
           type="submit"
@@ -783,10 +785,11 @@ function buildEmailSuffixNotAllowedMessage(): string {
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
-  if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
-    return t('auth.emailDomainRegistrationLimit')
-  }
-  return buildAuthErrorMessage(error, { fallback })
+  return buildAuthErrorMessage(error, {
+    fallback: () => extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT'
+      ? t('auth.emailDomainRegistrationLimit')
+      : fallback
+  })
 }
 </script>
 

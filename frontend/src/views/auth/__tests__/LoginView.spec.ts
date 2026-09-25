@@ -1,10 +1,13 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import LoginView from '@/views/auth/LoginView.vue'
 
-const { getPublicSettingsMock, pushMock } = vi.hoisted(() => ({
+const { getPublicSettingsMock, pushMock, loginMock, showErrorMock, showSuccessMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
-  pushMock: vi.fn()
+  pushMock: vi.fn(),
+  loginMock: vi.fn(),
+  showErrorMock: vi.fn(),
+  showSuccessMock: vi.fn()
 }))
 
 const publicSettings = {
@@ -44,19 +47,22 @@ vi.mock('vue-i18n', () => ({
     }
   }),
   useI18n: () => ({
-    t: (key: string) => key
+    t: (key: string) => ({
+      'auth.errors.INVALID_CREDENTIALS': '固定的账号或密码错误提示',
+      'auth.errors.USER_NOT_ACTIVE': '固定的账号停用提示'
+    } as Record<string, string>)[key] || key
   })
 }))
 
 vi.mock('@/stores', () => ({
   useAuthStore: () => ({
-    login: vi.fn(),
+    login: (...args: unknown[]) => loginMock(...args),
     loginWithPasskey: vi.fn(),
     login2FA: vi.fn()
   }),
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
+    showError: (...args: unknown[]) => showErrorMock(...args),
+    showSuccess: (...args: unknown[]) => showSuccessMock(...args),
     showWarning: vi.fn()
   })
 }))
@@ -90,10 +96,15 @@ function mountLogin() {
   })
 }
 
+enableAutoUnmount(afterEach)
+
 describe('LoginView registration entry', () => {
   beforeEach(() => {
     getPublicSettingsMock.mockReset()
     pushMock.mockReset()
+    loginMock.mockReset()
+    showErrorMock.mockReset()
+    showSuccessMock.mockReset()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
   })
 
@@ -114,5 +125,29 @@ describe('LoginView registration entry', () => {
     await flushPromises()
 
     expect(wrapper.text()).not.toContain('auth.signUp')
+  })
+
+  it.each([
+    [{ reason: 'INVALID_CREDENTIALS', message: '登录密码错误，请重新输入完整密码。' }, '登录密码错误，请重新输入完整密码。'],
+    [{ reason: 'USER_NOT_ACTIVE', message: '账号正在人工审核，请于工作日联系客服。' }, '账号正在人工审核，请于工作日联系客服。'],
+    [{ message: 'Request failed with status code 401', response: { data: { detail: '该账号暂时锁定，请在十分钟后重试。' } } }, '该账号暂时锁定，请在十分钟后重试。'],
+    [{ reason: 'CUSTOM_LOGIN_POLICY', message: '当前登录时段尚未开放。' }, '当前登录时段尚未开放。'],
+    [{ reason: 'INVALID_CREDENTIALS' }, '固定的账号或密码错误提示'],
+    [{ reason: 'UNKNOWN_REASON' }, 'auth.loginFailed']
+  ])('登录失败保留原始报错，缺少原文时才使用兼容提示：%j', async (error, expected) => {
+    loginMock.mockRejectedValueOnce(error)
+    const wrapper = mountLogin()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(loginMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
 })

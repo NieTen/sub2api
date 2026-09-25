@@ -1,6 +1,6 @@
 import { defineComponent, h } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import EmailVerifyView from '@/views/auth/EmailVerifyView.vue'
 
 const {
@@ -103,6 +103,21 @@ vi.mock('@/api/client', () => ({
     post: (...args: any[]) => apiClientPostMock(...args),
   },
 }))
+
+function mountEmailVerify() {
+  return mount(EmailVerifyView, {
+    global: {
+      stubs: {
+        AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
+        Icon: true,
+        TurnstileWidget: true,
+        transition: false,
+      },
+    },
+  })
+}
+
+enableAutoUnmount(afterEach)
 
 describe('EmailVerifyView', () => {
   beforeEach(() => {
@@ -345,7 +360,10 @@ describe('EmailVerifyView', () => {
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
-  it('shows the localized domain quota message when sending a verification code is rejected', async () => {
+  it.each([
+    ['邮箱服务暂不接受此域名，请使用你已验证的邮箱。', '邮箱服务暂不接受此域名，请使用你已验证的邮箱。'],
+    [undefined, '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。']
+  ])('发送验证码失败优先保留域名限制原文，缺少原文时沿用旧提示：%s', async (message, expected) => {
     getPublicSettingsMock.mockResolvedValue({
       turnstile_enabled: false,
       turnstile_site_key: '',
@@ -355,7 +373,7 @@ describe('EmailVerifyView', () => {
     })
     sendVerifyCodeMock.mockRejectedValueOnce({
       reason: 'EMAIL_DOMAIN_REGISTRATION_LIMIT',
-      message: 'raw backend message',
+      message,
     })
     sessionStorage.setItem(
       'register_data',
@@ -365,25 +383,19 @@ describe('EmailVerifyView', () => {
       })
     )
 
-    mount(EmailVerifyView, {
-      global: {
-        stubs: {
-          AuthLayout: { template: '<div><slot /><slot name="footer" /></div>' },
-          Icon: true,
-          TurnstileWidget: true,
-          transition: false,
-        },
-      },
-    })
+    const wrapper = mountEmailVerify()
 
     await flushPromises()
 
-    expect(showErrorMock).toHaveBeenLastCalledWith(
-      '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
-    )
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
-  it('shows the localized domain quota message when verified registration is rejected', async () => {
+  it.each([
+    ['该域名的账号申请数量已达上限。', '该域名的账号申请数量已达上限。'],
+    [undefined, '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。']
+  ])('验证注册失败优先保留域名限制原文，缺少原文时沿用旧提示：%s', async (message, expected) => {
     getPublicSettingsMock.mockResolvedValue({
       turnstile_enabled: false,
       turnstile_site_key: '',
@@ -400,7 +412,7 @@ describe('EmailVerifyView', () => {
     )
     registerMock.mockRejectedValueOnce({
       reason: 'EMAIL_DOMAIN_REGISTRATION_LIMIT',
-      message: 'raw backend message',
+      message,
     })
 
     const wrapper = mount(EmailVerifyView, {
@@ -420,9 +432,50 @@ describe('EmailVerifyView', () => {
     await flushPromises()
 
     expect(registerMock).toHaveBeenCalled()
-    expect(showErrorMock).toHaveBeenLastCalledWith(
-      '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
-    )
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ reason: 'INVALID_VERIFY_CODE', message: '此验证码不正确，还可以尝试两次。' }, '此验证码不正确，还可以尝试两次。'],
+    [{ reason: 'EMAIL_EXISTS', message: '该邮箱已有账号，请返回登录页面。' }, '该邮箱已有账号，请返回登录页面。'],
+    [{ message: 'Request failed with status code 400', response: { data: { detail: '验证码发送时间过久，请重新获取。' } } }, '验证码发送时间过久，请重新获取。'],
+    [{ reason: 'CUSTOM_VERIFY_POLICY', message: '验证服务正在维护，请稍后继续。' }, '验证服务正在维护，请稍后继续。'],
+    [{ reason: 'UNKNOWN_REASON' }, 'auth.verifyFailed']
+  ])('验证码提交失败展示原文且不会当作注册成功：%j', async (error, expected) => {
+    sessionStorage.setItem('register_data', JSON.stringify({ email: 'user@example.com', password: 'secret-123' }))
+    registerMock.mockRejectedValueOnce(error)
+    const wrapper = mountEmailVerify()
+    await flushPromises()
+    await wrapper.get('#code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(showSuccessMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(setTokenMock).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('register_data')).not.toBeNull()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it.each([
+    [{ reason: 'CUSTOM_MAIL_PROVIDER_ERROR', message: '邮件暂时无法送达，请核对邮箱后再发送。' }, '邮件暂时无法送达，请核对邮箱后再发送。'],
+    [{ reason: 'UNKNOWN_REASON' }, 'auth.sendCodeFailed']
+  ])('验证码发送失败展示原文或缺失原文的兼容提示：%j', async (error, expected) => {
+    sessionStorage.setItem('register_data', JSON.stringify({ email: 'user@example.com', password: 'secret-123' }))
+    sendVerifyCodeMock.mockRejectedValueOnce(error)
+    const wrapper = mountEmailVerify()
+    await flushPromises()
+
+    expect(sendVerifyCodeMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   // 域名限量注册开关默认关闭：恢复 PR5423 之前的客户端白名单预检，非白名单域名不发送验证码。

@@ -260,6 +260,39 @@ describe('API Client', () => {
       )
     })
 
+    it('业务错误信封保留原始详细信息和 error，不改变 message 优先级', async () => {
+      const body = {
+        code: 409,
+        message: 'Registration rejected',
+        detail: 'email already exists',
+        error: { message: 'mailbox already registered' },
+        reason: 'EMAIL_EXISTS',
+        metadata: { field: 'email' },
+      }
+      apiClient.defaults.adapter = vi.fn().mockResolvedValue({
+        status: 200, data: body, headers: {}, config: {}, statusText: 'OK',
+      })
+
+      await expect(apiClient.post('/auth/register')).rejects.toMatchObject(body)
+    })
+
+    it.each(['Registration rejected', undefined])('HTTP 错误保留 detail 与 error（message=%s）', async (message) => {
+      const body = {
+        code: 409,
+        message,
+        detail: 'email already exists',
+        error: 'mailbox already registered',
+        reason: 'EMAIL_EXISTS',
+      }
+      apiClient.defaults.adapter = vi.fn().mockImplementation(async (config) => {
+        throw { response: { status: 409, data: body }, config, message: 'Request failed with status code 409' }
+      })
+
+      await expect(apiClient.post('/auth/register')).rejects.toMatchObject({
+        ...body, message: message || body.detail, status: 409,
+      })
+    })
+
     it('部署与运营合规未确认时广播事件且保留登录态', async () => {
       localStorage.setItem('auth_token', 'admin-token')
       const listener = vi.fn()
@@ -311,7 +344,7 @@ describe('API Client', () => {
   // --- 401 Token 刷新 ---
 
   describe('401 Token 刷新', () => {
-    it('无 refresh_token 时 401 清除 localStorage', async () => {
+    it.each(['/test', '/auth/me'])('受保护接口 %s 无 refresh_token 时 401 清除会话并跳转', async (url) => {
       localStorage.setItem('auth_token', 'expired-token')
       // 不设置 refresh_token
 
@@ -328,16 +361,18 @@ describe('API Client', () => {
           data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
         },
         config: {
-          url: '/test',
+          url,
           headers: { Authorization: 'Bearer expired-token' },
         },
         code: 'ERR_BAD_REQUEST',
       })
       apiClient.defaults.adapter = adapter
 
-      await expect(apiClient.get('/test')).rejects.toBeDefined()
+      await expect(apiClient.get(url)).rejects.toBeDefined()
 
       expect(localStorage.getItem('auth_token')).toBeNull()
+      expect(window.location.href).toBe('/login')
+      expect(sessionStorage.getItem('auth_expired')).toBe('1')
 
       // 恢复 location
       Object.defineProperty(window, 'location', {
@@ -346,7 +381,7 @@ describe('API Client', () => {
       })
     })
 
-    it('有 refresh_token 时刷新并重试原请求', async () => {
+    it.each(['/test', '/auth/me'])('受保护接口 %s 有 refresh_token 时刷新并重试', async (url) => {
       localStorage.setItem('auth_token', 'expired-token')
       localStorage.setItem('refresh_token', 'refresh-token')
       localStorage.setItem('token_expires_at', String(Date.now() - 1))
@@ -359,7 +394,7 @@ describe('API Client', () => {
             data: { code: 'TOKEN_EXPIRED', message: 'Token expired' },
           },
           config: {
-            url: '/test',
+            url,
             headers: { Authorization: 'Bearer expired-token' },
           },
           code: 'ERR_BAD_REQUEST',
@@ -385,12 +420,75 @@ describe('API Client', () => {
         },
       })
 
-      await expect(apiClient.get('/test')).resolves.toMatchObject({ data: { ok: true } })
+      await expect(apiClient.get(url)).resolves.toMatchObject({ data: { ok: true } })
 
       expect(adapter).toHaveBeenCalledTimes(2)
       expect(localStorage.getItem('auth_token')).toBe('new-token')
       expect(localStorage.getItem('refresh_token')).toBe('new-refresh-token')
       expect(adapter.mock.calls[1][0].headers.get('Authorization')).toBe('Bearer new-token')
+    })
+
+    it.each([
+      '/auth/login',
+      '/auth/login/2fa',
+      '/auth/register',
+      '/auth/send-verify-code',
+      '/api/v1/auth/register?source=email',
+      '/api/v1/auth/send-verify-code/?retry=1',
+      'https://api.example.test/api/v1/auth/login?source=web',
+      'https://api.example.test/custom/api/auth/login/2fa?step=verify',
+    ])('公开认证提交 %s 的 401 原文直通，不刷新或跳转', async (url) => {
+      const stored = {
+        auth_token: 'existing-access', refresh_token: 'existing-refresh',
+        auth_user: JSON.stringify({ id: 7 }), token_expires_at: '123',
+      }
+      for (const [key, value] of Object.entries(stored)) localStorage.setItem(key, value)
+      const originalLocation = window.location
+      const location = { ...originalLocation, pathname: '/register', href: '/register' }
+      Object.defineProperty(window, 'location', { value: location, writable: true })
+      const refresh = await import('@/api/tokenRefresh')
+      const refreshSpy = vi.spyOn(refresh, 'refreshAuthTokens')
+      const body = {
+        code: 401, reason: 'INVALID_CREDENTIALS', message: 'invalid email or password',
+        detail: 'Original server detail', error: { message: 'Original nested error' },
+        metadata: { field: 'password' },
+      }
+      const adapter = vi.fn().mockImplementation(async (config) => {
+        throw { response: { status: 401, data: body }, config, message: 'Request failed with status code 401' }
+      })
+      apiClient.defaults.adapter = adapter
+      try {
+        await expect(apiClient.post(url, { email: 'qa@example.test' })).rejects.toMatchObject({ ...body, status: 401 })
+        expect(adapter).toHaveBeenCalledOnce()
+        expect(refreshSpy).not.toHaveBeenCalled()
+        expect(location.href).toBe('/register')
+        for (const [key, value] of Object.entries(stored)) expect(localStorage.getItem(key)).toBe(value)
+        expect(sessionStorage.getItem('auth_expired')).toBeNull()
+      } finally {
+        Object.defineProperty(window, 'location', { value: originalLocation, writable: true })
+      }
+    })
+
+    it.each([
+      { method: 'get', url: '/auth/login' },
+      { method: 'post', url: '/auth/login/extra' },
+      { method: 'post', url: '/auth/refresh' },
+      { method: 'post', url: '/auth/oauth/bind-token' },
+    ])('未豁免的 $method $url 继续执行原有 401 会话清理', async ({ method, url }) => {
+      localStorage.setItem('auth_token', 'expired-token')
+      const originalLocation = window.location
+      const location = { ...originalLocation, pathname: '/dashboard', href: '/dashboard' }
+      Object.defineProperty(window, 'location', { value: location, writable: true })
+      apiClient.defaults.adapter = vi.fn().mockImplementation(async (config) => {
+        throw { response: { status: 401, data: { message: 'Token expired' } }, config }
+      })
+      try {
+        await expect(apiClient.request({ method, url })).rejects.toMatchObject({ status: 401, message: 'Token expired' })
+        expect(localStorage.getItem('auth_token')).toBeNull()
+        expect(location.href).toBe('/login')
+      } finally {
+        Object.defineProperty(window, 'location', { value: originalLocation, writable: true })
+      }
     })
 
     it.each([429, 500, 503, 0])('刷新暂时失败（%s）时保留会话并返回实际状态', async (status) => {

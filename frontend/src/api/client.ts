@@ -78,6 +78,17 @@ apiClient.interceptors.request.use(
 
 // ==================== Response Interceptor ====================
 
+// 登录、注册与发码的 401 属于表单错误，交由页面显示；受保护接口仍走会话续期。
+function isPublicAuthSubmission(config?: InternalAxiosRequestConfig): boolean {
+  if (config?.method?.toLowerCase() !== 'post') return false
+  try {
+    const pathname = new URL(String(config.url || ''), window.location.origin).pathname.replace(/\/+$/, '')
+    return /\/auth\/(?:login(?:\/2fa)?|register|send-verify-code)$/.test(pathname)
+  } catch {
+    return false
+  }
+}
+
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
     // Unwrap standard API response format { code, message, data }
@@ -93,6 +104,8 @@ apiClient.interceptors.response.use(
           status: response.status,
           code: apiResponse.code,
           message: apiResponse.message || 'Unknown error',
+          detail: resp.detail,
+          error: resp.error,
           reason: resp.reason,
           metadata: resp.metadata,
         })
@@ -162,7 +175,7 @@ apiClient.interceptors.response.use(
 
       // 401: Try to refresh the token if we have a refresh token
       // This handles TOKEN_EXPIRED, INVALID_TOKEN, TOKEN_REVOKED, etc.
-      if (status === 401 && !originalRequest._retry) {
+      if (status === 401 && !originalRequest._retry && !isPublicAuthSubmission(originalRequest)) {
         const refreshToken = localStorage.getItem('refresh_token')
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
@@ -261,6 +274,7 @@ apiClient.interceptors.response.use(
         reason: apiData.reason,
         error: apiData.error,
         message: apiData.message || apiData.detail || error.message,
+        detail: apiData.detail,
         metadata: apiData.metadata,
       })
     }

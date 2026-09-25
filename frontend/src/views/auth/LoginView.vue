@@ -132,6 +132,8 @@
           />
         </div>
 
+        <p v-if="errorMessage" role="alert" class="whitespace-pre-wrap break-words text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
+
         <!-- Submit Button -->
         <button
           type="submit"
@@ -258,6 +260,7 @@
 
 <script setup lang="ts">
 import { computed, ref, reactive, onMounted, watch } from 'vue'
+import { buildAuthErrorMessage } from '@/utils/authError'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { AuthLayout } from '@/components/layout'
@@ -642,7 +645,7 @@ async function handleLogin(): Promise<void> {
     const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
     await router.push(redirectTo)
   } catch (error: unknown) {
-    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
+    errorMessage.value = buildLoginErrorMessage(error, t('auth.loginFailed'))
 
     // Also show error toast
     appStore.showError(errorMessage.value)
@@ -686,7 +689,7 @@ async function handlePasskeyLogin(): Promise<void> {
     const fallback = error instanceof DOMException && error.name === 'NotAllowedError'
       ? t('auth.passkeyCancelled')
       : t('auth.passkeyFailed')
-    errorMessage.value = extractI18nErrorMessage(error, t, 'auth.errors', fallback)
+    errorMessage.value = buildLoginErrorMessage(error, fallback)
     appStore.showError(errorMessage.value)
   } finally {
     if (actionCaptchaEnabled.value) {
@@ -720,12 +723,7 @@ async function handleOAuthStart(request: OAuthLoginStart): Promise<void> {
     )
     window.location.href = result.authorize_url
   } catch (error: unknown) {
-    errorMessage.value = extractI18nErrorMessage(
-      error,
-      t,
-      'auth.errors',
-      t('auth.turnstileFailed')
-    )
+    errorMessage.value = buildLoginErrorMessage(error, t('auth.turnstileFailed'))
     appStore.showError(errorMessage.value)
   } finally {
     resetCaptchaProof()
@@ -752,8 +750,7 @@ async function handle2FAVerify(code: string): Promise<void> {
     const redirectTo = (router.currentRoute.value.query.redirect as string) || '/dashboard'
     await router.push(redirectTo)
   } catch (error: unknown) {
-    const err = error as { message?: string; response?: { data?: { message?: string } } }
-    const message = err.response?.data?.message || err.message || t('profile.totp.loginFailed')
+    const message = buildLoginErrorMessage(error, t('profile.totp.loginFailed'))
 
     if (totpModalRef.value) {
       totpModalRef.value.setError(message)
@@ -766,6 +763,12 @@ function handle2FACancel(): void {
   show2FAModal.value = false
   totpTempToken.value = ''
   totpUserEmailMasked.value = ''
+}
+
+function buildLoginErrorMessage(error: unknown, fallback: string): string {
+  return buildAuthErrorMessage(error, {
+    fallback: () => extractI18nErrorMessage(error, t, 'auth.errors', fallback)
+  })
 }
 </script>
 

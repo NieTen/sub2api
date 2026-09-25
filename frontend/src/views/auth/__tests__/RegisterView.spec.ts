@@ -63,7 +63,7 @@ vi.mock('vue-i18n', () => ({
     t: (key: string) =>
       key === 'auth.emailDomainRegistrationLimit'
         ? '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
-        : key,
+        : key === 'auth.errors.EMAIL_EXISTS' ? '固定的邮箱已注册提示' : key,
     locale: { value: 'en' }
   })
 }))
@@ -449,7 +449,9 @@ describe('RegisterView', () => {
     await flushPromises()
 
     expect(resetCaptchaMock).toHaveBeenCalledOnce()
-    expect(showErrorMock).toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith('邮件发送失败')
+    expect(wrapper.get('[role="alert"]').text()).toBe('邮件发送失败')
+    expect(pushMock).not.toHaveBeenCalled()
     expect(sendButton.attributes('disabled')).toBeUndefined()
     await sendButton.trigger('click')
     await flushPromises()
@@ -566,6 +568,41 @@ describe('RegisterView', () => {
     expect(wrapper.get('#email').attributes('disabled')).toBeUndefined()
   })
 
+  it.each([
+    ['promo_code', '这张优惠码已被撤销，请联系发放人员。'],
+    ['invitation_code', '该邀请码所属活动已暂停，请使用其他邀请。']
+  ])('%s 校验失败的原文保留到提交注册，不被通用提示替换', async (field, message) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      turnstile_enabled: false,
+      [`${field}_enabled`]: true
+    })
+    const validateCode = field === 'promo_code' ? validatePromoCodeMock : validateInvitationCodeMock
+    validateCode.mockRejectedValueOnce({ reason: 'CUSTOM_CODE_POLICY', message })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get(`#${field}`).setValue('CODE-123')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    expect(validateCode).toHaveBeenCalledOnce()
+    expect(validateCode).toHaveBeenCalledWith('CODE-123')
+    expect(showErrorMock).toHaveBeenLastCalledWith(message)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toBe(message)
+    expect(validateCode).toHaveBeenCalledOnce()
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(appStoreMock.showSuccess).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
   it('设置尚未加载时禁止提交注册', async () => {
     getPublicSettingsMock.mockReturnValueOnce(new Promise(() => {}))
     const wrapper = mountRegister()
@@ -606,11 +643,14 @@ describe('RegisterView', () => {
     expect(wrapper.find('[data-testid="retry-registration-settings"]').exists()).toBe(false)
   })
 
-  it('后端要求邮箱验证时自动显示验证码输入并给出中文提示键', async () => {
+  it.each([
+    ['email verification is required', 'email verification is required'],
+    [undefined, 'auth.emailVerificationRequired']
+  ])('后端要求邮箱验证时保留报错并继续兼容验证码流程：%s', async (message, expected) => {
     getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
     registerMock.mockRejectedValueOnce({
       reason: 'EMAIL_VERIFY_REQUIRED',
-      message: 'email verification is required'
+      message
     })
     const wrapper = mountRegister()
     await flushPromises()
@@ -622,7 +662,8 @@ describe('RegisterView', () => {
     await flushPromises()
 
     expect(wrapper.get('#verify_code').exists()).toBe(true)
-    expect(showErrorMock).toHaveBeenCalledWith('auth.emailVerificationRequired')
+    expect(showErrorMock).toHaveBeenCalledWith(expected)
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
     expect(pushMock).not.toHaveBeenCalled()
     await wrapper.get('#verify_code').setValue('123456')
     await wrapper.get('form').trigger('submit.prevent')
@@ -681,7 +722,10 @@ describe('RegisterView', () => {
     expect(showErrorMock).not.toHaveBeenCalled()
   })
 
-  it('shows the localized registration domain quota message returned by the backend', async () => {
+  it.each([
+    ['该企业邮箱域名今日额度已用完，请明天再试。', '该企业邮箱域名今日额度已用完，请明天再试。'],
+    [undefined, '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。']
+  ])('注册域名限制优先保留原文，缺少原文时沿用旧提示：%s', async (message, expected) => {
     getPublicSettingsMock.mockResolvedValueOnce({
       ...publicSettings,
       turnstile_enabled: false,
@@ -690,7 +734,7 @@ describe('RegisterView', () => {
     })
     registerMock.mockRejectedValueOnce({
       reason: 'EMAIL_DOMAIN_REGISTRATION_LIMIT',
-      message: 'raw backend message'
+      message
     })
 
     const wrapper = mountRegister()
@@ -701,9 +745,36 @@ describe('RegisterView', () => {
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(showErrorMock).toHaveBeenCalledWith(
-      '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。'
-    )
+    expect(showErrorMock).toHaveBeenCalledWith(expected)
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    [{ reason: 'EMAIL_EXISTS', message: '这个邮箱已经注册过，请直接登录原账户。' }, '这个邮箱已经注册过，请直接登录原账户。'],
+    [{ reason: 'INVALID_VERIFY_CODE', message: '邮箱验证码已过期，请重新发送。' }, '邮箱验证码已过期，请重新发送。'],
+    [{ message: 'Request failed with status code 400', response: { data: { detail: '当前邀请已失效，请联系邀请人。' } } }, '当前邀请已失效，请联系邀请人。'],
+    [{ reason: 'CUSTOM_REGISTRATION_POLICY', message: '本站今日暂停新用户注册。' }, '本站今日暂停新用户注册。'],
+    [{ reason: 'EMAIL_EXISTS' }, '固定的邮箱已注册提示'],
+    [{ reason: 'UNKNOWN_REASON' }, 'auth.registrationFailed']
+  ])('注册提交失败在页面和提示中保留原始错误：%j', async (error, expected) => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false, email_verify_enabled: true })
+    registerMock.mockRejectedValueOnce(error)
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('[role="alert"]').text()).toBe(expected)
+    expect(showErrorMock).toHaveBeenLastCalledWith(expected)
+    expect(appStoreMock.showSuccess).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
 
   // 域名限量注册开关默认关闭：恢复 PR5423 之前的客户端白名单预检，非白名单域名不发起注册请求。
