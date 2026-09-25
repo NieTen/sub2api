@@ -8,12 +8,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
 const SettingKeyCommunity = "community_config"
@@ -53,6 +57,34 @@ func (s *CommunityService) GetSettings(ctx context.Context) (*CommunitySettings,
 
 var communityBotUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9_]{5,32}$`)
 
+// 保存设置时保留原错误码，按字段返回具体原因，不修改共享错误或回显凭据。
+func communitySettingsFieldError(field, message string) error {
+	err := ErrCommunityInvalid.WithMetadata(map[string]string{"field": field})
+	err.Message = message
+	return err
+}
+
+// 仅公开校验阶段和安全状态码，Telegram 原始响应及含令牌的请求地址不进入提示。
+func communitySettingsTelegramError(field, action string, err error) error {
+	var api *SupportTelegramAPIError
+	if errors.As(err, &api) {
+		switch api.StatusCode {
+		case http.StatusUnauthorized, http.StatusNotFound:
+			return communitySettingsFieldError("telegram_bot_token", "Telegram 机器人身份验证失败，请在“机器人设置”中检查令牌是否有效")
+		case http.StatusBadRequest, http.StatusForbidden:
+			message := action + "失败，请检查群组 Chat ID，并确认机器人已加入该群且已设为管理员"
+			if field == "telegram_bot_token" {
+				message = "Telegram 机器人身份验证失败，请在“机器人设置”中检查完整令牌"
+			}
+			return communitySettingsFieldError(field, fmt.Sprintf("%s（Telegram 状态 %d）", message, api.StatusCode))
+		case http.StatusTooManyRequests:
+			return infraerrors.New(http.StatusBadGateway, "COMMUNITY_TELEGRAM_CHECK_FAILED", "Telegram 请求过于频繁，请稍后重新保存").WithMetadata(map[string]string{"field": field})
+		}
+		return infraerrors.New(http.StatusBadGateway, "COMMUNITY_TELEGRAM_CHECK_FAILED", fmt.Sprintf("%s失败（Telegram 状态 %d），请稍后重试", action, api.StatusCode)).WithMetadata(map[string]string{"field": field})
+	}
+	return infraerrors.New(http.StatusBadGateway, "COMMUNITY_TELEGRAM_CHECK_FAILED", action+"失败，请检查服务器与 Telegram 的连接后重试").WithMetadata(map[string]string{"field": field})
+}
+
 func (s *CommunityService) UpdateSettings(ctx context.Context, c CommunitySettings) (*CommunitySettings, error) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -67,22 +99,25 @@ func (s *CommunityService) UpdateSettings(ctx context.Context, c CommunitySettin
 	c.GroupChatID = strings.TrimSpace(c.GroupChatID)
 	c.GroupName = strings.TrimSpace(c.GroupName)
 	c.BotUsername = strings.TrimPrefix(strings.TrimSpace(c.BotUsername), "@")
-	if len(c.ContactURL) > 2048 || len([]rune(c.GroupName)) > 100 || strings.ContainsAny(c.GroupName, "\x00\r\n") {
-		return nil, ErrCommunityInvalid
+	if len(c.ContactURL) > 2048 {
+		return nil, communitySettingsFieldError("contact_url", "客服页面地址长度不能超过 2048 字节")
+	}
+	if len([]rune(c.GroupName)) > 100 || strings.ContainsAny(c.GroupName, "\x00\r\n") {
+		return nil, communitySettingsFieldError("group_name", "群组显示名称不能超过 100 个字符，且不能包含换行或空字符")
 	}
 	if c.ContactURL != "" {
 		u, err := url.Parse(c.ContactURL)
 		if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "https" && u.Scheme != "http") || strings.ContainsAny(c.ContactURL, "\x00\r\n\t") {
-			return nil, ErrCommunityInvalid
+			return nil, communitySettingsFieldError("contact_url", "客服页面地址无效，请填写不含账号密码的完整 HTTP 或 HTTPS 地址")
 		}
 	}
 	if c.BotUsername != "" && !communityBotUsernamePattern.MatchString(c.BotUsername) {
-		return nil, ErrCommunityInvalid
+		return nil, communitySettingsFieldError("bot_username", "机器人用户名必须为 5～32 位英文字母、数字或下划线，此处不能填写机器人令牌")
 	}
 	if c.GroupChatID != "" {
 		id, err := strconv.ParseInt(c.GroupChatID, 10, 64)
 		if err != nil || id >= 0 {
-			return nil, ErrCommunityInvalid
+			return nil, communitySettingsFieldError("group_chat_id", "Telegram 群组 Chat ID 必须为负整数，请保留负号并填写完整的群组 ID")
 		}
 	}
 	if c.Enabled {
@@ -90,29 +125,57 @@ func (s *CommunityService) UpdateSettings(ctx context.Context, c CommunitySettin
 		if err != nil {
 			return nil, err
 		}
-		if shared.TelegramBotToken == "" || shared.TelegramWebhookSecret == "" || c.GroupChatID == "" {
-			return nil, ErrCommunityInvalid
+		if c.GroupChatID == "" {
+			return nil, communitySettingsFieldError("group_chat_id", "启用 Telegram 社群时，请填写群组 Chat ID")
+		}
+		if shared.TelegramBotToken == "" {
+			return nil, communitySettingsFieldError("telegram_bot_token", "请先在“机器人设置”中配置并保存 Telegram 机器人令牌")
+		}
+		if !supportTelegramTokenPattern.MatchString(shared.TelegramBotToken) {
+			return nil, communitySettingsFieldError("telegram_bot_token", "Telegram 机器人令牌格式无效，请在“机器人设置”中填写 BotFather 提供的完整令牌")
+		}
+		if shared.TelegramWebhookSecret == "" {
+			return nil, communitySettingsFieldError("telegram_webhook_secret", "请先在“机器人设置”中配置并保存 Webhook 验证密钥")
+		}
+		if !supportTelegramSecretPattern.MatchString(shared.TelegramWebhookSecret) {
+			return nil, communitySettingsFieldError("telegram_webhook_secret", "Webhook 验证密钥必须为 16～256 位英文字母、数字、下划线或短横线，请在“机器人设置”中修改")
 		}
 		var bot communityTelegramUser
 		if err = s.delivery.telegramJSON(ctx, shared.TelegramBotToken, "getMe", map[string]any{}, &bot); err != nil {
-			return nil, err
+			return nil, communitySettingsTelegramError("telegram_bot_token", "验证 Telegram 机器人身份", err)
 		}
 		if !bot.IsBot || bot.ID <= 0 || !communityBotUsernamePattern.MatchString(bot.Username) {
-			return nil, ErrCommunityInvalid
+			return nil, communitySettingsFieldError("telegram_bot_token", "Telegram 未返回有效的机器人身份，请在“机器人设置”中检查令牌")
 		}
 		var group communityTelegramChat
 		if err = s.delivery.telegramJSON(ctx, shared.TelegramBotToken, "getChat", communityChatRequest{ChatID: c.GroupChatID}, &group); err != nil {
-			return nil, err
+			return nil, communitySettingsTelegramError("group_chat_id", "通过机器人 @"+bot.Username+" 读取 Telegram 群组", err)
 		}
-		if (group.Type != "group" && group.Type != "supergroup") || group.Username != "" || len(group.ActiveUsernames) > 0 || strconv.FormatInt(group.ID, 10) != c.GroupChatID {
-			return nil, ErrCommunityInvalid
+		if group.Type != "group" && group.Type != "supergroup" {
+			return nil, communitySettingsFieldError("group_chat_id", "Telegram Chat ID 对应的不是群组，请填写私密群组 ID，不能使用频道或个人会话 ID")
+		}
+		if group.Username != "" || len(group.ActiveUsernames) > 0 {
+			return nil, communitySettingsFieldError("group_chat_id", "Telegram 群组必须为私密群，请在 Telegram 中关闭群组的公开用户名后重新保存")
+		}
+		if strconv.FormatInt(group.ID, 10) != c.GroupChatID {
+			return nil, communitySettingsFieldError("group_chat_id", "Telegram 返回的群组 ID 与填写值不一致，请重新获取当前群组 Chat ID")
 		}
 		member, err := s.getChatMember(ctx, shared.TelegramBotToken, c.GroupChatID, bot.ID)
 		if err != nil {
-			return nil, err
+			return nil, communitySettingsTelegramError("bot_permissions", "读取 Telegram 机器人 @"+bot.Username+" 的群权限", err)
 		}
-		if member.Status != "administrator" || !member.CanInviteUsers || !member.CanRestrictMembers {
-			return nil, ErrCommunityInvalid
+		if member.Status != "administrator" {
+			return nil, communitySettingsFieldError("bot_permissions", "Telegram 机器人 @"+bot.Username+" 尚未设为群管理员，请将该机器人添加为管理员，并授予邀请用户和封禁用户权限")
+		}
+		var missingPermissions []string
+		if !member.CanInviteUsers {
+			missingPermissions = append(missingPermissions, "邀请用户")
+		}
+		if !member.CanRestrictMembers {
+			missingPermissions = append(missingPermissions, "封禁用户")
+		}
+		if len(missingPermissions) > 0 {
+			return nil, communitySettingsFieldError("bot_permissions", "Telegram 机器人 @"+bot.Username+" 缺少“"+strings.Join(missingPermissions, "、")+"”权限，请在群管理员设置中开启后重新保存")
 		}
 		c.BotID = bot.ID
 		c.BotUsername = bot.Username
