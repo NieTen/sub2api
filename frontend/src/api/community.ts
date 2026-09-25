@@ -8,6 +8,21 @@ export interface CommunityMembership {
   joined_at?: string
 }
 
+export interface CommunityChallenge {
+  id: string
+  status: 'waiting' | 'claimed' | 'confirmed'
+  expires_at: string
+  bot_url?: string
+  telegram_user_id?: number
+  telegram_username?: string
+  telegram_name?: string
+}
+
+export interface CommunityIdentityConfirmation {
+  challenge_id: string
+  telegram_user_id: number
+}
+
 export interface CommunityState {
   contact_url: string
   enabled: boolean
@@ -18,6 +33,7 @@ export interface CommunityState {
   group_name: string
   bot_username: string
   membership: CommunityMembership | null
+  challenge?: CommunityChallenge | null
   invite: { url: string; expires_at: string } | null
 }
 
@@ -58,8 +74,11 @@ export const communityAPI = {
   async get() {
     return (await apiClient.get<CommunityState>('/community')).data
   },
-  async invite() {
-    return (await apiClient.post<CommunityState>('/community/invite', {})).data
+  async verification() {
+    return (await apiClient.post<CommunityState>('/community/verification', {})).data
+  },
+  async invite(identity?: CommunityIdentityConfirmation) {
+    return (await apiClient.post<CommunityState>('/community/invite', identity ?? {})).data
   },
   async members(page: number, search = '', status: CommunityMemberStatus | 'all' = 'all') {
     return (await apiClient.get<CommunityMembersPage>('/admin/community/members', {

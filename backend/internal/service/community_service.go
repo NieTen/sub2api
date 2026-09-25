@@ -308,7 +308,27 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 		s.mu.Unlock()
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
-	if challenge != nil && (challenge.BotID != c.BotID || !challenge.ExpiresAt.After(time.Now()) || challenge.Status == "confirmed") {
+	pendingMember := state.Enabled && membership != nil && membership.UserID == userID && membership.GroupChatID == groupID && membership.Status == "pending" && membership.AuthorizedInviteID > 0
+	if pendingMember && invite != nil && invite.ID == membership.AuthorizedInviteID && invite.UserID == userID &&
+		invite.TelegramUserID == membership.TelegramUserID && invite.GroupChatID == groupID && invite.BotID == c.BotID &&
+		invite.Status == "active" && invite.ExpiresAt.After(time.Now()) {
+		updated, reconcileErr := s.reconcilePendingMembership(ctx, c, membership)
+		if reconcileErr != nil {
+			return nil, reconcileErr
+		}
+		if updated {
+			membership, challenge, invite, err = s.repo.GetState(ctx, userID)
+			if err != nil {
+				return nil, err
+			}
+			state.Membership, state.Challenge, state.Invite = membership, challenge, invite
+		}
+	}
+	// 已确认但 Telegram 核对尚未完成时保留本人挑战，供网络恢复后继续确认，避免丢失重试入口。
+	canRetryConfirmation := challenge != nil && membership != nil && membership.Status == "pending" &&
+		membership.UserID == userID && membership.GroupChatID == groupID && challenge.UserID == userID &&
+		challenge.TelegramUserID == membership.TelegramUserID
+	if challenge != nil && (challenge.BotID != c.BotID || !challenge.ExpiresAt.After(time.Now()) || (challenge.Status == "confirmed" && !canRetryConfirmation)) {
 		state.Challenge = nil
 	}
 	if invite != nil && (invite.BotID != c.BotID || invite.GroupChatID != groupID || !invite.ExpiresAt.After(time.Now()) || invite.Status != "active") {
@@ -329,6 +349,33 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 		state.PromptKey = communityHash(strconv.FormatInt(c.BotID, 10) + ":" + c.GroupChatID)
 	}
 	return state, nil
+}
+
+// 刷新页面时补偿已授权的等待状态；不会凭任意 Telegram ID 建立新绑定。
+func (s *CommunityService) reconcilePendingMembership(ctx context.Context, expected *CommunitySettings, membership *CommunityMembership) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	c, shared, err := s.checkedConfiguration(ctx)
+	if err != nil || c.BotID != expected.BotID || c.GroupChatID != expected.GroupChatID {
+		return false, nil
+	}
+	member, err := s.getChatMember(ctx, shared.TelegramBotToken, c.GroupChatID, membership.TelegramUserID)
+	if err != nil || !communityMemberPresent(member) || member.User.IsBot {
+		// Telegram 暂时不可用或仍未入群时保留等待状态，交给后续回调或刷新继续核对。
+		return false, nil
+	}
+	if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
+		if communityPermanentError(err) || errors.Is(err, ErrCommunityDisabled) {
+			return false, nil
+		}
+		return false, err
+	}
+	// 使用读取时的授权事件版本，防止覆盖核对期间已经发生的离群或重新申请。
+	err = s.repo.MarkMembership(ctx, membership.TelegramUserID, membership.GroupChatID, "joined", membership.LastEventDate, membership.LastUpdateID)
+	if err != nil && !communityPermanentError(err) {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *CommunityService) StartVerification(ctx context.Context, userID int64) (*CommunityState, error) {
@@ -439,6 +486,11 @@ func (s *CommunityService) CreateInvite(ctx context.Context, userID int64, input
 		invite = nil
 	}
 	if invite != nil && invite.BotID == c.BotID && invite.GroupChatID == groupID && invite.Status == "active" && invite.ExpiresAt.After(time.Now()) {
+		if input.ChallengeID != "" {
+			if err = s.reconcileConfirmedMembership(ctx, c, shared, membership, invite); err != nil {
+				return nil, err
+			}
+		}
 		return s.Get(ctx, userID)
 	}
 	if invite != nil && (invite.BotID != c.BotID || invite.GroupChatID != groupID) {
@@ -460,6 +512,12 @@ func (s *CommunityService) CreateInvite(ctx context.Context, userID int64, input
 			return nil, err
 		}
 		if state.Invite != nil {
+			if input.ChallengeID != "" {
+				if err = s.reconcileConfirmedMembership(ctx, c, shared, state.Membership, state.Invite); err != nil {
+					return nil, err
+				}
+				return s.Get(ctx, userID)
+			}
 			return state, nil
 		}
 		return nil, ErrCommunityBusy
@@ -492,7 +550,47 @@ func (s *CommunityService) CreateInvite(ctx context.Context, userID int64, input
 		_ = s.delivery.telegramJSON(cleanup, shared.TelegramBotToken, "revokeChatInviteLink", communityRevokeInviteRequest{ChatID: c.GroupChatID, InviteLink: result.InviteLink}, nil)
 		return nil, err
 	}
+	if input.ChallengeID != "" {
+		if err = s.reconcileConfirmedMembership(ctx, c, shared, membership, invite); err != nil {
+			return nil, err
+		}
+	}
 	return s.Get(ctx, userID)
+}
+
+// 旧回调缺失且已经入群时，必须先由机器人核实身份、再由登录用户确认，才能恢复绑定。
+func (s *CommunityService) reconcileConfirmedMembership(ctx context.Context, c *CommunitySettings, shared *SupportDeliverySettings, membership *CommunityMembership, invite *CommunityInvite) error {
+	if membership == nil || invite == nil || membership.Status == "joined" {
+		return nil
+	}
+	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
+	if membership.GroupChatID != groupID || invite.GroupChatID != groupID || invite.UserID != membership.UserID || invite.BotID != c.BotID {
+		return ErrCommunityConflict
+	}
+	// 合成事件必须早于成员查询，查询期间收到的同秒真实事件可凭更高 updateID 保持优先。
+	eventDate := time.Now().Unix()
+	member, err := s.getChatMember(ctx, shared.TelegramBotToken, c.GroupChatID, membership.TelegramUserID)
+	if err != nil {
+		return err
+	}
+	if !communityMemberPresent(member) || member.User.IsBot {
+		return nil
+	}
+	if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
+		return err
+	}
+	if membership.AuthorizedInviteID == invite.ID {
+		return s.repo.MarkMembership(ctx, membership.TelegramUserID, groupID, "joined", membership.LastEventDate, membership.LastUpdateID)
+	}
+	identity := CommunityTelegramIdentity{ID: membership.TelegramUserID, Username: member.User.Username, Name: strings.TrimSpace(member.User.FirstName + " " + member.User.LastName)}
+	// 授权仍消费当前用户的有效专属邀请，数据库事务继续保证网站账号与 Telegram 身份双向唯一。
+	if _, _, err = s.repo.AuthorizeJoin(ctx, invite.URLHash, identity, groupID, eventDate, 0, c.BotID, c.RequirePaidRecharge); err != nil {
+		return err
+	}
+	if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
+		return err
+	}
+	return s.repo.MarkMembership(ctx, membership.TelegramUserID, groupID, "joined", eventDate, 0)
 }
 
 func communityValidInviteURL(value string) bool {

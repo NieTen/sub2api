@@ -1,3 +1,5 @@
+// @vitest-environment-options {"url":"https://console.example.com"}
+
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SupportSettingsView from '../SupportSettingsView.vue'
@@ -50,7 +52,8 @@ describe('机器人与群发管理页面', () => {
     await flushPromises()
     expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
       enabled: false, telegram_bot_token: '123:new-token', telegram_webhook_secret: 'new-webhook-secret',
-      admin_emails: ['support@example.com'], telegram_allowed_user_ids: [123]
+      admin_emails: ['support@example.com'], telegram_allowed_user_ids: [123],
+      telegram_webhook_url: 'https://console.example.com/api/v1/support/telegram/webhook'
     }))
     expect((wrapper.find('input[type="password"]').element as HTMLInputElement).value).toBe('')
     wrapper.unmount()
@@ -113,7 +116,8 @@ describe('机器人与群发管理页面', () => {
     await flushPromises()
     expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
       telegram_webhook_secret: '', clear_telegram_webhook_secret: false,
-      telegram_bot_token: '', clear_telegram_bot_token: false
+      telegram_bot_token: '', clear_telegram_bot_token: false,
+      telegram_webhook_url: 'https://console.example.com/api/v1/support/telegram/webhook'
     }))
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     wrapper.unmount()
@@ -128,7 +132,7 @@ describe('机器人与群发管理页面', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
-      telegram_webhook_secret: '', clear_telegram_webhook_secret: true
+      telegram_webhook_secret: '', clear_telegram_webhook_secret: true, telegram_webhook_url: ''
     }))
     wrapper.unmount()
   })
@@ -174,6 +178,117 @@ describe('机器人与群发管理页面', () => {
     const wrapper = render()
     await flushPromises()
     expect((wrapper.find('input[readonly]').element as HTMLInputElement).value).toBe('https://legacy.example.com/api/v1/support/telegram/webhook')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      telegram_webhook_url: 'https://legacy.example.com/api/v1/support/telegram/webhook'
+    }))
+    wrapper.unmount()
+  })
+
+  it('回调注册由后端确认，保存成功后显示已注册状态', async () => {
+    const registeredSettings = {
+      ...settings,
+      telegram_webhook_url: 'https://console.example.com/api/v1/support/telegram/webhook',
+      telegram_webhook_registered: true
+    }
+    vi.mocked(supportAPI.saveSettings).mockResolvedValue(registeredSettings)
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').text()).toBe('support.webhookNotRegistered')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').text()).toBe('support.webhookRegistered')
+    expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      enabled: false, telegram_webhook_registered: undefined,
+      telegram_webhook_url: registeredSettings.telegram_webhook_url
+    }))
+    await wrapper.find('input[type="password"]').setValue('123:new-token')
+    expect(wrapper.find('[role="status"]').text()).toBe('support.webhookNotRegistered')
+    wrapper.unmount()
+  })
+
+  it('域名变化后展示当前回调并要求重新注册，不把旧地址标为已注册', async () => {
+    vi.mocked(supportAPI.settings).mockResolvedValue({
+      ...settings,
+      telegram_webhook_url: 'https://old.example.com/api/v1/support/telegram/webhook',
+      telegram_webhook_registered: true
+    })
+    const wrapper = render()
+    await flushPromises()
+    expect((wrapper.find('input[readonly]').element as HTMLInputElement).value).toBe('https://console.example.com/api/v1/support/telegram/webhook')
+    expect(wrapper.find('[role="status"]').text()).toBe('support.webhookNotRegistered')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      telegram_webhook_url: 'https://console.example.com/api/v1/support/telegram/webhook'
+    }))
+    wrapper.unmount()
+  })
+
+  it('非 HTTPS 回调阻止注册，并保留已经填写的令牌和密钥', async () => {
+    vi.mocked(supportAPI.settings).mockResolvedValue({
+      ...settings, telegram_webhook_path: undefined,
+      telegram_webhook_url: 'http://console.example.com/api/v1/support/telegram/webhook'
+    })
+    const wrapper = render()
+    await flushPromises()
+    const passwords = wrapper.findAll('input[type="password"]')
+    await passwords[0].setValue('123:new-token')
+    await passwords[1].setValue('new-webhook-secret')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(supportAPI.saveSettings).not.toHaveBeenCalled()
+    expect(wrapper.find('[role="alert"]').text()).toBe('support.invalidWebhookUrl')
+    expect((passwords[0].element as HTMLInputElement).value).toBe('123:new-token')
+    expect((passwords[1].element as HTMLInputElement).value).toBe('new-webhook-secret')
+    wrapper.unmount()
+  })
+
+  it.each(['support.clearToken', 'support.clearSecret'])('勾选%s后不注册回调，仍可保存其他设置', async clearLabel => {
+    const wrapper = render()
+    await flushPromises()
+    const clearField = wrapper.findAll('label').find(label => label.text() === clearLabel)!
+    await clearField.find('input').setValue(true)
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ telegram_webhook_url: '' }))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('未配置机器人时可以在非 HTTPS 环境保存邮件配置', async () => {
+    vi.mocked(supportAPI.settings).mockResolvedValue({
+      ...settings, telegram_bot_token_configured: false, telegram_webhook_secret_configured: false,
+      telegram_webhook_path: undefined, telegram_webhook_url: 'http://console.example.com/api/v1/support/telegram/webhook'
+    })
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(supportAPI.saveSettings).toHaveBeenCalledWith(expect.objectContaining({
+      admin_emails: ['support@example.com'], telegram_webhook_url: ''
+    }))
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('注册失败保留后端原因、表单内容及新凭据，不显示注册成功', async () => {
+    const message = 'Telegram 回调注册失败：Bad Request: bad webhook: Failed to resolve host'
+    vi.mocked(supportAPI.saveSettings).mockRejectedValueOnce({ message })
+    const wrapper = render()
+    await flushPromises()
+    const passwords = wrapper.findAll('input[type="password"]')
+    await passwords[0].setValue('123:new-token')
+    await passwords[1].setValue('new-webhook-secret')
+    await wrapper.find('input[aria-describedby="support-chat-id-hint"]').setValue('-5391524769')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').text()).toBe(message)
+    expect(wrapper.find('[role="status"]').text()).toBe('support.webhookNotRegistered')
+    expect((passwords[0].element as HTMLInputElement).value).toBe('123:new-token')
+    expect((passwords[1].element as HTMLInputElement).value).toBe('new-webhook-secret')
+    expect((wrapper.find('input[aria-describedby="support-chat-id-hint"]').element as HTMLInputElement).value).toBe('-5391524769')
     wrapper.unmount()
   })
 })

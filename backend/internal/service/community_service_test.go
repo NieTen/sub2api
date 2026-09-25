@@ -187,6 +187,8 @@ type communityTestTelegram struct {
 	publicGroup  bool
 	badMember    bool
 	sendStatus   int
+	messages     []supportTelegramTextRequest
+	beforeMember func()
 }
 
 func (r *communityTestTelegram) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -204,6 +206,9 @@ func (r *communityTestTelegram) RoundTrip(request *http.Request) (*http.Response
 		}
 		result = chat
 	case "getChatMember":
+		if r.beforeMember != nil {
+			r.beforeMember()
+		}
 		if r.badMember {
 			status = 400
 		}
@@ -221,6 +226,9 @@ func (r *communityTestTelegram) RoundTrip(request *http.Request) (*http.Response
 		}
 		result = member
 	case "sendMessage":
+		var input supportTelegramTextRequest
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		r.messages = append(r.messages, input)
 		if r.sendStatus != 0 {
 			status = r.sendStatus
 		}

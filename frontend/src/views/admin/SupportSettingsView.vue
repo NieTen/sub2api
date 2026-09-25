@@ -27,7 +27,12 @@
             <span id="support-webhook-secret-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.webhookSecretHint') }}</span>
           </label>
           <label v-if="form.telegram_webhook_secret_configured" class="flex items-center gap-2 text-sm"><input v-model="form.clear_telegram_webhook_secret" type="checkbox" />{{ t('support.clearSecret') }}</label>
-          <div v-if="webhookUrl" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900"><p class="text-sm font-medium">{{ t('support.webhookUrl') }}</p><input :value="webhookUrl" readonly class="input mt-2 font-mono text-xs" :aria-label="t('support.webhookUrl')" @focus="($event.target as HTMLInputElement).select()" /><p class="mt-2 text-xs text-gray-500">{{ t('support.webhookHelp') }}</p></div>
+          <div v-if="webhookUrl" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900">
+            <p class="text-sm font-medium">{{ t('support.webhookUrl') }}</p>
+            <input :value="webhookUrl" readonly class="input mt-2 font-mono text-xs" :aria-label="t('support.webhookUrl')" @focus="($event.target as HTMLInputElement).select()" />
+            <p role="status" class="mt-2 text-xs" :class="webhookRegistered ? 'text-green-700 dark:text-green-400' : 'text-gray-500'">{{ t(webhookRegistered ? 'support.webhookRegistered' : 'support.webhookNotRegistered') }}</p>
+            <p class="mt-2 text-xs text-gray-500">{{ t('support.webhookHelp') }}</p>
+          </div>
         </fieldset>
         <div class="flex justify-end xl:col-span-2"><button class="btn btn-primary" :disabled="saving">{{ t(saving ? 'common.saving' : 'common.save') }}</button></div>
       </form>
@@ -60,6 +65,11 @@ const webhookUrl = computed(() => {
   const legacyUrl = form.value.telegram_webhook_url?.trim()
   return legacyUrl || new URL(defaultWebhookPath, window.location.origin).toString()
 })
+const webhookRegistered = computed(() => Boolean(
+  form.value.telegram_webhook_registered && form.value.telegram_webhook_url === webhookUrl.value &&
+  !form.value.telegram_bot_token?.trim() && !form.value.telegram_webhook_secret?.trim() &&
+  !form.value.clear_telegram_bot_token && !form.value.clear_telegram_webhook_secret
+))
 const split = (value: string) => value.split(/[\s,，;；]+/).map(item => item.trim()).filter(Boolean)
 
 function apply(data: SupportSettings) {
@@ -92,6 +102,14 @@ async function save() {
   if (webhookSecret && !/^[A-Za-z0-9_-]{16,256}$/.test(webhookSecret)) {
     error.value = t('support.invalidWebhookSecret'); return
   }
+  const botToken = form.value.clear_telegram_bot_token ? '' : form.value.telegram_bot_token?.trim()
+  const hasBotToken = !form.value.clear_telegram_bot_token && Boolean(botToken || form.value.telegram_bot_token_configured)
+  const hasWebhookSecret = !form.value.clear_telegram_webhook_secret && Boolean(webhookSecret || form.value.telegram_webhook_secret_configured)
+  const registerWebhook = hasBotToken && hasWebhookSecret
+  // 社群与工单共用回调；关闭工单通知仍需要接收入群和机器人消息。
+  if (registerWebhook && !webhookUrl.value.startsWith('https://')) {
+    error.value = t('support.invalidWebhookUrl'); return
+  }
   saving.value = true
   error.value = ''
   try {
@@ -100,8 +118,10 @@ async function save() {
       admin_emails: [...new Set(emails)],
       telegram_allowed_user_ids: [...new Set(ids.map(Number))],
       telegram_chat_id: form.value.telegram_chat_id.trim(),
-      telegram_bot_token: form.value.clear_telegram_bot_token ? '' : form.value.telegram_bot_token?.trim(),
-      telegram_webhook_secret: webhookSecret
+      telegram_bot_token: botToken,
+      telegram_webhook_secret: webhookSecret,
+      telegram_webhook_url: registerWebhook ? webhookUrl.value : '',
+      telegram_webhook_registered: undefined
     }))
     app.showSuccess(t('support.saved'))
   } catch (cause) { error.value = supportError(cause, t('support.saveFailed')) }

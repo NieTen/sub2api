@@ -36,6 +36,8 @@ type SupportDeliverySettings struct {
 	ClearTelegramBotToken           bool     `json:"clear_telegram_bot_token,omitempty"`
 	ClearTelegramWebhookSecret      bool     `json:"clear_telegram_webhook_secret,omitempty"`
 	TelegramWebhookPath             string   `json:"telegram_webhook_path,omitempty"`
+	TelegramWebhookURL              string   `json:"telegram_webhook_url,omitempty"`
+	TelegramWebhookRegistered       bool     `json:"telegram_webhook_registered"`
 }
 
 type SupportDeliveryService struct {
@@ -46,6 +48,7 @@ type SupportDeliveryService struct {
 	repo               SupportTicketRepository
 	tickets            *SupportTicketService
 	client             *http.Client
+	configMu           sync.Mutex
 	mu                 sync.Mutex
 	wg                 sync.WaitGroup
 	cancel             context.CancelFunc
@@ -116,6 +119,8 @@ func supportDeliveryFieldError(field, message string) error {
 }
 
 func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDeliverySettings) (*SupportDeliverySettings, error) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
 	old, err := s.loadSettings(ctx)
 	if err != nil {
 		return nil, err
@@ -123,6 +128,10 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 	c.TelegramBotToken = strings.TrimSpace(c.TelegramBotToken)
 	c.TelegramWebhookSecret = strings.TrimSpace(c.TelegramWebhookSecret)
 	c.TelegramChatID = strings.TrimSpace(c.TelegramChatID)
+	c.TelegramWebhookURL = strings.TrimSpace(c.TelegramWebhookURL)
+	if c.TelegramWebhookURL == "" {
+		c.TelegramWebhookURL = old.TelegramWebhookURL
+	}
 	if c.TelegramBotToken == "" {
 		c.TelegramBotToken = old.TelegramBotToken
 	}
@@ -196,6 +205,19 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 			return nil, supportDeliveryFieldError("telegram_webhook_secret", "启用 Telegram 工单通知时，请设置 Webhook 验证密钥（16～256 位英文字母、数字、下划线或短横线）")
 		}
 	}
+	if c.TelegramWebhookURL != "" {
+		if err = validateSupportTelegramWebhookURL(c.TelegramWebhookURL); err != nil {
+			return nil, err
+		}
+	}
+	// 只有 Telegram 确认注册成功才记录状态，不信任客户端传入的注册标志。
+	c.TelegramWebhookRegistered = false
+	if c.TelegramWebhookURL != "" && c.TelegramBotToken != "" && c.TelegramWebhookSecret != "" {
+		if err = s.registerTelegramWebhook(ctx, &c); err != nil {
+			return nil, err
+		}
+		c.TelegramWebhookRegistered = true
+	}
 	c.ClearTelegramBotToken = false
 	c.ClearTelegramWebhookSecret = false
 	c.TelegramBotTokenConfigured = false
@@ -206,6 +228,9 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 		return nil, err
 	}
 	if err = s.settings.Set(ctx, SettingKeySupportDelivery, string(raw)); err != nil {
+		if c.TelegramWebhookRegistered {
+			return nil, infraerrors.New(http.StatusInternalServerError, "SUPPORT_TELEGRAM_WEBHOOK_SAVE_FAILED", "Telegram 回调已注册，但本地配置保存失败，请重新保存机器人设置")
+		}
 		return nil, err
 	}
 	return supportDeliveryPublic(&c), nil

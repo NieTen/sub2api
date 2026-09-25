@@ -37,7 +37,9 @@ export default {
     invalidIds: 'Telegram user IDs must be positive integers.', invalidEmails: 'Check the notification email addresses.',
     invalidWebhookSecret: 'The webhook secret must contain 16–256 characters using only ASCII letters (A–Z, a–z), numbers, underscores (_) and hyphens (-).',
     telegramHelp: 'Add the bot to the selected chat or group. Reply to a ticket notification to respond to that ticket. Images are supported.',
-    webhookUrl: 'Telegram callback URL', webhookHelp: 'After saving, register this public HTTPS URL and the same secret with Telegram setWebhook. Include message, chat_join_request and chat_member updates. Saving this page does not register the callback automatically.',
+    webhookUrl: 'Telegram callback URL', webhookHelp: 'With a bot token and webhook secret configured, saving automatically registers this public HTTPS URL and subscribes to message, chat_join_request and chat_member updates, even when ticket notifications are disabled. Telegram must be able to access the URL publicly. Successful registration does not confirm message delivery.',
+    webhookRegistered: 'Callback registered', webhookNotRegistered: 'Callback not automatically registered yet. Configure a token and webhook secret, then save to register.',
+    invalidWebhookUrl: 'Telegram requires a public HTTPS callback URL. Open this page using your website’s HTTPS domain, then save again.',
     emailHelp: 'Emails use the SMTP service configured in system settings.', refresh: 'Refresh', back: 'Back to tickets'
   },
   bulkMail: {

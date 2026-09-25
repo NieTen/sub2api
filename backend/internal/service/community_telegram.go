@@ -38,9 +38,10 @@ type communityTelegramMember struct {
 	CanRestrictMembers bool                  `json:"can_restrict_members"`
 }
 type communityTelegramMessage struct {
-	Chat communityTelegramChat  `json:"chat"`
-	From *communityTelegramUser `json:"from"`
-	Text string                 `json:"text"`
+	Chat           communityTelegramChat  `json:"chat"`
+	From           *communityTelegramUser `json:"from"`
+	Text           string                 `json:"text"`
+	ReplyToMessage json.RawMessage        `json:"reply_to_message"`
 }
 type communityTelegramJoinRequest struct {
 	Chat       communityTelegramChat    `json:"chat"`
@@ -49,10 +50,11 @@ type communityTelegramJoinRequest struct {
 	InviteLink *communityTelegramInvite `json:"invite_link"`
 }
 type communityTelegramMemberUpdate struct {
-	Chat          communityTelegramChat   `json:"chat"`
-	Date          int64                   `json:"date"`
-	OldChatMember communityTelegramMember `json:"old_chat_member"`
-	NewChatMember communityTelegramMember `json:"new_chat_member"`
+	Chat          communityTelegramChat    `json:"chat"`
+	Date          int64                    `json:"date"`
+	OldChatMember communityTelegramMember  `json:"old_chat_member"`
+	NewChatMember communityTelegramMember  `json:"new_chat_member"`
+	InviteLink    *communityTelegramInvite `json:"invite_link"`
 }
 type communityTelegramUpdate struct {
 	UpdateID        int64                          `json:"update_id"`
@@ -135,7 +137,7 @@ func (s *CommunityService) HandleTelegramWebhook(ctx context.Context, secret str
 		return ErrCommunityInvalid
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
-	relevant := update.Message != nil && update.Message.Chat.Type == "private" && strings.HasPrefix(update.Message.Text, "/start")
+	relevant := communityPrivateMessage(update.Message)
 	relevant = relevant || (update.ChatJoinRequest != nil && update.ChatJoinRequest.Chat.ID == groupID) || (update.ChatMember != nil && update.ChatMember.Chat.ID == groupID)
 	if !relevant {
 		return nil
@@ -174,16 +176,16 @@ func (s *CommunityService) processWebhook(ctx context.Context, c *CommunitySetti
 }
 
 func (s *CommunityService) processStart(ctx context.Context, c *CommunitySettings, shared *SupportDeliverySettings, message *communityTelegramMessage) error {
-	if message.Chat.Type != "private" || message.From == nil || message.From.IsBot || message.From.ID != message.Chat.ID {
+	if !communityPrivateMessage(message) {
 		return nil
 	}
 	parts := strings.Fields(message.Text)
 	if len(parts) != 2 || (parts[0] != "/start" && parts[0] != "/start@"+c.BotUsername) || !strings.HasPrefix(parts[1], "join_") {
-		return nil
+		return s.replyCommunityHelp(ctx, c, shared, message)
 	}
 	token := strings.TrimPrefix(parts[1], "join_")
 	if len(token) != 43 {
-		return nil
+		return s.replyCommunityText(ctx, shared, message.Chat.ID, "该入群验证已失效，请回到网站重新生成验证或领取专属入群链接。")
 	}
 	challenge, err := s.repo.ClaimChallenge(ctx, communityHash(token), c.BotID, CommunityTelegramIdentity{ID: message.From.ID, Username: message.From.Username, Name: strings.TrimSpace(message.From.FirstName + " " + message.From.LastName)})
 	if err == nil {
@@ -196,7 +198,36 @@ func (s *CommunityService) processStart(ctx context.Context, c *CommunitySetting
 		}
 		text = "该入群验证已失效或已被认领，请回到网站重新生成验证。"
 	}
-	err = s.delivery.telegramJSON(ctx, shared.TelegramBotToken, "sendMessage", supportTelegramTextRequest{ChatID: strconv.FormatInt(message.Chat.ID, 10), Text: text}, nil)
+	return s.replyCommunityText(ctx, shared, message.Chat.ID, text)
+}
+
+// 私聊工单回复仍由工单处理，社群帮助不会认领身份或干扰回复消息。
+func communityPrivateMessage(message *communityTelegramMessage) bool {
+	return message != nil && message.Chat.Type == "private" && message.From != nil && !message.From.IsBot && message.From.ID > 0 && message.From.ID == message.Chat.ID && strings.TrimSpace(message.Text) != "" && (len(message.ReplyToMessage) == 0 || string(message.ReplyToMessage) == "null")
+}
+
+func (s *CommunityService) replyCommunityHelp(ctx context.Context, c *CommunitySettings, shared *SupportDeliverySettings, message *communityTelegramMessage) error {
+	text := "你好！请登录网站，在“客服与社群”页面领取专属入群链接。通过该链接提交申请后，机器人会自动核验资格并批准入群。请勿转发你的专属链接。"
+	membership, err := s.repo.GetMembershipByTelegram(ctx, message.From.ID)
+	if err != nil && !communityPermanentError(err) {
+		return err
+	}
+	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
+	if membership != nil && membership.GroupChatID == groupID {
+		switch membership.Status {
+		case "joined":
+			text = "你的 Telegram 账号已完成网站社群绑定。请返回网站“客服与社群”页面查看入群状态；如需客服帮助，请使用网站的联系客服或工单入口。"
+		case "pending":
+			text = "已收到你的入群身份信息。请使用网站领取的专属链接提交入群申请，机器人会自动核验资格并批准。若已入群，请返回网站“客服与社群”页面刷新状态。"
+		case "left":
+			text = "你的 Telegram 账号已绑定，但当前未显示入群。请登录网站，在“客服与社群”页面重新领取专属邀请。"
+		}
+	}
+	return s.replyCommunityText(ctx, shared, message.Chat.ID, text)
+}
+
+func (s *CommunityService) replyCommunityText(ctx context.Context, shared *SupportDeliverySettings, chatID int64, text string) error {
+	err := s.delivery.telegramJSON(ctx, shared.TelegramBotToken, "sendMessage", supportTelegramTextRequest{ChatID: strconv.FormatInt(chatID, 10), Text: text}, nil)
 	var apiError *SupportTelegramAPIError
 	if communityTelegramBadRequest(err) || (errors.As(err, &apiError) && apiError.StatusCode == 403) {
 		return nil
@@ -332,9 +363,36 @@ func (s *CommunityService) processMemberUpdate(ctx context.Context, c *Community
 		}
 		return nil
 	}
+	// 管理员先批准、或申请事件丢失时，仍须通过原专属邀请事务核验唯一归属和当前资格。
+	needsAuthorization := membership == nil || membership.GroupChatID != update.Chat.ID || (membership.Status != "joined" && membership.AuthorizedInviteID == 0)
+	if needsAuthorization && !member.User.IsBot && update.InviteLink != nil && communityValidInviteURL(update.InviteLink.InviteLink) {
+		identity := CommunityTelegramIdentity{ID: id, Username: member.User.Username, Name: strings.TrimSpace(member.User.FirstName + " " + member.User.LastName)}
+		authorized, _, authorizeErr := s.repo.AuthorizeJoin(ctx, communityHash(update.InviteLink.InviteLink), identity, update.Chat.ID, update.Date, updateID, c.BotID, c.RequirePaidRecharge)
+		if authorizeErr != nil && !communityPermanentError(authorizeErr) {
+			return authorizeErr
+		}
+		if authorizeErr == nil {
+			membership = authorized
+		}
+	}
 	if membership != nil && membership.GroupChatID == update.Chat.ID {
 		if update.Date < membership.LastEventDate || (update.Date == membership.LastEventDate && updateID < membership.LastUpdateID) {
 			return nil
+		}
+		if membership.Status != "joined" && membership.AuthorizedInviteID > 0 && !member.User.IsBot {
+			// 原申请回调缺失时，较新的离群事件可能因当时尚无绑定而被忽略；不能仅凭迟到的加入事件完成绑定。
+			// 查询失败保留授权并重试，重试仍须再次核对，避免跳过首次恢复分支后误标已加入。
+			current, checkErr := s.getChatMember(ctx, shared.TelegramBotToken, c.GroupChatID, id)
+			if checkErr != nil {
+				return checkErr
+			}
+			if !communityMemberPresent(current) {
+				err = s.repo.MarkMembership(ctx, id, update.Chat.ID, "left", update.Date, updateID)
+				if communityPermanentError(err) {
+					return nil
+				}
+				return err
+			}
 		}
 		activeErr := s.currentCommunityAccess(ctx, c, membership.UserID)
 		if activeErr != nil && !communityPermanentError(activeErr) {

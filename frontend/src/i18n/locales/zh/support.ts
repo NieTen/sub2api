@@ -37,7 +37,9 @@ export default {
     invalidIds: 'Telegram 用户 ID 必须为正整数。', invalidEmails: '请检查通知邮箱格式。',
     invalidWebhookSecret: 'Webhook 验证密钥必须为 16–256 个字符，且只能包含英文字母（A–Z、a–z）、数字、下划线（_）和短横线（-）。',
     telegramHelp: '机器人应已加入指定群聊或会话。回复机器人发出的工单消息即可回复对应工单，也可以发送图片。',
-    webhookUrl: 'Telegram 回调地址', webhookHelp: '保存设置后，仍需将此公开 HTTPS 地址和相同验证密钥配置到 Telegram setWebhook，并订阅 message、chat_join_request、chat_member 更新。保存本页不会自动注册回调。',
+    webhookUrl: 'Telegram 回调地址', webhookHelp: '配置机器人令牌和验证密钥后，保存会自动注册此公开 HTTPS 地址，并订阅消息、入群申请和成员变更（message、chat_join_request、chat_member）。关闭工单通知仍会注册社群回调。地址须能被 Telegram 公开访问；注册成功不代表消息已经成功投递。',
+    webhookRegistered: '回调已注册', webhookNotRegistered: '回调尚未自动注册；配置令牌和验证密钥后保存即可注册。',
+    invalidWebhookUrl: 'Telegram 回调需要公开 HTTPS 地址，请通过网站的 HTTPS 域名打开本页后再保存。',
     emailHelp: '邮件使用系统设置中已配置的 SMTP 服务。', refresh: '刷新', back: '返回列表'
   },
   bulkMail: {

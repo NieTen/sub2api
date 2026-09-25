@@ -10,6 +10,12 @@ describe('社群邀请 API', () => {
     await communityAPI.invite()
     expect(apiClient.post).toHaveBeenCalledWith('/community/invite', {})
   })
+  it('主动发起身份核对，并仅在确认时提交挑战和 Telegram 身份', async () => {
+    await communityAPI.verification()
+    expect(apiClient.post).toHaveBeenCalledWith('/community/verification', {})
+    await communityAPI.invite({ challenge_id: 'challenge-one', telegram_user_id: 5939067819 })
+    expect(apiClient.post).toHaveBeenCalledWith('/community/invite', { challenge_id: 'challenge-one', telegram_user_id: 5939067819 })
+  })
   it('后台成员查询传递分页、搜索和入群状态', async () => {
     await communityAPI.members(3, 'alice@example.com', 'not_joined')
     expect(apiClient.get).toHaveBeenCalledWith('/admin/community/members', { params: { page: 3, page_size: 20, search: 'alice@example.com', status: 'not_joined' } })

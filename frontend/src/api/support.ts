@@ -57,8 +57,10 @@ export interface SupportSettings {
   clear_telegram_webhook_secret?: boolean
   /** 后端返回的回调路径，前端会按当前站点 origin 组合为完整地址。 */
   telegram_webhook_path?: string
-  /** 兼容旧版后端返回的完整回调地址。 */
+  /** 保存时自动注册的公开 HTTPS 回调地址。 */
   telegram_webhook_url?: string
+  /** 只读状态：最近一次自动注册是否成功，不表示消息已成功投递。 */
+  telegram_webhook_registered?: boolean
 }
 
 export interface BulkEmailRecipientFilter {
@@ -139,7 +141,8 @@ export const supportAPI = {
     return (await apiClient.get<SupportSettings>('/admin/support/settings')).data
   },
   async saveSettings(data: SupportSettings) {
-    return (await apiClient.put<SupportSettings>('/admin/support/settings', data)).data
+    // 保存包含 Telegram 在线回调注册，避免浏览器先超时而后端仍在保存。
+    return (await apiClient.put<SupportSettings>('/admin/support/settings', data, { timeout: 60000 })).data
   }
 }
 
