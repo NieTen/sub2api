@@ -29,10 +29,13 @@ export default {
     settings: 'Ticket notifications', settingsDescription: 'Send ticket notifications to email and Telegram. Replies in Telegram appear on the web.',
     enabled: 'Enable ticket notifications', adminEmails: 'Admin notification emails', adminEmailsHint: 'Separate addresses with commas, spaces or new lines. Users receive support replies at their registered email.',
     botToken: 'Telegram bot token', chatId: 'Telegram chat ID', allowedUsers: 'Telegram user IDs allowed to reply',
+    chatIdHint: 'Negative group IDs are supported, for example -1001234567890. Enter the group ID here, not under Telegram user IDs allowed to reply.',
     allowedUsersHint: 'Enter numeric user IDs allowed to reply as support, separated by commas or spaces. Do not use usernames.',
     webhookSecret: 'Webhook secret', secretPlaceholder: 'Configured; leave blank to keep', notConfigured: 'Not configured',
+    webhookSecretHint: 'Use 16–256 characters: ASCII letters (A–Z, a–z), numbers, underscores (_) and hyphens (-) only. Leave blank to keep a configured secret.',
     clearToken: 'Clear bot token', clearSecret: 'Clear webhook secret', saved: 'Notification settings saved',
     invalidIds: 'Telegram user IDs must be positive integers.', invalidEmails: 'Check the notification email addresses.',
+    invalidWebhookSecret: 'The webhook secret must contain 16–256 characters using only ASCII letters (A–Z, a–z), numbers, underscores (_) and hyphens (-).',
     telegramHelp: 'Add the bot to the selected chat or group. Reply to a ticket notification to respond to that ticket. Images are supported.',
     webhookUrl: 'Telegram callback URL', webhookHelp: 'After saving, register this public HTTPS URL and the same secret with Telegram setWebhook. Include message, chat_join_request and chat_member updates. Saving this page does not register the callback automatically.',
     emailHelp: 'Emails use the SMTP service configured in system settings.', refresh: 'Refresh', back: 'Back to tickets'

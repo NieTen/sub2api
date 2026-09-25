@@ -29,10 +29,13 @@ export default {
     settings: '工单通知', settingsDescription: '将工单消息通知到邮箱和 Telegram，在机器人中直接回复可同步到网页。',
     enabled: '启用工单通知', adminEmails: '管理员通知邮箱', adminEmailsHint: '多个邮箱以逗号、空格或换行分隔。用户会在自己的注册邮箱收到客服回复。',
     botToken: 'Telegram 机器人令牌', chatId: 'Telegram 会话 ID', allowedUsers: '允许回复的 Telegram 用户 ID',
+    chatIdHint: '支持负数群组 ID（例如 -1001234567890）。群组 ID 填在这里，不要填入「允许回复的 Telegram 用户 ID」。',
     allowedUsersHint: '填写允许代表客服回复的用户 ID，以逗号或空格分隔。请使用数字 ID，而不是用户名。',
     webhookSecret: 'Webhook 验证密钥', secretPlaceholder: '已配置；留空保持原值', notConfigured: '尚未配置',
+    webhookSecretHint: '长度为 16–256 个字符，仅支持英文字母（A–Z、a–z）、数字、下划线（_）和短横线（-）。已配置时留空保持原值。',
     clearToken: '清除机器人令牌', clearSecret: '清除验证密钥', saved: '通知设置已保存',
     invalidIds: 'Telegram 用户 ID 必须为正整数。', invalidEmails: '请检查通知邮箱格式。',
+    invalidWebhookSecret: 'Webhook 验证密钥必须为 16–256 个字符，且只能包含英文字母（A–Z、a–z）、数字、下划线（_）和短横线（-）。',
     telegramHelp: '机器人应已加入指定群聊或会话。回复机器人发出的工单消息即可回复对应工单，也可以发送图片。',
     webhookUrl: 'Telegram 回调地址', webhookHelp: '保存设置后，仍需将此公开 HTTPS 地址和相同验证密钥配置到 Telegram setWebhook，并订阅 message、chat_join_request、chat_member 更新。保存本页不会自动注册回调。',
     emailHelp: '邮件使用系统设置中已配置的 SMTP 服务。', refresh: '刷新', back: '返回列表'

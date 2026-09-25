@@ -108,6 +108,13 @@ func (s *SupportDeliveryService) GetSettings(ctx context.Context) (*SupportDeliv
 var supportTelegramTokenPattern = regexp.MustCompile(`^[0-9]+:[A-Za-z0-9_-]{20,200}$`)
 var supportTelegramSecretPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,256}$`)
 
+// 保留原有错误码，按字段说明失败原因；错误中不回显令牌或验证密钥。
+func supportDeliveryFieldError(field, message string) error {
+	err := ErrSupportDeliveryInvalid.WithMetadata(map[string]string{"field": field})
+	err.Message = message
+	return err
+}
+
 func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDeliverySettings) (*SupportDeliverySettings, error) {
 	old, err := s.loadSettings(ctx)
 	if err != nil {
@@ -128,19 +135,22 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 	if c.ClearTelegramWebhookSecret {
 		c.TelegramWebhookSecret = ""
 	}
-	if len(c.AdminEmails) > 20 || len(c.TelegramAllowedUserIDs) > 100 {
-		return nil, ErrSupportDeliveryInvalid
+	if len(c.AdminEmails) > 20 {
+		return nil, supportDeliveryFieldError("admin_emails", "管理员通知邮箱最多可设置 20 个")
+	}
+	if len(c.TelegramAllowedUserIDs) > 100 {
+		return nil, supportDeliveryFieldError("telegram_allowed_user_ids", "允许回复的 Telegram 用户 ID 最多可设置 100 个")
 	}
 	emails := []string{}
 	seen := map[string]bool{}
 	for _, email := range c.AdminEmails {
 		address, err := parseSMTPAddress(email, "管理员")
 		if err != nil {
-			return nil, ErrSupportDeliveryInvalid
+			return nil, supportDeliveryFieldError("admin_emails", "管理员通知邮箱格式无效，请填写完整的邮箱地址")
 		}
 		email = strings.ToLower(address.Address)
 		if !hasBindableEmailIdentitySubject(email) {
-			return nil, ErrSupportDeliveryInvalid
+			return nil, supportDeliveryFieldError("admin_emails", "管理员通知邮箱必须为可接收邮件的真实邮箱地址")
 		}
 		if !seen[email] {
 			emails = append(emails, email)
@@ -152,7 +162,7 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 	seenIDs := map[int64]bool{}
 	for _, id := range c.TelegramAllowedUserIDs {
 		if id <= 0 {
-			return nil, ErrSupportDeliveryInvalid
+			return nil, supportDeliveryFieldError("telegram_allowed_user_ids", "允许回复的 Telegram 用户 ID 必须为正整数；负数群组 ID 请填写在会话 ID 中")
 		}
 		if !seenIDs[id] {
 			ids = append(ids, id)
@@ -161,22 +171,30 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 	}
 	c.TelegramAllowedUserIDs = ids
 	if c.TelegramBotToken != "" && !supportTelegramTokenPattern.MatchString(c.TelegramBotToken) {
-		return nil, ErrSupportDeliveryInvalid
+		return nil, supportDeliveryFieldError("telegram_bot_token", "Telegram 机器人令牌格式无效，请填写 BotFather 提供的完整令牌（数字编号:令牌）")
 	}
 	if c.TelegramWebhookSecret != "" && !supportTelegramSecretPattern.MatchString(c.TelegramWebhookSecret) {
-		return nil, ErrSupportDeliveryInvalid
+		return nil, supportDeliveryFieldError("telegram_webhook_secret", "Webhook 验证密钥必须为 16～256 位，且只能包含英文字母、数字、下划线（_）和短横线（-）")
 	}
 	if c.TelegramChatID != "" {
 		id, err := strconv.ParseInt(c.TelegramChatID, 10, 64)
 		if err != nil || id == 0 {
-			return nil, ErrSupportDeliveryInvalid
+			return nil, supportDeliveryFieldError("telegram_chat_id", "Telegram 会话 ID 必须为非零整数，支持负数群组 ID，请保留群组 ID 前的负号")
 		}
 	}
 	if c.Enabled && len(c.AdminEmails) == 0 && c.TelegramBotToken == "" {
-		return nil, ErrSupportDeliveryInvalid
+		return nil, supportDeliveryFieldError("enabled", "启用工单通知时，请至少配置管理员通知邮箱或 Telegram 机器人令牌")
 	}
-	if c.Enabled && c.TelegramBotToken != "" && (c.TelegramChatID == "" || len(c.TelegramAllowedUserIDs) == 0 || c.TelegramWebhookSecret == "") {
-		return nil, ErrSupportDeliveryInvalid
+	if c.Enabled && c.TelegramBotToken != "" {
+		if c.TelegramChatID == "" {
+			return nil, supportDeliveryFieldError("telegram_chat_id", "启用 Telegram 工单通知时，请填写 Telegram 会话 ID（群组 ID 可为负数）")
+		}
+		if len(c.TelegramAllowedUserIDs) == 0 {
+			return nil, supportDeliveryFieldError("telegram_allowed_user_ids", "启用 Telegram 工单通知时，请至少填写一位允许回复的 Telegram 用户 ID")
+		}
+		if c.TelegramWebhookSecret == "" {
+			return nil, supportDeliveryFieldError("telegram_webhook_secret", "启用 Telegram 工单通知时，请设置 Webhook 验证密钥（16～256 位英文字母、数字、下划线或短横线）")
+		}
 	}
 	c.ClearTelegramBotToken = false
 	c.ClearTelegramWebhookSecret = false

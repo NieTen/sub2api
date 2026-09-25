@@ -15,9 +15,17 @@
           <div><h2 class="text-base font-semibold">{{ t('communications.botSection') }}</h2><p class="mt-2 text-sm leading-6 text-gray-500">{{ t('support.telegramHelp') }}</p><p class="mt-2 text-xs leading-5 text-gray-500">{{ t('communications.botCredentialsHint') }}</p></div>
           <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.botToken') }}</span><input v-model="form.telegram_bot_token" type="password" autocomplete="new-password" class="input" :disabled="form.clear_telegram_bot_token" :placeholder="t(form.telegram_bot_token_configured ? 'support.secretPlaceholder' : 'support.notConfigured')" /></label>
           <label v-if="form.telegram_bot_token_configured" class="flex items-center gap-2 text-sm"><input v-model="form.clear_telegram_bot_token" type="checkbox" />{{ t('support.clearToken') }}</label>
-          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.chatId') }}</span><input v-model="form.telegram_chat_id" type="text" inputmode="numeric" class="input" placeholder="-1001234567890" /></label>
-          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.allowedUsers') }}</span><textarea v-model="allowedUserText" rows="2" class="input" placeholder="123456789"></textarea><span class="mt-2 block text-xs text-gray-500">{{ t('support.allowedUsersHint') }}</span></label>
-          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.webhookSecret') }}</span><input v-model="form.telegram_webhook_secret" type="password" autocomplete="new-password" class="input" :disabled="form.clear_telegram_webhook_secret" :placeholder="t(form.telegram_webhook_secret_configured ? 'support.secretPlaceholder' : 'support.notConfigured')" /></label>
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium">{{ t('support.chatId') }}</span>
+            <input v-model="form.telegram_chat_id" type="text" inputmode="numeric" class="input" placeholder="-1001234567890" aria-describedby="support-chat-id-hint" />
+            <span id="support-chat-id-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.chatIdHint') }}</span>
+          </label>
+          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.allowedUsers') }}</span><textarea v-model="allowedUserText" rows="2" class="input" placeholder="123456789" aria-describedby="support-allowed-users-hint"></textarea><span id="support-allowed-users-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.allowedUsersHint') }}</span></label>
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium">{{ t('support.webhookSecret') }}</span>
+            <input v-model="form.telegram_webhook_secret" type="password" autocomplete="new-password" class="input" aria-describedby="support-webhook-secret-hint" :disabled="form.clear_telegram_webhook_secret" :placeholder="t(form.telegram_webhook_secret_configured ? 'support.secretPlaceholder' : 'support.notConfigured')" />
+            <span id="support-webhook-secret-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.webhookSecretHint') }}</span>
+          </label>
           <label v-if="form.telegram_webhook_secret_configured" class="flex items-center gap-2 text-sm"><input v-model="form.clear_telegram_webhook_secret" type="checkbox" />{{ t('support.clearSecret') }}</label>
           <div v-if="webhookUrl" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900"><p class="text-sm font-medium">{{ t('support.webhookUrl') }}</p><input :value="webhookUrl" readonly class="input mt-2 font-mono text-xs" :aria-label="t('support.webhookUrl')" @focus="($event.target as HTMLInputElement).select()" /><p class="mt-2 text-xs text-gray-500">{{ t('support.webhookHelp') }}</p></div>
         </fieldset>
@@ -79,6 +87,11 @@ async function save() {
   if (emails.some(email => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     error.value = t('support.invalidEmails'); return
   }
+  const webhookSecret = form.value.clear_telegram_webhook_secret ? '' : form.value.telegram_webhook_secret?.trim()
+  // 只校验本次新输入的密钥；留空仍交由后端保留已配置的值。
+  if (webhookSecret && !/^[A-Za-z0-9_-]{16,256}$/.test(webhookSecret)) {
+    error.value = t('support.invalidWebhookSecret'); return
+  }
   saving.value = true
   error.value = ''
   try {
@@ -88,7 +101,7 @@ async function save() {
       telegram_allowed_user_ids: [...new Set(ids.map(Number))],
       telegram_chat_id: form.value.telegram_chat_id.trim(),
       telegram_bot_token: form.value.clear_telegram_bot_token ? '' : form.value.telegram_bot_token?.trim(),
-      telegram_webhook_secret: form.value.clear_telegram_webhook_secret ? '' : form.value.telegram_webhook_secret?.trim()
+      telegram_webhook_secret: webhookSecret
     }))
     app.showSuccess(t('support.saved'))
   } catch (cause) { error.value = supportError(cause, t('support.saveFailed')) }
