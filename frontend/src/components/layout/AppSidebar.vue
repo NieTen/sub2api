@@ -771,7 +771,8 @@ function finalizeNav(items: NavItem[]): NavItem[] {
 const customMenuItemsForUser = computed(() => {
   const items = appStore.cachedPublicSettings?.custom_menu_items ?? []
   return items
-    .filter((item) => item.visibility === 'user')
+    // 与公开设置保持一致，兼容未填写可见范围的历史菜单，仅排除管理员专属入口。
+    .filter((item) => item.visibility !== 'admin')
     .sort((a, b) => a.sort_order - b.sort_order)
 })
 

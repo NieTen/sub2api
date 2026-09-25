@@ -283,4 +283,50 @@ describe('AppSidebar 普通用户参考布局', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    { view: '', simple: false, collapsed: false },
+    { view: 'guide', simple: true, collapsed: false },
+    { view: 'classic', simple: true, collapsed: true },
+  ])('历史扩展在 $view 视图（简易 $simple、折叠 $collapsed）保留原配置并按顺序展示', ({ view, simple, collapsed }) => {
+    route.query = view ? { view } : {}
+    authStore.isSimpleMode = simple
+    appStore.sidebarCollapsed = collapsed
+
+    // 模拟公开接口返回空字符串、HTML 注入省略字段两种历史载荷，不能先补全可见范围。
+    const configuredMenus: typeof appStore.cachedPublicSettings.custom_menu_items = JSON.parse(JSON.stringify([
+      { id: 'current-tool', label: '现有工具', icon_svg: '<svg />', url: 'https://example.test/current', visibility: 'user', sort_order: 30, hide_open_button: true },
+      { id: 'admin-only', label: '管理员工具', icon_svg: '<svg />', url: 'https://example.test/admin', visibility: 'admin', sort_order: 0 },
+      { id: 'legacy-injected', label: '历史扩展 B', icon_svg: '<svg />', url: 'https://example.test/injected', sort_order: 20, page_slug: 'legacy-guide' },
+      { id: 'legacy-public', label: '历史扩展 A', icon_svg: '<svg />', url: 'https://example.test/public', visibility: '', sort_order: 10 },
+    ]))
+    const originalConfig = JSON.parse(JSON.stringify(configuredMenus))
+    configuredMenus.forEach(menu => Object.freeze(menu))
+    Object.freeze(configuredMenus)
+    appStore.cachedPublicSettings.custom_menu_items = configuredMenus
+
+    const wrapper = mount(AppSidebar, {
+      global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: true } },
+    })
+    const links = wrapper.get('.sidebar-user-section').findAllComponents(RouterLinkStub)
+    const customLinks = links.filter(link => String(link.props('to')).startsWith('/custom/'))
+    expect(customLinks.map(link => ({ to: link.props('to'), label: link.get('.sidebar-label').text() }))).toEqual([
+      { to: '/custom/legacy-public', label: '历史扩展 A' },
+      { to: '/custom/legacy-injected', label: '历史扩展 B' },
+      { to: '/custom/current-tool', label: '现有工具' },
+    ])
+    expect(customLinks[0].attributes('data-sidebar-group')).toBe('extension')
+    expect(customLinks.slice(1).every(link => link.attributes('data-sidebar-group') === undefined)).toBe(true)
+    if (collapsed) {
+      expect(customLinks.every(link => link.classes().includes('sidebar-link-collapsed'))).toBe(true)
+      expect(customLinks.map(link => link.attributes('title'))).toEqual(['历史扩展 A', '历史扩展 B', '现有工具'])
+    } else {
+      expect(customLinks[0].get('.sidebar-user-group-title').text()).toBe('nav.extension')
+    }
+    expect(links.some(link => link.props('to') === '/custom/admin-only')).toBe(false)
+    expect(appStore.cachedPublicSettings.custom_menu_items).toBe(configuredMenus)
+    expect(configuredMenus).toEqual(originalConfig)
+    expect(Object.prototype.hasOwnProperty.call(configuredMenus[2], 'visibility')).toBe(false)
+    wrapper.unmount()
+  })
+
 })
