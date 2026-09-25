@@ -72,6 +72,7 @@ beforeEach(() => {
   mocks.get.mockImplementation(async (path: string) => {
     const data: Record<string, unknown> = {
       '/usage/dashboard/stats': { today_requests: 37, today_tokens: 42000 },
+      '/usage/stats': { total_requests: 37, total_tokens: 42000, average_duration_ms: 280 },
       '/usage/dashboard/trend': { trend: [] },
       '/usage/dashboard/models': { models: [] },
       '/settings/public': { site_name: '测试站点', api_base_url: 'https://api.example.test' },
@@ -84,7 +85,7 @@ beforeEach(() => {
     if (!(pathname in data)) throw new Error(`未模拟接口：${pathname}`)
     return { data: data[pathname] }
   })
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => [] }))
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ id: 'gpt-5.5' }] }) }))
 })
 
 afterEach(() => {
@@ -99,6 +100,8 @@ describe('DashboardView 页面集成', () => {
     const { wrapper, router } = await openDashboard()
     expect(wrapper.get('[data-dashboard-balance]').text()).toBe('$256.75')
     expect(wrapper.get('[data-dashboard-requests]').text()).toBe('37')
+    expect(wrapper.get('[data-dashboard-tokens]').text()).toBe('42K')
+    expect(mocks.get.mock.calls.filter(([path]) => path.startsWith('/usage/stats?'))).toHaveLength(2)
     expect(mocks.refreshUser).toHaveBeenCalledOnce()
     expect(mocks.get.mock.calls.some(([path]) => path === '/auth/me')).toBe(false)
     for (const request of classicRequests()) expect(request).not.toHaveBeenCalled()
@@ -112,7 +115,12 @@ describe('DashboardView 页面集成', () => {
     expect(mocks.get.mock.calls.some(([path]) => path === '/settings/home-models')).toBe(true)
     expect(mocks.get.mock.calls.some(([path]) => path === '/model-data.json')).toBe(false)
     await wrapper.get('[data-guide-step="3"]').trigger('click')
+    await flushPromises()
     expect(wrapper.get('[data-guide-model="gpt-5.5"] .s2-model-price').text()).toContain('输入 $5')
+    expect(window.fetch).toHaveBeenCalledWith('https://api.example.test/v1/models', expect.objectContaining({
+      headers: { Authorization: 'Bearer sk-integration-test' },
+      signal: expect.any(AbortSignal),
+    }))
     for (const request of classicRequests()) expect(request).not.toHaveBeenCalled()
 
     await wrapper.get('[data-overlay-view="dashboard"]').trigger('click')

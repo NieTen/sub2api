@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="235" viewBox="0 0 360 235" fill="none">
+  <defs>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#d9edff"/><stop offset="1" stop-color="#78abff" stop-opacity=".72"/></linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#81aaff" stop-opacity=".85"/><stop offset="1" stop-color="#c6e2ff" stop-opacity=".24"/></linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#367cff" stop-opacity=".8"/><stop offset="1" stop-color="#aed5ff" stop-opacity=".30"/></linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a6c5ff"/><stop offset=".55" stop-color="#3974ff"/><stop offset="1" stop-color="#96dcff"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#92beff" stop-opacity=".36"/><stop offset="1" stop-color="#c7e7ff" stop-opacity="0"/></radialGradient>
+    <g id="cube" stroke="#fff" stroke-opacity=".56" stroke-width="1">
+      <path d="M0 25 43 0 86 25 43 50Z" fill="url(#top)"/>
+      <path d="M0 25 43 50V104L0 79Z" fill="url(#left)"/>
+      <path d="M43 50 86 25V79L43 104Z" fill="url(#right)"/>
+      <path d="M43 0V50M0 25 43 50 86 25" stroke-opacity=".75"/>
+    </g>
+  </defs>
+  <ellipse cx="196" cy="193" rx="164" ry="42" fill="url(#glow)"/>
+  <use href="#cube" x="224" y="40" opacity=".30"/>
+  <use href="#cube" x="181" y="99" opacity=".62"/>
+  <use href="#cube" x="96" y="116" opacity=".71"/>
+  <use href="#cube" x="139" y="25"/>
+  <use href="#cube" x="182" y="156" opacity=".46"/>
+  <path d="m151 73 29 17v49l-29-17Z" fill="url(#core)" stroke="#e3f3ff"/>
+  <path d="m180 90 31-18v48l-31 19Z" fill="#468bff" fill-opacity=".60" stroke="#d2e8ff"/>
+  <path d="m182 91-13 16 7 5-2 16 14-19-8-5Z" fill="white"/>
+  <path d="m191 91 5-10-1 13-5 7Z" fill="white" fill-opacity=".83"/>
+  <path d="m101 138 38 21 39-21M190 177l34 19 34-19M229 61l38 22 38-22" stroke="white" stroke-opacity=".64"/>
+</svg>

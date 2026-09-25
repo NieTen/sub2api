@@ -1,5 +1,8 @@
 import { buildCcSwitchImportDeeplink, OPENAI_CC_SWITCH_CODEX_MODEL, resolveCcSwitchImportConfig } from '@/utils/ccswitchImport'
 import { formatDateLocalInput } from '@/utils/format'
+import dashboardArtworkUrl from '@/assets/dashboard-cubes.svg'
+import dashboardReferenceStyles from './dashboard-reference.css?inline'
+import guideReferenceStyles from './guide-reference.css?inline'
 
 let pageInstanceSequence = 0
 
@@ -27,6 +30,12 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     keys: [],
     models: [],
     modelCatalog: [],
+    availableModels: [],
+    guideModelsLoading: false,
+    guideModelsError: '',
+    guideModelsKeyId: '',
+    guideModelProtocol: 'all',
+    guideSettingsError: '',
   };
   const root = document.createElement('div');
   root.id = PAGE_ROOT_ID;
@@ -34,6 +43,9 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   let pageRequestVersion = 0;
   let pageViewVersion = 0;
   let connectionRequestVersion = 0;
+  let guideModelsRequestVersion = 0;
+  let guideDataRequestVersion = 0;
+  let guideModelsController = null;
   let destroyed = false;
 
   function debugLog(...args) {
@@ -175,11 +187,16 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     const safeDays = days === 30 ? 30 : 7;
     const range = dateRange(safeDays);
     const query = `?start_date=${range.start}&end_date=${range.end}&granularity=day`;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayDate = formatDateLocalInput(yesterday);
     const results = await Promise.allSettled([
       pageApiFetch('/auth/me'),
       pageApiFetch('/usage/dashboard/stats'),
       pageApiFetch(`/usage/dashboard/trend${query}`),
       pageApiFetch(`/usage/dashboard/models${query}`),
+      pageApiFetch(`/usage/stats?start_date=${range.end}&end_date=${range.end}`),
+      pageApiFetch(`/usage/stats?start_date=${yesterdayDate}&end_date=${yesterdayDate}`),
     ]);
     return {
       user: results[0].status === 'fulfilled' ? results[0].value || {} : {},
@@ -193,6 +210,10 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
           ? results[3].value?.models || []
           : [],
       days: safeDays,
+      today: results[4].status === 'fulfilled' ? results[4].value : null,
+      yesterday: results[5].status === 'fulfilled' ? results[5].value : null,
+      unavailable: results.map((result) => result.status === 'rejected'),
+      partialFailure: results.some((result) => result.status === 'rejected'),
       failed: results.every((result) => result.status === 'rejected'),
     };
   }
@@ -201,24 +222,45 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     const results = await Promise.allSettled([
       pageApiFetch('/settings/public'),
       pageApiFetch('/keys?page=1&page_size=100'),
-      pageApiFetch('/usage/dashboard/models'),
       pageApiFetch('/settings/home-models'),
     ]);
     const settings =
       results[0].status === 'fulfilled' ? results[0].value || {} : {};
     const keyPayload =
       results[1].status === 'fulfilled' ? results[1].value || {} : {};
-    const modelPayload =
-      results[2].status === 'fulfilled' ? results[2].value || {} : {};
     return {
       settings,
       keys: Array.isArray(keyPayload) ? keyPayload : keyPayload.items || [],
-      models: modelPayload.models || [],
+      error: results[0].status === 'rejected' || results[1].status === 'rejected'
+        ? '接入信息加载失败，请重新获取。' : '',
       modelCatalog:
-        results[3].status === 'fulfilled' && Array.isArray(results[3].value)
-          ? results[3].value
+        results[2].status === 'fulfilled' && Array.isArray(results[2].value)
+          ? results[2].value
           : [],
     };
+  }
+
+  async function loadGuideInitialData() {
+    const pageVersion = pageRequestVersion;
+    const dataVersion = ++guideDataRequestVersion;
+    root.innerHTML = buildGuideHtml(true);
+    try {
+      const data = await loadGuideData();
+      if (dataVersion !== guideDataRequestVersion || !isCurrentPage(pageVersion, 'guide')) return;
+      pageState.settings = data.settings;
+      pageState.keys = data.keys;
+      pageState.modelCatalog = data.modelCatalog;
+      pageState.guideSettingsError = data.error;
+      if (!pageState.keys.some((key) => String(key.id) === pageState.selectedKeyId)) {
+        pageState.selectedKeyId = String((data.keys.find((key) => key.status === 'active') || data.keys[0])?.id || '');
+      }
+      void loadGuideModels();
+    } catch (error) {
+      if (dataVersion !== guideDataRequestVersion || !isCurrentPage(pageVersion, 'guide')) return;
+      debugLog('加载接入指南数据失败', error);
+      pageState.guideSettingsError = '接入信息加载失败，请重新获取。';
+      void loadGuideModels();
+    }
   }
 
   function normalizeDashboardTrend(trend, days) {
@@ -235,30 +277,36 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       const date = new Date(start.getTime() + index * 86400000)
         .toISOString()
         .slice(0, 10);
-      return (
-        rowsByDate.get(date) || {
-          date,
+      return {
+        ...(rowsByDate.get(date) || {
           requests: 0,
           total_tokens: 0,
           actual_cost: 0,
-        }
-      );
+        }),
+        date,
+      };
     });
+  }
+
+  function nonnegativeNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : 0;
   }
 
   function buildSmoothPath(points) {
     if (!points.length) return '';
-    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
     let path = `M ${points[0].x} ${points[0].y}`;
     for (let index = 0; index < points.length - 1; index += 1) {
       const previous = points[index - 1] || points[index];
       const current = points[index];
       const next = points[index + 1];
       const afterNext = points[index + 2] || next;
+      // 将控制点限制在相邻值之间，避免平滑曲线产生负用量。
+      const clampY = (value) => Math.min(Math.max(current.y, next.y), Math.max(Math.min(current.y, next.y), value));
       const controlOneX = current.x + (next.x - previous.x) / 6;
-      const controlOneY = current.y + (next.y - previous.y) / 6;
+      const controlOneY = clampY(current.y + (next.y - previous.y) / 6);
       const controlTwoX = next.x - (afterNext.x - current.x) / 6;
-      const controlTwoY = next.y - (afterNext.y - current.y) / 6;
+      const controlTwoY = clampY(next.y - (afterNext.y - current.y) / 6);
       path += ` C ${controlOneX} ${controlOneY}, ${controlTwoX} ${controlTwoY}, ${next.x} ${next.y}`;
     }
     return path;
@@ -272,130 +320,116 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
 
   function buildTrendSvg(trend, days) {
     const safeDays = days === 30 ? 30 : 7;
-    const normalizedTrend = normalizeDashboardTrend(trend, safeDays);
-    const values = normalizedTrend.map((item) =>
-      Number(item.requests ?? item.total_tokens ?? item.tokens ?? 0),
-    );
-    if (!values.some((value) => value > 0)) return '';
-
+    const rows = normalizeDashboardTrend(trend, safeDays);
+    const requests = rows.map((item) => nonnegativeNumber(item.requests));
+    const tokens = rows.map((item) => nonnegativeNumber(item.total_tokens));
+    if (![...requests, ...tokens].some((value) => value > 0)) return '';
     const width = 680;
-    const height = 220;
-    const left = 26;
-    const right = 18;
-    const top = 30;
-    const bottom = 44;
+    const height = 245;
+    const left = 40;
+    const right = 50;
+    const top = 28;
+    const baseline = 210;
     const plotWidth = width - left - right;
-    const plotHeight = height - top - bottom;
-    const max = Math.max(...values, 1);
-    const points = values.map((value, index) => {
-      const x =
-        left + (values.length === 1 ? plotWidth / 2 : (plotWidth * index) / (values.length - 1));
-      const y = top + plotHeight - (value / max) * plotHeight;
-      return { x, y, value, item: normalizedTrend[index] };
-    });
-    const linePath = buildSmoothPath(points);
-    const baseline = top + plotHeight;
-    const areaPath = `${linePath} L ${left + plotWidth} ${baseline} L ${left} ${baseline} Z`;
-    const labels = points
-      .map((point, index) => {
-        const visible =
-          safeDays === 7 ||
-          index === 0 ||
-          index === points.length - 1 ||
-          index % 5 === 0;
-        if (!visible) return '';
-        const label =
-          safeDays === 7
-            ? dashboardWeekday(point.item.date)
-            : String(point.item.date || '').slice(5);
-        return `<text x="${point.x}" y="208" text-anchor="middle">${escapeHtml(label)}</text>`;
-      })
-      .join('');
-    const peak = points.reduce((current, point) =>
-      point.value > current.value ? point : current,
-    );
-    const tooltipLeft = Math.min(90, Math.max(10, (peak.x / width) * 100));
-    const tooltipTop = Math.min(86, Math.max(20, (peak.y / height) * 100));
-    const peakLabel = `${dashboardWeekday(peak.item.date)} · ${formatNumber(
-      peak.item.requests ?? peak.value,
-    )} 次请求`;
-
+    const plotHeight = baseline - top;
+    const requestMax = Math.max(...requests, 1);
+    const tokenMax = Math.max(...tokens, 1);
+    const pointX = (index) => left + plotWidth * index / (rows.length - 1);
+    const requestPoints = requests.map((value, index) => ({ x: pointX(index), y: baseline - value / requestMax * plotHeight }));
+    const tokenPoints = tokens.map((value, index) => ({ x: pointX(index), y: baseline - value / tokenMax * plotHeight }));
+    const requestPath = buildSmoothPath(requestPoints);
+    const tokenPath = buildSmoothPath(tokenPoints);
+    const areaPath = (path) => `${path} L ${left + plotWidth} ${baseline} L ${left} ${baseline} Z`;
+    const grids = Array.from({ length: 4 }, (_, index) => {
+      const ratio = index / 3;
+      const y = baseline - ratio * plotHeight;
+      return `<line x1="${left}" y1="${y}" x2="${left + plotWidth}" y2="${y}"></line>`;
+    }).join('');
+    const scaleLabels = Array.from({ length: 4 }, (_, index) => {
+      const ratio = index / 3;
+      const y = baseline - ratio * plotHeight + 4;
+      return `<text x="${left - 9}" y="${y}" text-anchor="end">${formatCompactNumber(Math.round(requestMax * ratio))}</text><text x="${width - right + 9}" y="${y}" text-anchor="start">${formatCompactNumber(Math.round(tokenMax * ratio))}</text>`;
+    }).join('');
+    const labels = rows.map((row, index) => {
+      if (safeDays !== 7 && index !== 0 && index !== rows.length - 1 && index % 5 !== 0) return '';
+      return `<text x="${pointX(index)}" y="235" text-anchor="middle">${escapeHtml(safeDays === 7 ? dashboardWeekday(row.date) : row.date.slice(5))}</text>`;
+    }).join('');
+    const step = plotWidth / (rows.length - 1);
+    const hitAreas = rows.map((row, index) => `<rect data-trend-point="${escapeHtml(row.date)}" data-trend-x="${pointX(index)}" data-trend-request-y="${requestPoints[index].y}" data-trend-token-y="${tokenPoints[index].y}" data-trend-requests="${requests[index]}" data-trend-tokens="${tokens[index]}" x="${Math.max(left, pointX(index) - step / 2)}" y="${top}" width="${index === 0 || index === rows.length - 1 ? step / 2 : step}" height="${plotHeight}" tabindex="0" role="button" aria-label="${escapeHtml(row.date)}，请求 ${formatNumber(requests[index])} 次，Token ${formatNumber(tokens[index])}"></rect>`).join('');
     return `
+      <div class="s2-chart-legend"><span><i class="s2-chart-dot"></i>请求次数（左轴）</span><span><i class="s2-chart-dot is-token"></i>Token 消耗（右轴）</span></div>
       <div class="s2-chart-wrap">
-        <svg class="s2-trend-chart" data-dashboard-range="${safeDays}" data-dashboard-start-date="${normalizedTrend[0].date}" data-dashboard-end-date="${normalizedTrend[normalizedTrend.length - 1].date}" viewBox="0 0 ${width} ${height}" role="img" aria-label="近 ${safeDays} 天调用活跃度趋势">
+        <svg class="s2-trend-chart" data-dashboard-range="${safeDays}" data-dashboard-start-date="${rows[0].date}" data-dashboard-end-date="${rows[rows.length - 1].date}" viewBox="0 0 ${width} ${height}" role="group" aria-label="近 ${safeDays} 天请求与 Token 趋势，选择日期查看用量">
           <defs>
-            <linearGradient id="${PAGE_ROOT_ID}-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stop-color="currentColor" stop-opacity=".34"></stop>
-              <stop offset="1" stop-color="currentColor" stop-opacity="0"></stop>
-            </linearGradient>
+            <linearGradient id="${PAGE_ROOT_ID}-requests-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2678ff" stop-opacity=".22"/><stop offset="1" stop-color="#2678ff" stop-opacity=".01"/></linearGradient>
+            <linearGradient id="${PAGE_ROOT_ID}-tokens-area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ab78ff" stop-opacity=".22"/><stop offset="1" stop-color="#ab78ff" stop-opacity=".01"/></linearGradient>
           </defs>
-          <g class="s2-chart-grid">
-            <line x1="${left}" y1="${top}" x2="${left + plotWidth}" y2="${top}"></line>
-            <line x1="${left}" y1="${top + plotHeight / 3}" x2="${left + plotWidth}" y2="${top + plotHeight / 3}"></line>
-            <line x1="${left}" y1="${top + (plotHeight * 2) / 3}" x2="${left + plotWidth}" y2="${top + (plotHeight * 2) / 3}"></line>
-            <line x1="${left}" y1="${baseline}" x2="${left + plotWidth}" y2="${baseline}"></line>
-          </g>
-          <path class="s2-chart-area" d="${areaPath}"></path>
-          <path class="s2-chart-line" d="${linePath}"></path>
-          <circle class="s2-chart-peak" cx="${peak.x}" cy="${peak.y}" r="5"></circle>
-          <g class="s2-chart-labels">${labels}</g>
+          <g class="s2-chart-grid">${grids}</g>
+          <path d="${areaPath(requestPath)}" fill="url(#${PAGE_ROOT_ID}-requests-area)"></path>
+          <path d="${areaPath(tokenPath)}" fill="url(#${PAGE_ROOT_ID}-tokens-area)"></path>
+          <path class="s2-chart-line" data-trend-series="requests" d="${requestPath}"></path>
+          <path class="s2-chart-line is-tokens" data-trend-series="tokens" d="${tokenPath}"></path>
+          <g class="s2-chart-labels">${scaleLabels}${labels}</g>
+          <g data-trend-markers visibility="hidden"><line class="s2-chart-tracker" y1="${top}" y2="${baseline}"></line><circle class="s2-chart-point" r="5"></circle><circle class="s2-chart-point is-tokens" r="5"></circle></g>
+          ${hitAreas}
         </svg>
-        <div class="s2-chart-tooltip-bubble" style="--s2-tooltip-x:${tooltipLeft}%;--s2-tooltip-y:${tooltipTop}%">${escapeHtml(peakLabel)}</div>
+        <div class="s2-chart-tooltip-bubble" data-trend-tooltip role="status" hidden></div>
       </div>`;
   }
 
+  function handleTrendPoint(event) {
+    if (!(event.target instanceof Element)) return;
+    const point = event.target.closest('[data-trend-point]');
+    if (!point || !root.contains(point)) return;
+    const chart = point.closest('.s2-chart-wrap');
+    const tooltip = chart.querySelector('[data-trend-tooltip]');
+    const markers = chart.querySelector('[data-trend-markers]');
+    if (!tooltip || !markers) return;
+    const x = Number(point.dataset.trendX);
+    tooltip.style.setProperty('--s2-tooltip-x', `${Math.min(82, Math.max(18, x / 680 * 100))}%`);
+    tooltip.innerHTML = `<strong>${escapeHtml(point.dataset.trendPoint)} · ${dashboardWeekday(point.dataset.trendPoint)}</strong><span><i class="s2-chart-dot"></i>请求 ${formatNumber(point.dataset.trendRequests)} 次</span><span><i class="s2-chart-dot is-token"></i>Token ${formatCompactNumber(point.dataset.trendTokens)}</span>`;
+    tooltip.hidden = false;
+    markers.setAttribute('visibility', 'visible');
+    const tracker = markers.querySelector('line');
+    tracker.setAttribute('x1', String(x));
+    tracker.setAttribute('x2', String(x));
+    markers.querySelectorAll('circle').forEach((circle, index) => {
+      circle.setAttribute('cx', String(x));
+      circle.setAttribute('cy', index === 0 ? point.dataset.trendRequestY : point.dataset.trendTokenY);
+    });
+  }
+
   function normalizeModelRows(models) {
-    const rows = models
-      .map((item) => ({
-        name: item.model || item.name || item.requested_model || '未知模型',
-        value: Number(
-          item.requests ?? item.request_count ?? item.total_requests ?? item.total_tokens ?? 0,
-        ),
-      }))
-      .filter((item) => item.value > 0)
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 4);
-    const total = rows.reduce((sum, item) => sum + item.value, 0) || 1;
-    return rows.map((item) => ({
-      ...item,
-      percent: Math.max(1, Math.round((item.value / total) * 100)),
-    }));
+    const rows = models.map((item) => ({
+      name: item.model || item.name || item.requested_model || '未知模型',
+      value: nonnegativeNumber(item.requests ?? item.request_count ?? item.total_requests),
+    })).filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
+    const total = rows.reduce((sum, item) => sum + item.value, 0);
+    if (!total) return [];
+    const grouped = rows.slice(0, 3);
+    if (rows.length > 3) grouped.push({ name: '其他', value: rows.slice(3).reduce((sum, item) => sum + item.value, 0) });
+    const result = grouped.map((item) => ({ ...item, ratio: item.value / total, percent: Math.floor(item.value / total * 100) }));
+    // 最大余数法保证展示百分比总和为 100%，圆环长度始终使用真实比例。
+    const remainderOrder = result.map((item, index) => ({ index, remainder: item.ratio * 100 - item.percent })).sort((a, b) => b.remainder - a.remainder);
+    const remaining = 100 - result.reduce((sum, item) => sum + item.percent, 0);
+    for (let index = 0; index < remaining; index += 1) result[remainderOrder[index].index].percent += 1;
+    return result;
   }
 
   function buildModelDonutHtml(models) {
     const rows = normalizeModelRows(Array.isArray(models) ? models : []);
-    const primaryPercent = rows[0]?.percent || 0;
     const circumference = 2 * Math.PI * 44;
-    const primaryLength = (circumference * primaryPercent) / 100;
-    const legends = rows
-      .slice(0, 3)
-      .map(
-        (item) => `
-          <div class="s2-donut-legend" data-dashboard-model-legend title="${escapeHtml(item.name)}">
-            <span class="s2-donut-swatch"></span>
-            <span class="s2-donut-label">${escapeHtml(item.name)} · ${item.percent}%</span>
-          </div>`,
-      )
-      .join('');
-    const otherPercent = Math.max(
-      0,
-      100 - rows.slice(0, 3).reduce((sum, item) => sum + item.percent, 0),
-    );
-    return `
-      <div class="s2-donut-wrap ${rows.length ? '' : 'is-empty'}">
-        <svg class="s2-donut" data-dashboard-donut viewBox="0 0 120 120" role="img" aria-label="模型请求占比圆环图">
-          <title>模型请求占比</title>
-          <circle class="s2-donut-base" cx="60" cy="60" r="44"></circle>
-          <circle class="s2-donut-segment" cx="60" cy="60" r="44" stroke-dasharray="${primaryLength} ${circumference - primaryLength}"></circle>
-          <circle class="s2-donut-center" cx="60" cy="60" r="29"></circle>
-        </svg>
-        <div class="s2-donut-copy">
-          ${legends || '<div class="s2-donut-empty">暂无模型调用</div>'}
-          <span class="s2-donut-other">其余模型占 ${otherPercent}%</span>
-        </div>
-      </div>`;
+    const colors = ['#3187ff', '#ff8969', '#27d5bd', '#ac96ff'];
+    let offset = 0;
+    const segments = rows.map((row, index) => {
+      const length = row.ratio * circumference;
+      const segment = `<circle class="s2-donut-segment" cx="60" cy="60" r="44" stroke="${colors[index]}" stroke-dasharray="${length} ${circumference - length}" stroke-dashoffset="${-offset}"><title>${escapeHtml(row.name)}：${row.percent}% · ${formatNumber(row.value)} 次请求</title></circle>`;
+      offset += length;
+      return segment;
+    }).join('');
+    const legends = rows.map((item, index) => `<div class="s2-donut-legend" data-dashboard-model-legend title="${escapeHtml(item.name)} · ${formatNumber(item.value)} 次请求"><span class="s2-donut-swatch" style="--s2-swatch:${colors[index]}"></span><span class="s2-donut-label">${escapeHtml(item.name)}</span><span class="s2-donut-percent">${item.percent}%</span></div>`).join('');
+    return `<div class="s2-donut-wrap ${rows.length ? '' : 'is-empty'}"><svg class="s2-donut" data-dashboard-donut viewBox="0 0 120 120" role="img" aria-label="模型请求占比圆环图"><title>模型请求占比</title><circle class="s2-donut-base" cx="60" cy="60" r="44"></circle>${segments}<text class="s2-donut-value" x="60" y="60">${rows.length ? '100%' : '0%'}</text><text class="s2-donut-caption" x="60" y="76">总请求量</text></svg><div class="s2-donut-copy">${legends || '<div class="s2-donut-empty">暂无模型调用</div>'}</div></div>`;
   }
-
   function maskApiKey(key) {
     const value = String(key || '');
     if (!value) return '尚未创建 API Key';
@@ -406,7 +440,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   function buildCcSwitchImportUrl(apiKey, settings, clientType) {
     const baseUrl = String(
       settings?.api_base_url || window.location.origin,
-    ).replace(/\/+$/, '');
+    ).replace(/\/+$/, '').replace(/\/v1$/, '');
     const usageScript = `({
       request: {
         url: "{{baseUrl}}/v1/usage",
@@ -423,1193 +457,29 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         };
       }
     })`;
-    return buildCcSwitchImportDeeplink({
+    const deepLink = new URL(buildCcSwitchImportDeeplink({
       baseUrl,
-      platform: apiKey?.group?.platform || 'anthropic',
+      platform: guideClientPlatform(apiKey),
       clientType,
       providerName: String(settings?.site_name || 'sub2api').trim() || 'sub2api',
       apiKey: String(apiKey?.key || ''),
       usageScript,
-    });
+    }));
+    // CC Switch 的 Codex / Grok 导入支持 model 参数，沿用共享工具生成其余字段。
+    if (pageState.selectedModel && ['codex', 'grokbuild'].includes(deepLink.searchParams.get('app'))) {
+      deepLink.searchParams.set('model', pageState.selectedModel);
+    }
+    return deepLink.toString();
   }
   function injectPageStyles() {
     if (pageStyle) return;
     const style = document.createElement('style');
     style.id = PAGE_STYLE_ID;
-    style.textContent = `
-      #${PAGE_ROOT_ID} {
-        --s2-bg: #f7fafb;
-        --s2-card: rgba(255,255,255,.94);
-        --s2-card-solid: #ffffff;
-        --s2-text: #172033;
-        --s2-muted: #6b7280;
-        --s2-border: rgba(148,163,184,.22);
-        --s2-primary: #0f9f91;
-        --s2-primary-strong: #087f75;
-        --s2-primary-soft: rgba(15,159,145,.10);
-        --s2-violet: #7c5cff;
-        --s2-amber: #f59e0b;
-        --s2-danger: #ef476f;
-        position: relative;
-        color: var(--s2-text);
-        font-family: inherit;
-      }
-      .dark #${PAGE_ROOT_ID} {
-        --s2-bg: #090e17;
-        --s2-card: rgba(19,27,40,.94);
-        --s2-card-solid: #131b28;
-        --s2-text: #eef2f7;
-        --s2-muted: #9aa6b6;
-        --s2-border: rgba(148,163,184,.17);
-        --s2-primary: #34d6c5;
-        --s2-primary-strong: #65e4d7;
-        --s2-primary-soft: rgba(52,214,197,.11);
-        --s2-violet: #a78bfa;
-        --s2-amber: #fbbf24;
-      }
-      #${PAGE_ROOT_ID}, #${PAGE_ROOT_ID} * { box-sizing: border-box; }
-      #${PAGE_ROOT_ID} button, #${PAGE_ROOT_ID} select { font: inherit; }
-      #${PAGE_ROOT_ID} button { cursor: pointer; }
-      #${PAGE_ROOT_ID} .s2-icon { display: block; flex: 0 0 auto; }
-      #${PAGE_ROOT_ID} .s2-page {
-        min-height: calc(100vh - 9rem);
-        border-radius: 1.1rem;
-        background:
-          radial-gradient(circle at 55% 0%, rgba(38,198,184,.13), transparent 34%),
-          transparent;
-      }
-      #${PAGE_ROOT_ID} .s2-card {
-        border: 1px solid var(--s2-border);
-        border-radius: 1rem;
-        background: var(--s2-card);
-        box-shadow: 0 14px 40px rgba(15,23,42,.055);
-        backdrop-filter: blur(14px);
-      }
-      #${PAGE_ROOT_ID} .s2-hero {
-        position: relative;
-        display: grid;
-        grid-template-columns: minmax(0,1.3fr) minmax(15rem,.7fr);
-        gap: 1.5rem;
-        overflow: hidden;
-        padding: 1.5rem;
-        margin-bottom: .9rem;
-        background:
-          radial-gradient(circle at 88% 4%, rgba(124,92,255,.22), transparent 42%),
-          linear-gradient(135deg, var(--s2-primary-soft), var(--s2-card));
-      }
-      #${PAGE_ROOT_ID} .s2-eyebrow { display:flex; align-items:center; gap:.45rem; color:var(--s2-primary-strong); font-size:.78rem; font-weight:600; }
-      #${PAGE_ROOT_ID} .s2-hero h1 { margin:.55rem 0 .35rem; color:var(--s2-text); font-size:clamp(1.45rem,2.7vw,2rem); line-height:1.15; letter-spacing:-.035em; }
-      #${PAGE_ROOT_ID} .s2-hero p { max-width:38rem; margin:0; color:var(--s2-muted); line-height:1.65; }
-      #${PAGE_ROOT_ID} .s2-hero-actions { display:flex; gap:.55rem; margin-top:1rem; flex-wrap:wrap; }
-      #${PAGE_ROOT_ID} .s2-btn {
-        display:inline-flex; align-items:center; justify-content:center; gap:.42rem;
-        min-height:2.35rem; padding:.52rem .8rem; border:1px solid var(--s2-border);
-        border-radius:.7rem; color:var(--s2-text); background:var(--s2-card-solid);
-        font-size:.82rem; font-weight:600; transition:transform .16s, border-color .16s, background .16s;
-      }
-      #${PAGE_ROOT_ID} .s2-btn:hover { transform:translateY(-1px); border-color:rgba(15,159,145,.45); }
-      #${PAGE_ROOT_ID} .s2-btn-primary { border-color:transparent; color:#fff; background:linear-gradient(135deg,var(--s2-primary),var(--s2-primary-strong)); box-shadow:0 10px 24px rgba(15,159,145,.19); }
-      #${PAGE_ROOT_ID} .s2-btn-ghost { border-color:transparent; background:transparent; color:var(--s2-muted); }
-      #${PAGE_ROOT_ID} .s2-asset-card { align-self:center; padding:1rem; border:1px solid rgba(15,159,145,.22); border-radius:.9rem; background:rgba(255,255,255,.58); box-shadow:0 16px 38px rgba(15,159,145,.10); }
-      .dark #${PAGE_ROOT_ID} .s2-asset-card { background:rgba(19,27,40,.6); }
-      #${PAGE_ROOT_ID} .s2-label { color:var(--s2-muted); font-size:.75rem; }
-      #${PAGE_ROOT_ID} .s2-asset-value { margin:.38rem 0 .2rem; font-size:1.7rem; font-weight:700; letter-spacing:-.035em; }
-      #${PAGE_ROOT_ID} .s2-badge { display:inline-flex; align-items:center; gap:.3rem; padding:.25rem .5rem; border-radius:999px; color:var(--s2-primary-strong); background:var(--s2-primary-soft); font-size:.7rem; font-weight:600; }
-      #${PAGE_ROOT_ID} .s2-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; margin-bottom:.9rem; }
-      #${PAGE_ROOT_ID} .s2-metric { padding:1rem; }
-      #${PAGE_ROOT_ID} .s2-metric-top { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
-      #${PAGE_ROOT_ID} .s2-icon-box { display:grid; place-items:center; width:2rem; height:2rem; border-radius:.65rem; color:var(--s2-primary-strong); background:var(--s2-primary-soft); }
-      #${PAGE_ROOT_ID} .s2-metric-value { margin:.55rem 0 .15rem; color:var(--s2-text); font-size:1.45rem; font-weight:700; letter-spacing:-.03em; }
-      #${PAGE_ROOT_ID} .s2-metric-note { color:var(--s2-muted); font-size:.72rem; }
-      #${PAGE_ROOT_ID} .s2-dashboard-grid { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(16rem,.6fr); gap:.8rem; }
-      #${PAGE_ROOT_ID} .s2-panel { min-width:0; padding:1rem; }
-      #${PAGE_ROOT_ID} .s2-panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; margin-bottom:.8rem; }
-      #${PAGE_ROOT_ID} .s2-panel-title { color:var(--s2-text); font-size:.92rem; font-weight:700; }
-      #${PAGE_ROOT_ID} .s2-panel-note { margin-top:.16rem; color:var(--s2-muted); font-size:.72rem; }
-      #${PAGE_ROOT_ID} .s2-trend-chart { display:block; width:100%; height:auto; min-height:13rem; color:var(--s2-primary); }
-      #${PAGE_ROOT_ID} .s2-chart-grid line { stroke:var(--s2-border); stroke-width:1; }
-      #${PAGE_ROOT_ID} .s2-chart-area { fill:url(#${PAGE_ROOT_ID}-area); }
-      #${PAGE_ROOT_ID} .s2-chart-line { fill:none; stroke:currentColor; stroke-width:3; stroke-linecap:round; stroke-linejoin:round; }
-      #${PAGE_ROOT_ID} .s2-chart-peak { fill:var(--s2-card-solid); stroke:currentColor; stroke-width:3; }
-      #${PAGE_ROOT_ID} .s2-chart-labels { fill:var(--s2-muted); font-size:10px; }
-      #${PAGE_ROOT_ID} .s2-model-list { display:grid; gap:.8rem; }
-      #${PAGE_ROOT_ID} .s2-model-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.35rem .7rem; align-items:center; }
-      #${PAGE_ROOT_ID} .s2-model-name { display:flex; align-items:center; gap:.45rem; min-width:0; font-size:.8rem; }
-      #${PAGE_ROOT_ID} .s2-model-dot { width:.48rem; height:.48rem; border-radius:50%; background:var(--s2-primary); }
-      #${PAGE_ROOT_ID} .s2-model-percent { font-size:.75rem; font-weight:700; }
-      #${PAGE_ROOT_ID} .s2-progress { grid-column:1/-1; height:.34rem; overflow:hidden; border-radius:999px; background:rgba(148,163,184,.15); }
-      #${PAGE_ROOT_ID} .s2-progress span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--s2-primary),var(--s2-violet)); }
-      #${PAGE_ROOT_ID} .s2-dashboard-page {
-        --s2-dashboard-blue:#339cff;
-        --s2-dashboard-orange:#ff7a2f;
-        --s2-dashboard-green:#5dc977;
-        --s2-dashboard-surface:#f4f4f5;
-        display:grid;
-        width:100%;
-        max-width:1440px;
-        min-height:0;
-        margin-inline:auto;
-        align-content:start;
-        gap:12px;
-        border-radius:0;
-        color:#1a1c1f;
-        background:transparent;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-hero {
-        position:relative;
-        display:grid;
-        min-height:184px;
-        grid-template-columns:minmax(0,1.3fr) minmax(190px,.7fr);
-        align-items:center;
-        gap:20px;
-        overflow:hidden;
-        padding:22px;
-        border:0;
-        border-radius:16px;
-        background:linear-gradient(112deg,#dcebfa 0%,#eef2f6 52%,#d7efdf 100%);
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-eyebrow {
-        display:flex;
-        align-items:center;
-        gap:6px;
-        color:var(--s2-dashboard-blue);
-        font-size:14px;
-        font-weight:500;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-hero h1 {
-        margin:9px 0 4px;
-        color:#1a1c1f;
-        font-size:25px;
-        font-weight:500;
-        line-height:1.25;
-        letter-spacing:0;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-hero p {
-        max-width:480px;
-        margin:0;
-        color:#7c8189;
-        font-size:14px;
-        line-height:1.5;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-actions {
-        display:flex;
-        flex-wrap:wrap;
-        gap:8px;
-        margin-top:15px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn {
-        min-height:28px;
-        padding:4px 9px;
-        border-color:rgba(26,28,31,.12);
-        border-radius:8px;
-        color:#1a1c1f;
-        background:rgba(255,255,255,.96);
-        box-shadow:none;
-        font-size:13px;
-        font-weight:500;
-        transition:border-color .18s,background-color .18s,color .18s;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn:hover {
-        transform:none;
-        border-color:rgba(51,156,255,.42);
-        background:#fff;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn:focus-visible {
-        outline:2px solid rgba(51,156,255,.7);
-        outline-offset:2px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn-primary {
-        border-color:#1a1c1f;
-        color:#fff;
-        background:#1a1c1f;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn-primary:hover {
-        border-color:#30343a;
-        background:#30343a;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-balance {
-        align-self:center;
-        justify-self:end;
-        width:100%;
-        min-width:190px;
-        max-width:220px;
-        padding:16px;
-        border:1px solid rgba(51,156,255,.34);
-        border-radius:14px;
-        background:rgba(235,245,240,.56);
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-balance-label,
-      #${PAGE_ROOT_ID} .s2-dashboard-metric-label {
-        color:#81858b;
-        font-size:14px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-balance-value {
-        margin:7px 0 3px;
-        color:#1a1c1f;
-        font-size:27px;
-        font-weight:500;
-        line-height:1.15;
-        letter-spacing:0;
-        white-space:nowrap;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-status {
-        display:inline-flex;
-        align-items:center;
-        width:max-content;
-        min-height:22px;
-        padding:3px 8px;
-        border-radius:999px;
-        color:var(--s2-dashboard-blue);
-        background:rgba(51,156,255,.12);
-        font-size:12px;
-        font-weight:600;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metrics {
-        display:grid;
-        grid-template-columns:repeat(3,minmax(0,1fr));
-        gap:10px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric,
-      #${PAGE_ROOT_ID} .s2-dashboard-panel {
-        min-width:0;
-        border:1px solid rgba(26,28,31,.055);
-        background:var(--s2-dashboard-surface);
-        box-shadow:none;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric {
-        min-height:112px;
-        padding:14px;
-        border-radius:15px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric-head {
-        display:flex;
-        align-items:center;
-        justify-content:space-between;
-        gap:8px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-icon {
-        display:grid;
-        place-items:center;
-        width:32px;
-        height:32px;
-        flex:0 0 32px;
-        border-radius:10px;
-        color:var(--s2-dashboard-blue);
-        background:#e2f0ff;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric-value {
-        margin:7px 0 1px;
-        color:#1a1c1f;
-        font-size:24px;
-        font-weight:500;
-        line-height:1.22;
-        letter-spacing:0;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric-note {
-        min-height:18px;
-        overflow:hidden;
-        color:#898d93;
-        font-size:12px;
-        line-height:1.5;
-        text-overflow:ellipsis;
-        white-space:nowrap;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-metric-accent { color:var(--s2-dashboard-blue); }
-      #${PAGE_ROOT_ID} .s2-dashboard-analysis {
-        display:grid;
-        grid-template-columns:minmax(0,1.35fr) minmax(250px,.65fr);
-        gap:12px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-panel {
-        display:flex;
-        height:clamp(292px,26vw,360px);
-        min-height:292px;
-        flex-direction:column;
-        overflow:hidden;
-        padding:14px;
-        border-radius:16px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-panel-head {
-        display:flex;
-        align-items:flex-start;
-        justify-content:space-between;
-        gap:10px;
-        margin-bottom:8px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-panel-title {
-        color:#1a1c1f;
-        font-size:14px;
-        font-weight:600;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-panel-note {
-        margin-top:1px;
-        color:#898d93;
-        font-size:12px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-periods {
-        display:flex;
-        align-items:center;
-        gap:6px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-periods .s2-btn {
-        min-width:48px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-periods .s2-btn[aria-pressed="true"] {
-        border-color:var(--s2-dashboard-blue);
-        color:#fff;
-        background:var(--s2-dashboard-blue);
-      }
-      #${PAGE_ROOT_ID} .s2-chart-wrap {
-        position:relative;
-        flex:1 1 auto;
-        min-height:208px;
-      }
-      #${PAGE_ROOT_ID} .s2-trend-chart {
-        display:block;
-        width:100%;
-        height:100%;
-        min-height:0;
-        color:var(--s2-dashboard-orange);
-      }
-      #${PAGE_ROOT_ID} .s2-chart-grid line {
-        stroke:rgba(26,28,31,.065);
-        stroke-width:1;
-      }
-      #${PAGE_ROOT_ID} .s2-chart-area { fill:url(#${PAGE_ROOT_ID}-area); }
-      #${PAGE_ROOT_ID} .s2-chart-line {
-        fill:none;
-        stroke:currentColor;
-        stroke-width:3;
-        stroke-linecap:round;
-        stroke-linejoin:round;
-      }
-      #${PAGE_ROOT_ID} .s2-chart-peak {
-        fill:var(--s2-dashboard-surface);
-        stroke:currentColor;
-        stroke-width:2;
-      }
-      #${PAGE_ROOT_ID} .s2-chart-labels {
-        fill:#989ca2;
-        font-size:10px;
-      }
-      #${PAGE_ROOT_ID} .s2-chart-tooltip-bubble {
-        position:absolute;
-        left:var(--s2-tooltip-x);
-        top:var(--s2-tooltip-y);
-        z-index:1;
-        max-width:calc(100% - 16px);
-        padding:7px 10px;
-        transform:translate(-50%,-125%);
-        border:1px solid rgba(26,28,31,.1);
-        border-radius:8px;
-        color:#3e4248;
-        background:rgba(246,247,248,.96);
-        box-shadow:0 6px 16px rgba(26,28,31,.08);
-        font-size:12px;
-        font-weight:500;
-        line-height:1.25;
-        white-space:nowrap;
-        pointer-events:none;
-      }
-      #${PAGE_ROOT_ID} .s2-donut-wrap {
-        display:grid;
-        min-height:0;
-        flex:1 1 auto;
-        grid-template-columns:145px minmax(0,1fr);
-        align-items:center;
-        gap:8px;
-      }
-      #${PAGE_ROOT_ID} .s2-donut {
-        width:145px;
-        height:145px;
-        transform:rotate(-90deg);
-      }
-      #${PAGE_ROOT_ID} .s2-donut-base {
-        fill:none;
-        stroke:#dedfe2;
-        stroke-width:14;
-      }
-      #${PAGE_ROOT_ID} .s2-donut-segment {
-        fill:none;
-        stroke:var(--s2-dashboard-blue);
-        stroke-width:14;
-        stroke-linecap:round;
-      }
-      #${PAGE_ROOT_ID} .s2-donut-center { fill:var(--s2-dashboard-surface); }
-      #${PAGE_ROOT_ID} .s2-donut-copy { display:grid; gap:9px; min-width:0; }
-      #${PAGE_ROOT_ID} .s2-donut-legend {
-        display:flex;
-        align-items:center;
-        gap:7px;
-        min-width:0;
-        color:#30343a;
-        font-size:13px;
-      }
-      #${PAGE_ROOT_ID} .s2-donut-swatch {
-        width:7px;
-        height:7px;
-        flex:0 0 7px;
-        border-radius:50%;
-        background:var(--s2-dashboard-blue);
-      }
-      #${PAGE_ROOT_ID} .s2-donut-legend:nth-child(2) .s2-donut-swatch { background:var(--s2-dashboard-orange); }
-      #${PAGE_ROOT_ID} .s2-donut-legend:nth-child(3) .s2-donut-swatch { background:var(--s2-dashboard-green); }
-      #${PAGE_ROOT_ID} .s2-donut-label {
-        display:-webkit-box;
-        min-width:0;
-        overflow:hidden;
-        line-height:1.35;
-        overflow-wrap:anywhere;
-        white-space:normal;
-        -webkit-box-orient:vertical;
-        -webkit-line-clamp:2;
-      }
-      #${PAGE_ROOT_ID} .s2-donut-other,
-      #${PAGE_ROOT_ID} .s2-donut-empty {
-        color:#8b8f96;
-        font-size:12px;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-empty {
-        display:grid;
-        min-height:224px;
-        place-items:center;
-        color:#898d93;
-        text-align:center;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-empty h3 {
-        margin:10px 0 4px;
-        color:#3e4248;
-        font-size:14px;
-        font-weight:600;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-empty p { margin:0 0 10px; font-size:13px; }
-      #${PAGE_ROOT_ID} .s2-dashboard-skeleton {
-        display:block;
-        height:12px;
-        border-radius:999px;
-        background:linear-gradient(90deg,rgba(148,163,184,.13),rgba(148,163,184,.26),rgba(148,163,184,.13));
-        background-size:200% 100%;
-        animation:s2-dashboard-loading 1.25s ease-in-out infinite;
-      }
-      #${PAGE_ROOT_ID} .s2-dashboard-skeleton.is-title { width:min(72%,28rem); height:30px; margin:12px 0 8px; }
-      #${PAGE_ROOT_ID} .s2-dashboard-skeleton.is-copy { width:min(86%,32rem); }
-      #${PAGE_ROOT_ID} .s2-dashboard-skeleton.is-value { width:48%; height:28px; margin:12px 0 7px; }
-      #${PAGE_ROOT_ID} .s2-dashboard-skeleton.is-chart { width:100%; height:208px; border-radius:12px; }
-      @keyframes s2-dashboard-loading { to { background-position:-200% 0; } }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-page { --s2-dashboard-surface:#131b28; color:#eef2f7; }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-hero {
-        background:linear-gradient(112deg,#17283a 0%,#172231 52%,#173329 100%);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-hero h1,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-balance-value,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-metric-value,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-panel-title { color:#eef2f7; }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-hero p,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-balance-label,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-metric-label,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-metric-note,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-panel-note,
-      .dark #${PAGE_ROOT_ID} .s2-donut-other,
-      .dark #${PAGE_ROOT_ID} .s2-donut-empty { color:#9aa6b6; }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-balance {
-        border-color:rgba(83,177,255,.4);
-        background:rgba(18,39,48,.56);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-status {
-        color:#8dceff;
-        background:rgba(51,156,255,.16);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-metric,
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-panel {
-        border-color:rgba(148,163,184,.1);
-        background:var(--s2-dashboard-surface);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-icon { background:#142d45; }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn {
-        border-color:rgba(148,163,184,.22);
-        color:#eef2f7;
-        background:#1b2736;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-page .s2-btn-primary {
-        border-color:#eef2f7;
-        color:#111827;
-        background:#eef2f7;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-chart-grid line { stroke:rgba(148,163,184,.12); }
-      .dark #${PAGE_ROOT_ID} .s2-chart-labels { fill:#8290a2; }
-      .dark #${PAGE_ROOT_ID} .s2-chart-tooltip-bubble {
-        border-color:rgba(148,163,184,.2);
-        color:#dbe5ef;
-        background:rgba(29,41,56,.96);
-        box-shadow:0 8px 20px rgba(0,0,0,.22);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-donut-legend { fill:#dbe5ef; color:#dbe5ef; }
-      .dark #${PAGE_ROOT_ID} .s2-dashboard-empty h3 { color:#dbe5ef; }
-      .dark #${PAGE_ROOT_ID} .s2-donut-base { stroke:#293342; }
-      @media (max-width:620px) {
-        #${PAGE_ROOT_ID} .s2-dashboard-hero,
-        #${PAGE_ROOT_ID} .s2-dashboard-metrics,
-        #${PAGE_ROOT_ID} .s2-dashboard-analysis { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-dashboard-hero { padding:18px; }
-        #${PAGE_ROOT_ID} .s2-dashboard-balance { justify-self:stretch; max-width:none; }
-        #${PAGE_ROOT_ID} .s2-dashboard-actions .s2-btn { flex:1 1 10rem; }
-        #${PAGE_ROOT_ID} .s2-dashboard-panel { height:auto; min-height:280px; }
-        #${PAGE_ROOT_ID} .s2-chart-wrap { min-height:220px; }
-        #${PAGE_ROOT_ID} .s2-dashboard-model-panel .s2-donut-wrap { min-height:224px; }
-      }
-      @media (max-width:420px) {
-        #${PAGE_ROOT_ID} .s2-donut-wrap { grid-template-columns:1fr; align-content:center; justify-items:center; }
-        #${PAGE_ROOT_ID} .s2-donut-copy { width:100%; }
-      }
-      @media (prefers-reduced-motion:reduce) {
-        #${PAGE_ROOT_ID} .s2-dashboard-page *,
-        #${PAGE_ROOT_ID} .s2-dashboard-page *::before,
-        #${PAGE_ROOT_ID} .s2-dashboard-page *::after { animation:none !important; scroll-behavior:auto !important; transition:none !important; }
-      }
-      #${PAGE_ROOT_ID} .s2-empty { display:grid; place-items:center; min-height:15rem; padding:1.5rem; text-align:center; }
-      #${PAGE_ROOT_ID} .s2-empty h3 { margin:.65rem 0 .3rem; font-size:1rem; }
-      #${PAGE_ROOT_ID} .s2-empty p { max-width:28rem; margin:0 auto .9rem; color:var(--s2-muted); font-size:.8rem; line-height:1.55; }
-      #${PAGE_ROOT_ID} .s2-guide-breadcrumb { display:flex; align-items:center; gap:.45rem; margin:0 0 .65rem; color:var(--s2-muted); font-size:.74rem; }
-      #${PAGE_ROOT_ID} .s2-guide-layout { display:grid; grid-template-columns:13rem minmax(0,1fr); gap:.85rem; align-items:start; }
-      #${PAGE_ROOT_ID} .s2-steps { padding:.85rem; }
-      #${PAGE_ROOT_ID} .s2-steps-title { margin:.15rem .4rem .65rem; font-size:.82rem; font-weight:700; }
-      #${PAGE_ROOT_ID} .s2-step { display:grid; grid-template-columns:1.65rem minmax(0,1fr); gap:.55rem; align-items:start; width:100%; padding:.65rem; border:0; border-radius:.7rem; color:var(--s2-text); background:transparent; text-align:left; }
-      #${PAGE_ROOT_ID} .s2-step:hover { background:rgba(148,163,184,.09); }
-      #${PAGE_ROOT_ID} .s2-step.is-active { color:var(--s2-primary-strong); background:var(--s2-primary-soft); }
-      #${PAGE_ROOT_ID} .s2-step-number { display:grid; place-items:center; width:1.6rem; height:1.6rem; border-radius:50%; color:var(--s2-muted); background:rgba(148,163,184,.15); font-size:.72rem; font-weight:700; }
-      #${PAGE_ROOT_ID} .s2-step.is-active .s2-step-number { color:#fff; background:var(--s2-primary); }
-      #${PAGE_ROOT_ID} .s2-step strong { display:block; font-size:.78rem; }
-      #${PAGE_ROOT_ID} .s2-step small { display:block; margin-top:.12rem; color:var(--s2-muted); font-size:.68rem; }
-      #${PAGE_ROOT_ID} .s2-guide-panel { min-width:0; padding:1rem; }
-      #${PAGE_ROOT_ID} .s2-section-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.8rem; margin-bottom:.9rem; }
-      #${PAGE_ROOT_ID} .s2-section-head h2 { margin:0; font-size:1.05rem; }
-      #${PAGE_ROOT_ID} .s2-section-head p { margin:.22rem 0 0; color:var(--s2-muted); font-size:.76rem; }
-      #${PAGE_ROOT_ID} .s2-fields { display:grid; gap:.65rem; }
-      #${PAGE_ROOT_ID} .s2-field-label { display:block; margin-bottom:.32rem; color:var(--s2-muted); font-size:.72rem; }
-      #${PAGE_ROOT_ID} .s2-copy-field { display:flex; align-items:center; gap:.55rem; min-width:0; padding:.65rem; border:1px solid var(--s2-border); border-radius:.7rem; background:rgba(148,163,184,.07); }
-      #${PAGE_ROOT_ID} .s2-copy-field code { min-width:0; flex:1; overflow-wrap:anywhere; color:var(--s2-text); font-size:.76rem; }
-      #${PAGE_ROOT_ID} .s2-select { width:100%; min-height:2.5rem; padding:.55rem .7rem; border:1px solid var(--s2-border); border-radius:.7rem; color:var(--s2-text); background:var(--s2-card-solid); }
-      #${PAGE_ROOT_ID} .s2-note { display:flex; gap:.5rem; align-items:flex-start; padding:.7rem; margin-top:.7rem; border-radius:.7rem; color:var(--s2-muted); background:rgba(245,158,11,.08); font-size:.72rem; line-height:1.5; }
-      #${PAGE_ROOT_ID} .s2-mode-tabs, #${PAGE_ROOT_ID} .s2-protocol-tabs { display:flex; gap:.3rem; padding:.28rem; margin-bottom:.75rem; border:1px solid var(--s2-border); border-radius:.75rem; background:rgba(148,163,184,.09); }
-      #${PAGE_ROOT_ID} .s2-mode-tabs button, #${PAGE_ROOT_ID} .s2-protocol-tabs button { flex:1; min-height:2.25rem; border:0; border-radius:.55rem; color:var(--s2-muted); background:transparent; font-size:.76rem; font-weight:600; }
-      #${PAGE_ROOT_ID} .s2-mode-tabs button.is-active, #${PAGE_ROOT_ID} .s2-protocol-tabs button.is-active { color:#fff; background:var(--s2-primary); }
-      #${PAGE_ROOT_ID} .s2-app-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.5rem; margin-bottom:.7rem; }
-      #${PAGE_ROOT_ID} .s2-app { display:flex; align-items:center; gap:.5rem; min-width:0; padding:.65rem; border:1px solid var(--s2-border); border-radius:.7rem; color:var(--s2-text); background:var(--s2-card-solid); text-align:left; }
-      #${PAGE_ROOT_ID} .s2-app.is-active { border-color:var(--s2-primary); background:var(--s2-primary-soft); box-shadow:0 0 0 2px rgba(15,159,145,.1); }
-      #${PAGE_ROOT_ID} .s2-app-copy { min-width:0; }
-      #${PAGE_ROOT_ID} .s2-app-copy strong, #${PAGE_ROOT_ID} .s2-app-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      #${PAGE_ROOT_ID} .s2-app-copy strong { font-size:.75rem; }
-      #${PAGE_ROOT_ID} .s2-app-copy small { margin-top:.1rem; color:var(--s2-muted); font-size:.65rem; }
-      #${PAGE_ROOT_ID} .s2-app-detail { padding:.8rem; border:1px solid var(--s2-border); border-radius:.8rem; background:linear-gradient(135deg,var(--s2-primary-soft),var(--s2-card)); }
-      #${PAGE_ROOT_ID} .s2-app-detail-head { display:flex; align-items:flex-start; justify-content:space-between; gap:.6rem; margin-bottom:.65rem; }
-      #${PAGE_ROOT_ID} .s2-app-detail h3 { margin:0; font-size:.88rem; }
-      #${PAGE_ROOT_ID} .s2-app-detail p { margin:.18rem 0 0; color:var(--s2-muted); font-size:.7rem; }
-      #${PAGE_ROOT_ID} .s2-mapping { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.52rem .6rem; margin-top:.38rem; border-radius:.55rem; background:rgba(148,163,184,.09); font-size:.7rem; }
-      #${PAGE_ROOT_ID} .s2-mapping span { color:var(--s2-muted); }
-      #${PAGE_ROOT_ID} .s2-mapping strong { overflow-wrap:anywhere; text-align:right; }
-      #${PAGE_ROOT_ID} .s2-panel-actions { display:flex; align-items:center; justify-content:flex-end; gap:.5rem; margin-top:.8rem; flex-wrap:wrap; }
-      #${PAGE_ROOT_ID} .s2-code { margin:0; padding:.8rem; overflow:auto; overflow-wrap:anywhere; word-break:break-word; border:1px solid var(--s2-border); border-radius:.7rem; color:var(--s2-text); background:rgba(15,23,42,.05); font-size:.72rem; line-height:1.55; white-space:pre-wrap; }
-      .dark #${PAGE_ROOT_ID} .s2-code { background:rgba(2,6,23,.35); }
-      #${PAGE_ROOT_ID} .s2-model-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; }
-      #${PAGE_ROOT_ID} .s2-model-option { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.75rem; border:1px solid var(--s2-border); border-radius:.7rem; color:var(--s2-text); background:var(--s2-card-solid); text-align:left; }
-      #${PAGE_ROOT_ID} .s2-model-option strong, #${PAGE_ROOT_ID} .s2-model-option small { display:block; }
-      #${PAGE_ROOT_ID} .s2-model-option small { margin-top:.15rem; color:var(--s2-muted); font-size:.68rem; }
-      #${PAGE_ROOT_ID} .s2-success { display:grid; place-items:center; min-height:20rem; padding:1.5rem; text-align:center; }
-      #${PAGE_ROOT_ID} .s2-success-mark { display:grid; place-items:center; width:3.2rem; height:3.2rem; margin:0 auto .75rem; border-radius:50%; color:#fff; background:var(--s2-primary); box-shadow:0 12px 28px rgba(15,159,145,.22); }
-      #${PAGE_ROOT_ID} .s2-success h2 { margin:0 0 .35rem; font-size:1.15rem; }
-      #${PAGE_ROOT_ID} .s2-success p { max-width:28rem; margin:0 auto; color:var(--s2-muted); font-size:.78rem; line-height:1.6; }
-      #${PAGE_ROOT_ID} .s2-toast { position:fixed; right:1.2rem; bottom:1.2rem; z-index:80; padding:.65rem .8rem; border:1px solid var(--s2-border); border-radius:.7rem; color:var(--s2-text); background:var(--s2-card-solid); box-shadow:0 14px 38px rgba(15,23,42,.18); font-size:.75rem; }
-      #${PAGE_ROOT_ID} .s2-guide-page {
-        max-width: 74rem;
-        margin: 0 auto;
-        padding-bottom: 1.5rem;
-        background:
-          radial-gradient(circle at 42% 3%, rgba(56,189,248,.13), transparent 28rem),
-          radial-gradient(circle at 96% 22%, rgba(99,102,241,.08), transparent 24rem);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-breadcrumb {
-        margin-bottom: 1.1rem;
-        font-size: .82rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-hero {
-        min-height: 20rem;
-        grid-template-columns: minmax(0,1.35fr) minmax(20rem,.65fr);
-        align-items: center;
-        gap: 2.6rem;
-        padding: 2.2rem 2.35rem;
-        margin-bottom: 1.25rem;
-        border-color: rgba(96,165,250,.22);
-        border-radius: 1.5rem;
-        background:
-          radial-gradient(circle at 92% 2%, rgba(167,139,250,.25), transparent 42%),
-          radial-gradient(circle at 5% 105%, rgba(96,165,250,.20), transparent 46%),
-          linear-gradient(118deg, rgba(230,244,255,.98), rgba(250,248,246,.98) 55%, rgba(225,248,233,.96));
-        box-shadow: 0 22px 55px rgba(30,64,175,.08);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-eyebrow {
-        color: #2997ff;
-        font-size: .95rem;
-        font-weight: 700;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-hero h1 {
-        max-width: 35rem;
-        margin: .9rem 0 .65rem;
-        font-size: clamp(2.15rem,4vw,3rem);
-        line-height: 1.12;
-        letter-spacing: -.045em;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-hero p {
-        max-width: 38rem;
-        color: #64748b;
-        font-size: 1.05rem;
-        line-height: 1.72;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-trust {
-        display: flex;
-        align-items: center;
-        gap: 1.25rem;
-        margin-top: 1.35rem;
-        flex-wrap: wrap;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-trust-item {
-        display: inline-flex;
-        align-items: center;
-        gap: .45rem;
-        color: #334155;
-        font-size: .85rem;
-        white-space: nowrap;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-asset-card {
-        min-height: 10.5rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        padding: 1.55rem 1.7rem;
-        border-color: rgba(96,165,250,.34);
-        border-radius: 1.15rem;
-        background: rgba(255,255,255,.48);
-        box-shadow: 0 20px 46px rgba(59,130,246,.10);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-status-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: .8rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-asset-value {
-        margin: .7rem 0 .2rem;
-        font-size: 1.85rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-badge {
-        color: #1685ee;
-        background: rgba(232,245,255,.92);
-        font-size: .78rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-status-note {
-        color: #7c8797;
-        font-size: .8rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-layout {
-        grid-template-columns: 16.5rem minmax(0,1fr);
-        gap: 1.25rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-steps,
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-panel {
-        border: 0;
-        border-radius: 1.4rem;
-        background: rgba(247,247,249,.96);
-        box-shadow: none;
-        backdrop-filter: none;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-steps {
-        padding: 1.25rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-steps-title {
-        margin: 0 0 1rem;
-        font-size: 1rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step {
-        min-height: 5.35rem;
-        grid-template-columns: 2.35rem minmax(0,1fr);
-        gap: .75rem;
-        align-items: center;
-        padding: .85rem .9rem;
-        border-radius: .9rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step.is-active {
-        color: #1685ee;
-        background: rgba(224,239,255,.94);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step-number {
-        width: 2.25rem;
-        height: 2.25rem;
-        font-size: .9rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step.is-active .s2-step-number {
-        background: #2997ff;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step strong {
-        font-size: .95rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-step small {
-        margin-top: .22rem;
-        font-size: .78rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-support {
-        margin-top: 1.15rem;
-        padding: 1.05rem;
-        border-radius: .95rem;
-        color: #64748b;
-        background: #e9e9ec;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-support strong {
-        display: block;
-        margin-bottom: .35rem;
-        color: #475569;
-        font-size: .82rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-support p {
-        margin: 0;
-        font-size: .78rem;
-        line-height: 1.65;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-panel {
-        min-height: 35rem;
-        padding: 1.6rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-section-head {
-        margin-bottom: 1.3rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-section-head h2 {
-        font-size: 1.55rem;
-        letter-spacing: -.025em;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-section-head p {
-        margin-top: .35rem;
-        font-size: .9rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-fields {
-        gap: 1rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-field-label {
-        margin-bottom: .48rem;
-        font-size: .82rem;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select {
-        position: relative;
-        z-index: 12;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-trigger {
-        display: grid;
-        grid-template-columns: 2.55rem minmax(0,1fr) auto;
-        align-items: center;
-        gap: .85rem;
-        width: 100%;
-        min-height: 4.75rem;
-        padding: .7rem .85rem;
-        border: 1px solid rgba(148,163,184,.30);
-        border-radius: 1rem;
-        color: var(--s2-text);
-        background: linear-gradient(180deg,rgba(255,255,255,.94),rgba(244,247,250,.94));
-        box-shadow: 0 8px 20px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.9);
-        text-align: left;
-        transition: border-color .18s, box-shadow .18s, background .18s;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-trigger:hover,
-      #${PAGE_ROOT_ID} .s2-key-select.is-open .s2-key-select-trigger {
-        border-color: rgba(41,151,255,.58);
-        background: #fff;
-        box-shadow: 0 10px 26px rgba(41,151,255,.10), 0 0 0 3px rgba(41,151,255,.08);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-trigger:focus-visible {
-        outline: 3px solid rgba(41,151,255,.25);
-        outline-offset: 2px;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-icon {
-        display: grid;
-        place-items: center;
-        width: 2.55rem;
-        height: 2.55rem;
-        border-radius: .8rem;
-        color: #1685ee;
-        background: linear-gradient(145deg,#e2f1ff,#eef8ff);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-copy {
-        min-width: 0;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-copy strong,
-      #${PAGE_ROOT_ID} .s2-key-select-copy small {
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-copy strong {
-        font-size: .93rem;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-copy small {
-        margin-top: .22rem;
-        color: var(--s2-muted);
-        font-size: .76rem;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-chevron {
-        color: #7c8797;
-        transition: transform .18s;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select.is-open .s2-key-select-chevron {
-        transform: rotate(180deg);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-menu {
-        position: absolute;
-        top: calc(100% + .55rem);
-        left: 0;
-        right: 0;
-        z-index: 30;
-        display: grid;
-        gap: .35rem;
-        max-height: 18rem;
-        padding: .55rem;
-        overflow: auto;
-        border: 1px solid rgba(148,163,184,.25);
-        border-radius: 1rem;
-        background: rgba(255,255,255,.98);
-        box-shadow: 0 22px 54px rgba(15,23,42,.18), 0 4px 14px rgba(15,23,42,.08);
-        backdrop-filter: blur(18px);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-option {
-        display: grid;
-        grid-template-columns: 2.25rem minmax(0,1fr) auto;
-        align-items: center;
-        gap: .75rem;
-        width: 100%;
-        min-height: 3.8rem;
-        padding: .55rem .65rem;
-        border: 0;
-        border-radius: .78rem;
-        color: var(--s2-text);
-        background: transparent;
-        text-align: left;
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-option:hover {
-        background: rgba(241,245,249,.94);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-option.is-active {
-        color: #126fca;
-        background: rgba(224,239,255,.94);
-      }
-      #${PAGE_ROOT_ID} .s2-key-select-option .s2-key-select-icon {
-        width: 2.25rem;
-        height: 2.25rem;
-        border-radius: .7rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-select,
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-copy-field {
-        min-height: 4.5rem;
-        padding: .85rem 1rem;
-        border-color: rgba(148,163,184,.35);
-        border-radius: 1rem;
-        background: rgba(226,226,229,.82);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-copy-field code {
-        padding: .35rem .6rem;
-        border-radius: .5rem;
-        background: rgba(148,148,153,.25);
-        font-size: .9rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-note {
-        min-height: 5.4rem;
-        align-items: center;
-        padding: 1rem 1.1rem;
-        margin-top: 1rem;
-        border-radius: 1rem;
-        color: #6b7b79;
-        background: rgba(211,225,216,.92);
-        font-size: .84rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-btn {
-        min-height: 2.75rem;
-        padding: .62rem 1rem;
-        border-radius: .8rem;
-        font-size: .88rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-btn-primary {
-        color: #fff;
-        background: #191c20;
-        box-shadow: 0 10px 24px rgba(15,23,42,.14);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs,
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs {
-        padding: .35rem;
-        margin-bottom: 1rem;
-        border-color: rgba(148,163,184,.28);
-        border-radius: .9rem;
-        background: rgba(234,239,245,.78);
-        box-shadow: inset 0 1px 2px rgba(15,23,42,.04);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs button,
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs button {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: .5rem;
-        min-height: 2.75rem;
-        border: 1px solid transparent;
-        border-radius: .7rem;
-        font-size: .85rem;
-        transition: color .18s, background .18s, box-shadow .18s;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs button.is-active,
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs button.is-active {
-        background: #2997ff;
-        box-shadow: 0 7px 16px rgba(41,151,255,.20);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app-grid {
-        gap: .7rem;
-        margin-bottom: 1rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app {
-        min-height: 4.5rem;
-        padding: .8rem;
-        border-radius: .9rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app.is-active {
-        border-color: #2997ff;
-        background: rgba(224,239,255,.72);
-        box-shadow: 0 0 0 2px rgba(41,151,255,.08);
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app-copy strong { font-size: .82rem; }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app-copy small { font-size: .7rem; }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-app-detail {
-        min-height: 13.5rem;
-        padding: 1rem;
-        border-radius: 1rem;
-        background: linear-gradient(135deg,rgba(224,242,254,.7),rgba(255,255,255,.72));
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-mapping {
-        min-height: 2.65rem;
-        padding: .65rem .75rem;
-        border-radius: .7rem;
-        font-size: .78rem;
-      }
-      #${PAGE_ROOT_ID} .s2-guide-page .s2-model-option.is-active {
-        border-color: #2997ff;
-        background: rgba(224,239,255,.72);
-        box-shadow: 0 0 0 3px rgba(41,151,255,.08);
-      }
-      #${PAGE_ROOT_ID} .s2-model-recommendation {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: .75rem;
-        padding: .75rem .9rem;
-        margin-bottom: .85rem;
-        border: 1px solid rgba(41,151,255,.16);
-        border-radius: .85rem;
-        color: #526174;
-        background: rgba(232,245,255,.7);
-        font-size: .78rem;
-      }
-      #${PAGE_ROOT_ID} .s2-model-recommendation strong {
-        color: #126fca;
-      }
-      #${PAGE_ROOT_ID} .s2-model-price {
-        margin-top: .28rem;
-        color: #7c8797;
-        font-size: .67rem;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page {
-        --s2-primary: #3aa6ff;
-        --s2-primary-strong: #70c1ff;
-        --s2-primary-soft: rgba(58,166,255,.14);
-        color-scheme: dark;
-        background:
-          radial-gradient(circle at 42% 3%, rgba(14,116,177,.13), transparent 28rem),
-          radial-gradient(circle at 96% 22%, rgba(99,102,241,.11), transparent 24rem);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-hero {
-        border-color: rgba(77,163,225,.32);
-        background:
-          radial-gradient(circle at 92% 2%, rgba(106,92,196,.25), transparent 42%),
-          radial-gradient(circle at 5% 105%, rgba(21,122,182,.17), transparent 46%),
-          linear-gradient(118deg, rgba(13,33,49,.99), rgba(18,27,41,.99) 55%, rgba(16,46,42,.98));
-        box-shadow: 0 24px 58px rgba(0,0,0,.24);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-hero p,
-      .dark #${PAGE_ROOT_ID} .s2-guide-trust-item { color: #a9b8ca; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-asset-card {
-        border-color: rgba(86,172,235,.38);
-        color: #eef6ff;
-        background: linear-gradient(145deg,rgba(31,49,71,.96),rgba(19,34,51,.96));
-        box-shadow: 0 22px 48px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.05);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-label,
-      .dark #${PAGE_ROOT_ID} .s2-guide-status-note { color:#9eb0c5; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-badge {
-        color:#70c1ff;
-        background:rgba(26,104,161,.24);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-steps,
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-panel {
-        border:1px solid rgba(101,126,157,.12);
-        background:rgba(15,26,40,.97);
-        box-shadow:0 18px 42px rgba(0,0,0,.12);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-step:hover { background:rgba(54,76,103,.28); }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-step.is-active {
-        color:#8dceff;
-        background:linear-gradient(135deg,rgba(25,102,163,.42),rgba(37,78,125,.34));
-        box-shadow:inset 0 0 0 1px rgba(74,166,235,.16);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-step.is-active small { color:#a9c3d8; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-step-number { color:#9eb0c5; background:#223145; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-step.is-active .s2-step-number { color:#fff; background:#2997ff; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-support { color:#a9b8ca; background:#202f43; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-support strong { color:#e2eaf4; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-select,
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-copy-field {
-        border-color:rgba(111,139,173,.30);
-        background:rgba(27,42,62,.96);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-copy-field code {
-        color:#dce8f5;
-        background:rgba(6,14,25,.46);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-trigger,
-      .dark #${PAGE_ROOT_ID} .s2-key-select-menu {
-        border-color:rgba(103,134,169,.32);
-        color:var(--s2-text);
-        background:linear-gradient(180deg,rgba(24,39,58,.99),rgba(17,29,44,.99));
-        box-shadow:0 18px 44px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.04);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-trigger:hover,
-      .dark #${PAGE_ROOT_ID} .s2-key-select.is-open .s2-key-select-trigger {
-        border-color:rgba(58,166,255,.76);
-        color:#f2f8ff;
-        background:linear-gradient(180deg,rgba(28,49,72,.99),rgba(19,34,52,.99));
-        box-shadow:0 14px 32px rgba(0,0,0,.28),0 0 0 3px rgba(58,166,255,.12);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-icon {
-        color:#70c1ff;
-        background:linear-gradient(145deg,rgba(25,92,145,.48),rgba(22,65,103,.42));
-      }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-chevron { color:#a9b8ca; }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-option:hover { background:rgba(55,78,106,.56); }
-      .dark #${PAGE_ROOT_ID} .s2-key-select-option.is-active {
-        color:#8dceff;
-        background:linear-gradient(135deg,rgba(25,102,163,.48),rgba(35,72,113,.46));
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-note {
-        color:#a8c7c3;
-        background:rgba(25,67,62,.76);
-        box-shadow:inset 0 0 0 1px rgba(82,154,143,.12);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-btn {
-        border-color:rgba(101,126,157,.30);
-        color:#e4edf7;
-        background:#152235;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-btn:hover {
-        border-color:rgba(58,166,255,.58);
-        background:#1a2a40;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-btn-primary {
-        border-color:transparent;
-        color:#fff;
-        background:linear-gradient(135deg,#2997ff,#176fca);
-        box-shadow:0 10px 26px rgba(15,110,197,.28);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs {
-        border-color:rgba(94,122,155,.26);
-        background:rgba(7,17,29,.68);
-        box-shadow:inset 0 1px 2px rgba(0,0,0,.25);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs {
-        border-color:rgba(94,122,155,.26);
-        background:rgba(7,17,29,.68);
-        box-shadow:inset 0 1px 2px rgba(0,0,0,.25);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs button,
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs button { color:#91a3b9; background:transparent; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-mode-tabs button.is-active,
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-protocol-tabs button.is-active { color:#fff; background:#2997ff; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-app {
-        border-color:rgba(96,124,157,.28);
-        background:#142136;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-app:hover { border-color:rgba(58,166,255,.48); background:#182840; }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-app.is-active {
-        border-color:#2997ff;
-        background:rgba(29,99,157,.34);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-app-detail {
-        border-color:rgba(77,152,207,.24);
-        background:linear-gradient(135deg,rgba(18,54,77,.82),rgba(17,30,46,.94));
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-mapping { background:rgba(7,16,28,.38); }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-model-option {
-        border-color:rgba(96,124,157,.28);
-        background:#142136;
-      }
-      .dark #${PAGE_ROOT_ID} .s2-guide-page .s2-model-option.is-active {
-        border-color:#2997ff;
-        background:rgba(29,99,157,.34);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-model-recommendation {
-        border-color:rgba(58,166,255,.22);
-        color:#a9b8ca;
-        background:rgba(22,70,108,.34);
-      }
-      .dark #${PAGE_ROOT_ID} .s2-model-recommendation strong { color:#78c5ff; }
-      .dark #${PAGE_ROOT_ID} .s2-model-price { color:#8fa2b8; }
-      @media (max-width: 960px) {
-        #${PAGE_ROOT_ID} .s2-dashboard-grid { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-guide-layout { grid-template-columns:11rem minmax(0,1fr); }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-layout { grid-template-columns:14rem minmax(0,1fr); }
-        #${PAGE_ROOT_ID} .s2-app-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
-      }
-      @media (max-width: 760px) {
-        #${PAGE_ROOT_ID} .s2-hero { grid-template-columns:1fr; padding:1rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-hero { min-height:auto; grid-template-columns:1fr; gap:1.15rem; padding:1.25rem; border-radius:1.15rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-hero h1 { font-size:1.85rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-hero p { font-size:.92rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-asset-card { min-height:auto; }
-        #${PAGE_ROOT_ID} .s2-guide-trust { gap:.7rem 1rem; }
-        #${PAGE_ROOT_ID} .s2-asset-card { width:100%; }
-        #${PAGE_ROOT_ID} .s2-metrics { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-guide-layout { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-layout { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-steps { overflow:visible; }
-        #${PAGE_ROOT_ID} .s2-steps-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.25rem; }
-        #${PAGE_ROOT_ID} .s2-step { grid-template-columns:1.65rem minmax(0,1fr); }
-        #${PAGE_ROOT_ID} .s2-copy-field { flex-wrap:wrap; }
-        #${PAGE_ROOT_ID} .s2-copy-field code { flex:1 1 calc(100% - 3rem); }
-        #${PAGE_ROOT_ID} .s2-panel-actions .s2-btn { flex:1 1 auto; }
-        #${PAGE_ROOT_ID} .s2-mapping { align-items:flex-start; flex-direction:column; }
-        #${PAGE_ROOT_ID} .s2-mapping strong { width:100%; text-align:left; }
-        #${PAGE_ROOT_ID} .s2-panel-head { align-items:flex-start; flex-wrap:wrap; }
-      }
-      @media (max-width: 520px) {
-        #${PAGE_ROOT_ID} .s2-page { min-height:calc(100vh - 7rem); }
-        #${PAGE_ROOT_ID} .s2-hero h1 { font-size:1.38rem; }
-        #${PAGE_ROOT_ID} .s2-hero-actions .s2-btn { flex:1 1 100%; }
-        #${PAGE_ROOT_ID} .s2-app-grid, #${PAGE_ROOT_ID} .s2-model-grid { grid-template-columns:1fr; }
-        #${PAGE_ROOT_ID} .s2-mode-tabs, #${PAGE_ROOT_ID} .s2-protocol-tabs { flex-wrap:wrap; }
-        #${PAGE_ROOT_ID} .s2-mode-tabs button, #${PAGE_ROOT_ID} .s2-protocol-tabs button { flex:1 1 42%; }
-        #${PAGE_ROOT_ID} .s2-panel, #${PAGE_ROOT_ID} .s2-guide-panel { padding:.8rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-guide-panel { min-height:auto; padding:1rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-step { min-height:4.5rem; padding:.65rem; }
-        #${PAGE_ROOT_ID} .s2-guide-page .s2-step small { display:none; }
-        #${PAGE_ROOT_ID} .s2-guide-support { display:none; }
-        #${PAGE_ROOT_ID} .s2-section-head { align-items:flex-start; flex-direction:column; }
-        #${PAGE_ROOT_ID} .s2-app-detail-head { flex-direction:column; }
-        #${PAGE_ROOT_ID} .s2-panel-actions .s2-btn { flex:1 1 100%; }
-        #${PAGE_ROOT_ID} .s2-toast { left:.75rem; right:.75rem; bottom:.75rem; text-align:center; }
-      }
-    `;
+    style.textContent = `${dashboardReferenceStyles}\n${guideReferenceStyles}`
+      .replaceAll('s2-page-design-root', PAGE_ROOT_ID);
     pageStyle = style;
     document.head.appendChild(style);
   }
-
   function dashboardEmptyHtml() {
     return `
       <div class="s2-dashboard-empty">
@@ -1653,22 +523,53 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         </section>`;
     }
 
-    const user = readObjectField(data, 'user', {}) || {};
-    const stats = readObjectField(data, 'stats', {}) || {};
-    const trendPayload = readObjectField(data, 'trend', []);
-    const modelPayload = readObjectField(data, 'models', []);
-    const days = readObjectField(data, 'days', 7) === 30 ? 30 : 7;
-    const trend = Array.isArray(trendPayload) ? trendPayload : [];
-    const models = Array.isArray(modelPayload) ? modelPayload : [];
-    const hasUsage =
-      Number(stats.today_requests || 0) > 0 ||
-      trend.some((item) => Number(item.total_tokens || item.requests || 0) > 0);
+    const user = data.user || {};
+    const stats = data.stats || {};
+    const today = data.today;
+    const yesterday = data.yesterday;
+    const unavailable = data.unavailable || [];
+    const days = data.days === 30 ? 30 : 7;
+    const trend = Array.isArray(data.trend) ? data.trend : [];
+    const models = Array.isArray(data.models) ? data.models : [];
+    const metric = (dailyField, fallbackField) => today?.[dailyField] ?? stats[fallbackField];
+    const requestCount = metric('total_requests', 'today_requests');
+    const tokenCount = metric('total_tokens', 'today_tokens');
+    const duration = metric('average_duration_ms', 'average_duration_ms');
+    const display = (value, formatter) => value == null ? '—' : formatter(value);
+    const change = (name, field, invert = false) => {
+      let label = '暂无对比';
+      let kind = 'is-neutral';
+      if (name === 'duration' && today?.total_requests === 0) {
+        label = '今日暂无数据';
+      } else if (name === 'duration' && yesterday?.total_requests === 0) {
+        label = '昨日暂无数据';
+      } else if (today?.[field] != null && yesterday?.[field] != null) {
+        const before = nonnegativeNumber(yesterday[field]);
+        const current = nonnegativeNumber(today[field]);
+        if (before === 0) label = '昨日暂无数据';
+        else {
+          const percent = (current - before) / before * 100;
+          label = percent === 0 ? '持平' : `${percent > 0 ? '↑' : '↓'} ${Math.abs(percent).toFixed(1).replace(/\.0$/, '')}%`;
+          kind = percent === 0 ? 'is-neutral' : (invert ? percent > 0 : percent < 0) ? 'is-negative' : '';
+        }
+      }
+      return `<span class="s2-change ${kind}" data-dashboard-change="${name}">${label}</span>${kind === 'is-neutral' ? '' : '<span>较昨日</span>'}`;
+    };
+    const spark = (field, isTokens = false) => {
+      const values = normalizeDashboardTrend(trend, days).slice(-7).map((row) => nonnegativeNumber(row[field]));
+      const max = Math.max(...values, 1);
+      if (!values.some((value) => value > 0)) return '';
+      return `<svg class="s2-metric-spark ${isTokens ? 'is-tokens' : ''}" viewBox="0 0 96 43" role="img" aria-label="近七天${isTokens ? 'Token' : '请求'}变化"><title>${values.map((value) => formatNumber(value)).join('、')}</title>${values.map((value, index) => `<rect x="${index * 13 + 4}" y="${41 - value / max * 37}" width="6" height="${value / max * 37}" rx="3" fill="currentColor"></rect>`).join('')}</svg>`;
+    };
     const chart = buildTrendSvg(trend, days);
-    const modelDonut = buildModelDonutHtml(models);
-
+    const accountStatus = user.status === 'active' ? '账户状态正常' : user.status === 'disabled' ? '账户已停用' : '账户状态待确认';
+    const alert = data.failed || data.partialFailure ? `<div class="s2-dashboard-alert" role="alert"><span>${data.failed ? '仪表盘加载失败，请重试。' : '部分数据加载失败，暂时无法显示完整用量。'}</span><button class="s2-btn" data-dashboard-retry type="button">${icon('refresh', 14)}重新加载</button></div>` : '';
+    const chartError = unavailable[2] || data.failed;
+    const modelError = unavailable[3] || data.failed;
     return `
       <section class="s2-page s2-dashboard-page" data-sub2api-page="dashboard">
         <article class="s2-dashboard-hero" data-dashboard-hero>
+          <img class="s2-dashboard-art" src="${dashboardArtworkUrl}" alt="" aria-hidden="true">
           <div class="s2-dashboard-hero-copy">
             <div class="s2-dashboard-eyebrow">${icon('sparkles', 17)}API 能力中心</div>
             <h1>让每一次模型调用，都清晰可控</h1>
@@ -1680,29 +581,33 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
           </div>
           <div class="s2-dashboard-balance">
             <span class="s2-dashboard-balance-label">可用余额</span>
-            <div class="s2-dashboard-balance-value" data-dashboard-balance>${formatMoney(user.balance)}</div>
-            <span class="s2-dashboard-status">账户状态正常</span>
+            <button class="s2-dashboard-balance-link" type="button" data-route="/profile" aria-label="查看账户余额">${icon('arrow', 13)}</button>
+            <div class="s2-dashboard-balance-value" data-dashboard-balance>${display(user.balance, formatMoney)}</div>
+            <span class="s2-dashboard-status ${user.status === 'active' ? '' : 'is-unknown'}">${accountStatus}</span>
           </div>
         </article>
-
+        ${alert}
         <div class="s2-dashboard-metrics">
           <article class="s2-dashboard-metric">
-            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label">今日请求</span><span class="s2-dashboard-icon">${icon('send', 17)}</span></div>
-            <div class="s2-dashboard-metric-value" data-dashboard-requests>${formatNumber(stats.today_requests)}</div>
-            <div class="s2-dashboard-metric-note"><span class="s2-dashboard-metric-accent">当前 ${formatNumber(stats.rpm)} RPM</span></div>
+            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label"><span class="s2-dashboard-icon">${icon('activity', 15)}</span>今日请求</span><span class="s2-dashboard-icon">${icon('send', 16)}</span></div>
+            <div class="s2-dashboard-metric-value" data-dashboard-requests>${display(requestCount, formatNumber)}</div>
+            <div class="s2-dashboard-metric-note">${change('requests', 'total_requests')}</div>
+            ${spark('requests')}
           </article>
           <article class="s2-dashboard-metric">
-            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label">今日 Token</span><span class="s2-dashboard-icon">${icon('database', 17)}</span></div>
-            <div class="s2-dashboard-metric-value">${formatCompactNumber(stats.today_tokens)}</div>
-            <div class="s2-dashboard-metric-note" data-dashboard-token-note>输入 ${formatCompactNumber(stats.today_input_tokens)} · 输出 ${formatCompactNumber(stats.today_output_tokens)}</div>
+            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label"><span class="s2-dashboard-icon">${icon('database', 15)}</span>今日 Token</span><span class="s2-dashboard-icon">${icon('database', 16)}</span></div>
+            <div class="s2-dashboard-metric-value" data-dashboard-tokens>${display(tokenCount, formatCompactNumber)}</div>
+            <div class="s2-dashboard-metric-note">${change('tokens', 'total_tokens')}</div>
+            <div class="s2-dashboard-metric-detail" data-dashboard-token-note>输入 ${display(metric('total_input_tokens', 'today_input_tokens'), formatCompactNumber)} · 输出 ${display(metric('total_output_tokens', 'today_output_tokens'), formatCompactNumber)}</div>
+            ${spark('total_tokens', true)}
           </article>
           <article class="s2-dashboard-metric">
-            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label">平均响应</span><span class="s2-dashboard-icon">${icon('timer', 17)}</span></div>
-            <div class="s2-dashboard-metric-value">${formatDuration(stats.average_duration_ms)}</div>
-            <div class="s2-dashboard-metric-note">今日消费 ${formatMoney(stats.today_actual_cost)}</div>
+            <div class="s2-dashboard-metric-head"><span class="s2-dashboard-metric-label"><span class="s2-dashboard-icon">${icon('timer', 15)}</span>${today?.average_duration_ms != null ? '平均响应' : '平均响应（累计）'}</span><span class="s2-dashboard-icon">${icon('timer', 16)}</span></div>
+            <div class="s2-dashboard-metric-value" data-dashboard-duration>${today?.total_requests === 0 ? '—' : display(duration, formatDuration)}</div>
+            <div class="s2-dashboard-metric-note">${change('duration', 'average_duration_ms', true)}</div>
+            <div class="s2-dashboard-metric-detail">今日消费 ${display(metric('total_actual_cost', 'today_actual_cost'), formatMoney)}</div>
           </article>
         </div>
-
         <div class="s2-dashboard-analysis">
           <article class="s2-dashboard-panel">
             <div class="s2-dashboard-panel-head">
@@ -1712,24 +617,104 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
                 <button class="s2-btn" type="button" data-dashboard-days="30" aria-pressed="${days === 30}">30 天</button>
               </div>
             </div>
-            ${hasUsage && chart ? chart : dashboardEmptyHtml()}
+            ${chartError ? '<div class="s2-dashboard-empty"><p>趋势数据加载失败，请点击上方重新加载。</p></div>' : chart || dashboardEmptyHtml()}
           </article>
           <article class="s2-dashboard-panel s2-dashboard-model-panel">
-            <div class="s2-dashboard-panel-head"><div><div class="s2-dashboard-panel-title">模型偏好</div><div class="s2-dashboard-panel-note">请求量占比</div></div></div>
-            ${modelDonut}
+            <div class="s2-dashboard-panel-head"><div><div class="s2-dashboard-panel-title">模型偏好</div><div class="s2-dashboard-panel-note">请求量占比</div></div><button class="s2-dashboard-detail" type="button" data-route="/dashboard?view=classic">查看详情 ${icon('arrow', 13)}</button></div>
+            ${modelError ? '<div class="s2-dashboard-empty"><p>模型数据加载失败，请点击上方重新加载。</p></div>' : buildModelDonutHtml(models)}
           </article>
         </div>
       </section>`;
   }
-
   function selectedGuideKey() {
-    const keys = pageState.keys.filter((key) => key?.status !== 'inactive');
+    const keys = pageState.keys.filter((key) => key?.status === 'active');
     return (
-      keys.find((key) => String(key.id) === String(pageState.selectedKeyId)) ||
+      pageState.keys.find((key) => String(key.id) === String(pageState.selectedKeyId)) ||
       keys[0] ||
       pageState.keys[0] ||
       null
     );
+  }
+
+  function guideBaseUrl() {
+    const raw = String(pageState.settings?.api_base_url || window.location.origin).trim();
+    try {
+      const url = new URL(raw, window.location.origin);
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return '';
+      url.search = '';
+      url.hash = '';
+      return url.toString().replace(/\/+$/, '').replace(/\/v1$/, '');
+    } catch {
+      return '';
+    }
+  }
+
+  function guideModelsEndpoint(apiKey) {
+    const baseUrl = guideBaseUrl();
+    if (!baseUrl) throw new Error('API 地址配置无效，请联系管理员');
+    return apiKey?.group?.platform === 'antigravity'
+      ? `${baseUrl}/antigravity/v1/models` : `${baseUrl}/v1/models`;
+  }
+
+  async function loadGuideModels() {
+    guideModelsController?.abort();
+    const version = ++guideModelsRequestVersion;
+    const pageVersion = pageRequestVersion;
+    const apiKey = selectedGuideKey();
+    const keyId = String(apiKey?.id || '');
+    pageState.availableModels = [];
+    pageState.guideModelsKeyId = keyId;
+    pageState.guideModelsError = '';
+    pageState.selectedModel = '';
+    pageState.guideModelProtocol = 'all';
+    if (!apiKey?.key || apiKey.status !== 'active' || pageState.guideSettingsError) {
+      pageState.guideModelsLoading = false;
+      pageState.guideModelsError = pageState.guideSettingsError || (apiKey ? '当前密钥不可用，请选择有效密钥或前往密钥管理。' : '');
+      rerenderGuide();
+      return;
+    }
+    const controller = new AbortController();
+    guideModelsController = controller;
+    pendingControllers.add(controller);
+    const timer = schedule(() => controller.abort(), PAGE_CONFIG.requestTimeoutMs);
+    pageState.guideModelsLoading = true;
+    rerenderGuide();
+    try {
+      const response = await window.fetch(guideModelsEndpoint(apiKey), {
+        headers: { Authorization: `Bearer ${apiKey.key}` },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      const rows = Array.isArray(payload) ? payload : payload?.data || payload?.models;
+      if (!Array.isArray(rows)) throw new Error('模型列表格式无效');
+      // 仅采用当前密钥网关返回的模型，展示目录不能替代分组访问权限。
+      const seen = new Set();
+      const models = rows.flatMap((item) => {
+        const name = String(typeof item === 'string' ? item : item?.id || item?.slug || item?.name || '').replace(/^models\//, '').trim();
+        if (!name || seen.has(name)) return [];
+        seen.add(name);
+        return [{ name, vendor: item?.owned_by || '', type: 'text' }];
+      });
+      if (version !== guideModelsRequestVersion || !isCurrentPage(pageVersion, 'guide')) return;
+      pageState.availableModels = models;
+      pageState.selectedModel = models[0]?.name || '';
+      syncGuideProtocol();
+    } catch (error) {
+      if (version !== guideModelsRequestVersion || !isCurrentPage(pageVersion, 'guide')) return;
+      pageState.guideModelsError = error?.name === 'AbortError'
+        ? '模型列表请求超时，请重试。'
+        : '无法获取当前密钥的模型列表，请检查密钥权限和服务地址后重试。';
+    } finally {
+      pendingControllers.delete(controller);
+      pendingTimers.delete(timer);
+      window.clearTimeout(timer);
+      if (guideModelsController === controller) guideModelsController = null;
+      if (version === guideModelsRequestVersion && isCurrentPage(pageVersion, 'guide')) {
+        pageState.guideModelsLoading = false;
+        rerenderGuide();
+      }
+    }
   }
 
   function normalizeModelPlatform(value) {
@@ -1762,6 +747,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     const value = String(name || '').toLowerCase();
     if (value.includes('claude')) return 'anthropic';
     if (value.includes('gemini')) return 'gemini';
+    if (value.includes('grok')) return 'grok';
     if (
       value.includes('gpt') ||
       value.includes('o1') ||
@@ -1779,69 +765,81 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
+      grok: 'Grok',
+      composite: '综合路由',
+      antigravity: 'Antigravity',
     };
     return labels[platform] || String(platform || '当前');
   }
 
   function selectedGuideGroup(apiKey) {
     const group = apiKey?.group || {};
-    const platform = normalizeModelPlatform(
-      group.platform || apiKey?.platform,
-    );
+    const platform = String(group.platform || apiKey?.platform || '');
     return {
       name: group.name || platformLabel(platform),
       platform,
     };
   }
 
-  function fallbackModelsForPlatform(platform) {
-    const fallback = {
-      openai: ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini'],
-      anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
-      gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    };
-    return fallback[platform] || [];
-  }
-
   function recommendedModelsForKey(apiKey) {
     const group = selectedGuideGroup(apiKey);
-    const catalog = pageState.modelCatalog
-      .filter((item) => item && item.name)
-      .filter((item) => String(item.type || 'text').toLowerCase() !== 'image')
-      .filter(
-        (item) => normalizeModelPlatform(item.vendor) === group.platform,
-      );
-    const preferredNames = {
-      openai: [PAGE_CONFIG.ccSwitchCodexModel, 'gpt-5.4', 'gpt-5.4-mini'],
-      anthropic: ['claude-sonnet-4-6', 'claude-opus-4-6'],
-      gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-    }[group.platform] || [];
+    if (String(apiKey?.id || '') !== pageState.guideModelsKeyId) return [];
+    const catalog = new Map(pageState.modelCatalog.filter((item) => item?.name).map((item) => [item.name, item]));
+    return pageState.availableModels.map((item) => {
+      const vendorPlatform = normalizeModelPlatform(catalog.get(item.name)?.vendor || item.vendor);
+      return {
+        ...item,
+        ...catalog.get(item.name),
+        platform: modelNamePlatform(item.name) || (['openai', 'anthropic', 'gemini', 'grok'].includes(vendorPlatform) ? vendorPlatform : group.platform),
+      };
+    });
+  }
 
-    if (catalog.length) {
-      return catalog
-        .map((item, sourceIndex) => ({ ...item, sourceIndex }))
-        .sort((left, right) => {
-          const leftIndex = preferredNames.indexOf(left.name);
-          const rightIndex = preferredNames.indexOf(right.name);
-          const leftRank = leftIndex === -1 ? 100 + left.sourceIndex : leftIndex;
-          const rightRank = rightIndex === -1 ? 100 + right.sourceIndex : rightIndex;
-          return leftRank - rightRank;
-        })
-        .slice(0, 8);
+  function guideClientPlatform(apiKey) {
+    const platform = apiKey?.group?.platform || 'anthropic';
+    if (platform !== 'composite') return platform;
+    return recommendedModelsForKey(apiKey).find((model) => model.name === pageState.selectedModel)?.platform || 'anthropic';
+  }
+
+  function guideClientType(apiKey) {
+    const model = recommendedModelsForKey(apiKey).find((item) => item.name === pageState.selectedModel);
+    return apiKey?.group?.platform === 'antigravity' && model?.platform === 'gemini' ? 'gemini' : 'claude';
+  }
+
+  function syncGuideProtocol() {
+    const model = recommendedModelsForKey(selectedGuideKey()).find((item) => item.name === pageState.selectedModel);
+    if (!model) return;
+    if (model.platform === 'openai' && pageState.selectedProtocol === 'responses') return;
+    pageState.selectedProtocol = ['anthropic', 'gemini'].includes(model.platform) ? model.platform : 'openai';
+  }
+
+  function hasVerifiedGuideModel() {
+    return !pageState.guideModelsLoading && !pageState.guideModelsError && !pageState.guideSettingsError
+      && selectedGuideKey()?.status === 'active'
+      && recommendedModelsForKey(selectedGuideKey()).some((model) => model.name === pageState.selectedModel);
+  }
+
+  function guideProtocolUnavailable(protocol, apiKey = selectedGuideKey()) {
+    const group = apiKey?.group || {};
+    if (group.claude_code_only) return '当前分组仅允许 Claude Code 客户端，请选择应用对接中的 Claude Code。';
+    if (protocol === 'anthropic' && guideClientPlatform(apiKey) === 'openai' && group.allow_messages_dispatch === false) {
+      return '当前分组未开启 Anthropic Messages 接入，请使用 OpenAI 或 Responses 协议。';
     }
+    if (protocol === 'gemini' && group.platform && !['gemini', 'antigravity', 'composite'].includes(group.platform)) {
+      return '当前分组不支持 Gemini 原生协议，请切换 Gemini 或 Antigravity 密钥。';
+    }
+    return '';
+  }
 
-    const usageNames = pageState.models
-      .map((item) => item.model || item.name || item.requested_model)
-      .filter(Boolean)
-      .filter((name) => modelNamePlatform(name) === group.platform);
-    const fallbackNames = usageNames.length
-      ? usageNames
-      : fallbackModelsForPlatform(group.platform);
-    return Array.from(new Set(fallbackNames)).slice(0, 8).map((name) => ({
-      name,
-      vendor: platformLabel(group.platform),
-      type: 'text',
-    }));
+  function guideAppUnavailable(appKey, apiKey) {
+    const group = apiKey?.group || {};
+    const ccConfig = resolveCcSwitchImportConfig(guideClientPlatform(apiKey), guideClientType(apiKey), guideBaseUrl());
+    const isClaude = appKey === 'claude' || (appKey === 'ccswitch' && ccConfig.app === 'claude');
+    if (group.claude_code_only && !isClaude) return '当前分组仅允许 Claude Code 客户端，请选择 Claude Code 接入。';
+    if (isClaude && guideClientPlatform(apiKey) === 'openai' && group.allow_messages_dispatch === false) {
+      return '当前分组未开启 Claude Code 接入，请使用 Codex CLI 或其他 OpenAI 兼容客户端。';
+    }
+    return '';
   }
 
   function formatModelPrice(value) {
@@ -1856,20 +854,21 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     const input = formatModelPrice(model?.input);
     const output = formatModelPrice(model?.output);
     if (input === null && output === null) {
-      return '点击复制模型 ID';
+      return '价格以实际计费为准';
     }
     const parts = [];
     if (input !== null) parts.push(`输入 $${input}`);
     if (output !== null) parts.push(`输出 $${output}`);
-    return `${parts.join(' · ')} / 1M Token`;
+    return `参考价 · ${parts.join(' · ')} / 1M Token`;
   }
 
   function guideApps(apiKey, settings) {
     const baseUrl = String(
       settings?.api_base_url || window.location.origin,
-    ).replace(/\/+$/, '');
-    const platform = apiKey?.group?.platform || 'anthropic';
-    const ccSwitchConfig = resolveCcSwitchImportConfig(platform, 'claude', baseUrl);
+    ).replace(/\/+$/, '').replace(/\/v1$/, '');
+    const nativeBaseUrl = apiKey?.group?.platform === 'antigravity' ? `${baseUrl}/antigravity` : baseUrl;
+    const platform = guideClientPlatform(apiKey);
+    const ccSwitchConfig = resolveCcSwitchImportConfig(platform, guideClientType(apiKey), baseUrl);
     return {
       ccswitch: {
         name: 'CC Switch',
@@ -1881,7 +880,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         type:
           platform === 'openai'
             ? 'OpenAI 密钥 → Codex'
-            : platform === 'gemini'
+            : ccSwitchConfig.app === 'gemini'
               ? 'Gemini 密钥 → Gemini CLI'
               : platform === 'grok'
                 ? 'Grok 密钥 → Grok Build'
@@ -1898,7 +897,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         description: '生成 ANTHROPIC_BASE_URL 与认证环境变量。',
         badge: '官方 CLI',
         type: 'Anthropic Messages',
-        endpoint: baseUrl,
+        endpoint: nativeBaseUrl,
         usage: '仪表盘实时统计',
         action: '复制环境变量',
       },
@@ -1956,44 +955,49 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   function protocolDefinitions() {
     const baseUrl = String(
       pageState.settings?.api_base_url || window.location.origin,
-    ).replace(/\/+$/, '');
+    ).replace(/\/+$/, '').replace(/\/v1$/, '');
+    const model = pageState.selectedModel || 'YOUR_MODEL';
+    // Antigravity 专属路由仅承载原生协议；OpenAI 兼容请求继续使用根 /v1 转换接口。
+    const nativePrefix = selectedGuideKey()?.group?.platform === 'antigravity' ? '/antigravity' : '';
+    // PowerShell 单引号字符串使用两个单引号转义，避免模型或地址被解释为命令。
+    const quote = (value) => `'${String(value).replace(/'/g, "''")}'`;
+    const command = (path, headers, body) => [
+      `curl.exe ${quote(`${baseUrl}${path}`)}`,
+      '--request POST',
+      ...headers.map((header) => `--header ${quote(header)}`),
+      `--header ${quote('Content-Type: application/json')}`,
+      `--data-raw ${quote(JSON.stringify(body))}`,
+    ].join(' `\n  ');
     return {
       openai: {
         name: 'OpenAI',
         path: '/v1/chat/completions',
         auth: 'Authorization: Bearer',
-        code: `curl "${baseUrl}/v1/chat/completions" ^
-  -H "Authorization: Bearer YOUR_API_KEY" ^
-  -H "Content-Type: application/json" ^
-  -d '{"model":"gpt-4.1","messages":[{"role":"user","content":"你好"}]}'`,
+        code: command('/v1/chat/completions', ['Authorization: Bearer YOUR_API_KEY'], {
+          model, messages: [{ role: 'user', content: '你好' }],
+        }),
       },
       responses: {
         name: 'Responses',
         path: '/v1/responses',
         auth: 'Authorization: Bearer',
-        code: `curl "${baseUrl}/v1/responses" ^
-  -H "Authorization: Bearer YOUR_API_KEY" ^
-  -H "Content-Type: application/json" ^
-  -d '{"model":"gpt-4.1","input":"你好"}'`,
+        code: command('/v1/responses', ['Authorization: Bearer YOUR_API_KEY'], { model, input: '你好' }),
       },
       anthropic: {
         name: 'Anthropic',
-        path: '/v1/messages',
+        path: `${nativePrefix}/v1/messages`,
         auth: 'x-api-key',
-        code: `curl "${baseUrl}/v1/messages" ^
-  -H "x-api-key: YOUR_API_KEY" ^
-  -H "anthropic-version: 2023-06-01" ^
-  -H "Content-Type: application/json" ^
-  -d '{"model":"claude-sonnet-4","max_tokens":1024,"messages":[{"role":"user","content":"你好"}]}'`,
+        code: command(`${nativePrefix}/v1/messages`, ['x-api-key: YOUR_API_KEY', 'anthropic-version: 2023-06-01'], {
+          model, max_tokens: 1024, messages: [{ role: 'user', content: '你好' }],
+        }),
       },
       gemini: {
         name: 'Gemini',
-        path: '/v1beta/models/{model}:generateContent',
+        path: `${nativePrefix}/v1beta/models/{model}:generateContent`,
         auth: 'x-goog-api-key',
-        code: `curl "${baseUrl}/v1beta/models/gemini-2.5-pro:generateContent" ^
-  -H "x-goog-api-key: YOUR_API_KEY" ^
-  -H "Content-Type: application/json" ^
-  -d '{"contents":[{"parts":[{"text":"你好"}]}]}'`,
+        code: command(`${nativePrefix}/v1beta/models/${encodeURIComponent(model)}:generateContent`, ['x-goog-api-key: YOUR_API_KEY'], {
+          contents: [{ parts: [{ text: '你好' }] }],
+        }),
       },
     };
   }
@@ -2002,13 +1006,14 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     const apps = guideApps(apiKey, settings);
     const app = apps[appKey] || apps.ccswitch;
     const key = String(apiKey?.key || 'YOUR_API_KEY');
+    const model = pageState.selectedModel || 'YOUR_MODEL';
     if (appKey === 'claude') {
-      return `ANTHROPIC_BASE_URL=${app.endpoint}\nANTHROPIC_AUTH_TOKEN=${key}`;
+      return `ANTHROPIC_BASE_URL=${app.endpoint}\nANTHROPIC_AUTH_TOKEN=${key}\nANTHROPIC_MODEL=${model}`;
     }
     if (appKey === 'codex') {
-      return `Base URL: ${app.endpoint}\nAPI Key: ${key}\nAPI Mode: Responses\nModel: ${PAGE_CONFIG.ccSwitchCodexModel}`;
+      return `Base URL: ${app.endpoint}\nAPI Key: ${key}\nAPI Mode: Responses\nModel: ${model}`;
     }
-    return `Provider: ${app.type}\nBase URL: ${app.endpoint}\nAPI Key: ${key}`;
+    return `Provider: ${app.type}\nBase URL: ${app.endpoint}\nAPI Key: ${key}\nModel: ${model}`;
   }
 
   function guideStepNavigation() {
@@ -2021,7 +1026,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     return steps
       .map(
         ([step, title, note]) => `
-          <button class="s2-step ${pageState.guideStep === Number(step) ? 'is-active' : ''}" type="button" data-guide-step="${step}">
+          <button class="s2-step ${pageState.guideStep === Number(step) ? 'is-active' : ''} ${pageState.guideStep > Number(step) ? 'is-complete' : ''}" type="button" data-guide-step="${step}" ${pageState.guideStep === Number(step) ? 'aria-current="step"' : ''} ${step === '4' && !pageState.selectedModel ? 'disabled' : ''}>
             <span class="s2-step-number">${step}</span>
             <span><strong>${title}</strong><small>${note}</small></span>
           </button>`,
@@ -2039,7 +1044,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         return `
           <button class="s2-key-select-option ${active ? 'is-active' : ''}" type="button" role="option" aria-selected="${active}" data-guide-key-option="${escapeHtml(key.id)}">
             <span class="s2-key-select-icon">${icon('key', 16)}</span>
-            <span class="s2-key-select-copy"><strong>${escapeHtml(key.name || `密钥 ${key.id}`)}</strong><small>${escapeHtml(group.name)} · ${escapeHtml(maskApiKey(key.key))}</small></span>
+            <span class="s2-key-select-copy"><strong>${escapeHtml(key.name || `密钥 ${key.id}`)}${key.status === 'active' ? '' : ' · 不可用'}</strong><small>${escapeHtml(group.name)} · ${escapeHtml(maskApiKey(key.key))}</small></span>
             ${active ? icon('check', 18) : ''}
           </button>`;
       })
@@ -2060,25 +1065,28 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       pageState.settings?.api_base_url || window.location.origin,
     ).replace(/\/+$/, '');
     return `
-      <div class="s2-section-head"><div><h2>准备 API 地址与密钥</h2><p>密钥只在当前浏览器内使用，不会发送到第三方服务。</p></div><span class="s2-badge">步骤 1 / 4</span></div>
+      <div class="s2-section-head"><div><h2>准备 API 地址与密钥</h2><p>选择项目密钥，复制服务地址即可开始接入。</p></div><span class="s2-badge">步骤 1 / 4</span></div>
       <div class="s2-fields">
         <div><span class="s2-field-label">选择 API Key</span>${guideKeySelectHtml(apiKey)}</div>
         <div><span class="s2-field-label">默认 API 地址</span><div class="s2-copy-field">${icon('model', 16)}<code>${escapeHtml(baseUrl)}</code><button class="s2-btn" type="button" data-copy-text="${escapeHtml(baseUrl)}">${icon('copy', 14)}复制</button></div></div>
-        <div><span class="s2-field-label">API Key</span><div class="s2-copy-field">${icon('key', 16)}<code>${escapeHtml(maskApiKey(apiKey?.key))}</code><button class="s2-btn" type="button" data-copy-secret="true">${icon('copy', 14)}复制</button></div></div>
+        <div><span class="s2-field-label">API Key</span><div class="s2-copy-field">${icon('key', 16)}<code>${escapeHtml(maskApiKey(apiKey?.key))}</code><button class="s2-btn" type="button" data-copy-secret="true" ${apiKey?.key ? '' : 'disabled'}>${icon('copy', 14)}复制</button></div></div>
       </div>
       <div class="s2-note">${icon('shield', 16)}<span>不要把 API Key 提交到 Git 仓库，也不要直接暴露在浏览器前端。怀疑泄露时请立即禁用并重新生成。</span></div>
-      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-route="/keys">${icon('key', 15)}管理密钥</button><button class="s2-btn s2-btn-primary" type="button" data-guide-step="2">下一步${icon('arrow', 15)}</button></div>`;
+      <div class="s2-panel-actions"><button class="s2-btn s2-btn-quiet" type="button" data-route="/keys">${icon('key', 15)}${apiKey ? '管理密钥' : '创建 API 密钥'}</button><button class="s2-btn s2-btn-primary" type="button" data-guide-step="2" ${apiKey?.key && apiKey.status === 'active' ? '' : 'disabled'}>下一步${icon('arrow', 15)}</button></div>`;
   }
 
   function guideAppsPanel(apiKey) {
     const apps = guideApps(apiKey, pageState.settings);
     const selected = apps[pageState.selectedApp] || apps.ccswitch;
+    const unavailable = guideAppUnavailable(pageState.selectedApp, apiKey);
+    const ready = hasVerifiedGuideModel() && !unavailable;
     const cards = Object.entries(apps)
       .map(
         ([key, app]) => `
           <button class="s2-app ${key === pageState.selectedApp ? 'is-active' : ''}" type="button" data-guide-app="${key}">
             <span class="s2-icon-box">${icon(app.icon, 16)}</span>
             <span class="s2-app-copy"><strong>${escapeHtml(app.name)}</strong><small>${escapeHtml(app.subtitle)}</small></span>
+            <span class="s2-app-selected">${key === pageState.selectedApp ? icon('check', 11) : ''}</span>
           </button>`,
       )
       .join('');
@@ -2089,13 +1097,16 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         <div class="s2-mapping"><span>接入类型</span><strong>${escapeHtml(selected.type)}</strong></div>
         <div class="s2-mapping"><span>服务地址</span><strong>${escapeHtml(selected.endpoint)}</strong></div>
         <div class="s2-mapping"><span>用量查询</span><strong>${escapeHtml(selected.usage)}</strong></div>
-        <div class="s2-panel-actions"><button class="s2-btn s2-btn-primary" type="button" data-guide-app-action="${escapeHtml(pageState.selectedApp)}">${icon(pageState.selectedApp === 'ccswitch' ? 'external' : 'copy', 15)}${escapeHtml(selected.action)}</button></div>
+        ${pageState.selectedModel ? `<div class="s2-mapping"><span>当前模型</span><strong>${escapeHtml(pageState.selectedModel)}</strong></div>` : ''}
+        ${ready ? '' : `<p class="s2-guide-config-note" role="status">${escapeHtml(unavailable || '请先在「选择模型」中读取并选择当前密钥的可用模型。')}</p>`}
+        <div class="s2-panel-actions"><button class="s2-btn s2-btn-primary" type="button" data-guide-app-action="${escapeHtml(pageState.selectedApp)}" ${ready ? '' : 'disabled'}>${icon(pageState.selectedApp === 'ccswitch' ? 'external' : 'copy', 15)}${escapeHtml(selected.action)}</button></div>
       </div>`;
   }
 
   function guideApiPanel() {
     const protocols = protocolDefinitions();
     const selected = protocols[pageState.selectedProtocol] || protocols.openai;
+    const unavailable = guideProtocolUnavailable(pageState.selectedProtocol);
     const tabs = Object.entries(protocols)
       .map(
         ([key, protocol]) => `<button class="${key === pageState.selectedProtocol ? 'is-active' : ''}" type="button" data-guide-protocol="${key}">${escapeHtml(protocol.name)}</button>`,
@@ -2105,8 +1116,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       <div class="s2-protocol-tabs">${tabs}</div>
       <div class="s2-mapping"><span>接口路径</span><strong>${escapeHtml(selected.path)}</strong></div>
       <div class="s2-mapping"><span>认证方式</span><strong>${escapeHtml(selected.auth)}</strong></div>
-      <pre class="s2-code"><code>${escapeHtml(selected.code)}</code></pre>
-      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-copy-text="${escapeHtml(selected.code)}">${icon('copy', 15)}复制代码</button><button class="s2-btn s2-btn-primary" type="button" data-test-connection>${icon('play', 15)}测试连接</button></div>`;
+      ${unavailable ? `<div class="s2-guide-error" role="status">${escapeHtml(unavailable)}</div>` : `<div class="s2-code-toolbar"><span>PowerShell 7 · curl.exe</span><small>将 YOUR_API_KEY 替换为当前密钥</small></div><pre class="s2-code"><code>${escapeHtml(selected.code)}</code></pre>`}
+      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-api-copy data-copy-text="${unavailable ? '' : escapeHtml(selected.code)}" ${unavailable ? 'disabled' : ''}>${icon('copy', 15)}复制代码</button><button class="s2-btn s2-btn-primary" type="button" data-test-connection ${unavailable ? 'disabled' : ''}>${icon('play', 15)}测试连接</button></div>`;
   }
 
   function guideStepTwo(apiKey) {
@@ -2117,28 +1128,44 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
         <button class="${pageState.integrationMode === 'api' ? 'is-active' : ''}" type="button" data-guide-mode="api">${icon('code', 15)}API / SDK</button>
       </div>
       ${pageState.integrationMode === 'apps' ? guideAppsPanel(apiKey) : guideApiPanel()}
-      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-step="1">上一步</button><button class="s2-btn s2-btn-primary" type="button" data-guide-step="3">下一步${icon('arrow', 15)}</button></div>`;
+      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-step="1">${icon('back', 14)}上一步</button><button class="s2-btn s2-btn-next" type="button" data-guide-step="3">下一步${icon('arrow', 15)}</button></div>`;
   }
 
   function guideStepThree() {
     const apiKey = selectedGuideKey();
     const group = selectedGuideGroup(apiKey);
-    const models = recommendedModelsForKey(apiKey);
+    const allModels = recommendedModelsForKey(apiKey);
+    const filter = pageState.guideModelProtocol;
+    const models = allModels.filter((model) => filter === 'all' || model.platform === (filter === 'responses' ? 'openai' : filter));
+    const modelTabs = [
+      ['all', '全部'], ['openai', 'OpenAI'], ['responses', 'Responses'], ['anthropic', 'Anthropic'], ['gemini', 'Gemini'],
+    ].filter(([value]) => value === 'all' || allModels.some((model) => model.platform === (value === 'responses' ? 'openai' : value)))
+      .map(([value, label]) => `<button type="button" class="${value === filter ? 'is-active' : ''}" data-guide-model-protocol="${value}" aria-pressed="${value === filter}">${label}</button>`).join('');
     const cards = models
       .map(
         (model, index) => `
-          <button class="s2-model-option ${pageState.selectedModel === model.name ? 'is-active' : ''}" type="button" data-guide-model="${escapeHtml(model.name)}">
-            <span><strong>${escapeHtml(model.name)}</strong><small>${index === 0 ? `${escapeHtml(group.name)}推荐模型` : `${escapeHtml(platformLabel(group.platform))} · ${escapeHtml(model.type || 'text')}`}</small><span class="s2-model-price">${escapeHtml(modelPriceText(model))}</span></span>
-            ${index === 0 ? '<span class="s2-badge">推荐</span>' : icon('copy', 15)}
+          <button class="s2-model-option ${pageState.selectedModel === model.name ? 'is-active' : ''}" type="button" data-guide-model="${escapeHtml(model.name)}" aria-pressed="${pageState.selectedModel === model.name}">
+            <span class="s2-model-copy"><strong>${escapeHtml(model.name)}${index === 0 ? '<span class="s2-model-tag">推荐</span>' : ''}</strong><small>${escapeHtml(platformLabel(model.platform))} · ${escapeHtml(model.type || 'text')}</small><span class="s2-model-price">${escapeHtml(modelPriceText(model))}</span></span>
+            <span class="s2-model-check">${pageState.selectedModel === model.name ? icon('check', 10) : ''}</span>
           </button>`,
       )
       .join('');
+    const loading = pageState.guideModelsLoading;
+    const error = pageState.guideModelsError;
+    const content = loading
+      ? `<div class="s2-guide-model-state" role="status">${icon('refresh', 22)}<strong>正在读取可用模型</strong><p>根据当前密钥查询分组允许的模型。</p></div>`
+      : error
+        ? `<div class="s2-guide-model-state" role="alert"><strong>暂时无法读取模型</strong><p>${escapeHtml(error)}</p><button type="button" class="s2-btn" data-guide-models-retry>${icon('refresh', 14)}重新获取</button></div>`
+        : cards
+          ? `<div class="s2-protocol-tabs" aria-label="筛选模型协议">${modelTabs}</div><div class="s2-model-grid">${cards}</div>`
+          : `<div class="s2-guide-model-state"><strong>${apiKey ? '当前分组暂无可用模型' : '请先创建 API 密钥'}</strong><p>${apiKey ? '请联系管理员确认分组模型配置，或切换其他密钥。' : '创建密钥后即可查询对应分组的模型。'}</p><button type="button" class="s2-btn" data-route="/keys">${icon('key', 14)}管理密钥</button></div>`;
     return `
-      <div class="s2-section-head"><div><h2>选择可用模型</h2><p>已按照当前 API Key 所属分组筛选对应模型。</p></div><span class="s2-badge">步骤 3 / 4</span></div>
+      <div class="s2-section-head"><div><h2>选择可用模型</h2><p>读取当前 API Key 的模型列表，点击模型即可复制 ID。</p></div><span class="s2-badge">步骤 3 / 4</span></div>
       <div class="s2-model-recommendation"><span>当前密钥分组</span><strong>${escapeHtml(group.name)} · ${escapeHtml(platformLabel(group.platform))}</strong></div>
-      <div class="s2-model-grid">${cards || '<div class="s2-empty" style="grid-column:1/-1;min-height:10rem"><p>当前分组暂未配置可推荐模型，请联系管理员确认模型权限。</p></div>'}</div>
-      <div class="s2-note">${icon('shield', 16)}<span>接口返回 403 时，请确认当前密钥拥有该模型所在分组的访问权限。</span></div>
-      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-step="2">上一步</button><button class="s2-btn s2-btn-primary" type="button" data-guide-step="4">完成接入${icon('arrow', 15)}</button></div>`;
+      <div class="s2-guide-model-key">${guideKeySelectHtml(apiKey)}</div>
+      ${content}
+      <div class="s2-note">${icon('shield', 16)}<span>参考价来自站点展示配置，实际费用以分组计费为准。接口返回 403 时，请确认当前密钥与模型的访问权限。</span></div>
+      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-step="2">${icon('back', 14)}上一步</button><button class="s2-btn s2-btn-primary" type="button" data-guide-step="4" ${pageState.selectedModel && !loading && !error ? '' : 'disabled'}>完成接入${icon('arrow', 15)}</button></div>`;
   }
 
   function guideStepFour() {
@@ -2146,9 +1173,11 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       <div class="s2-success">
         <div>
           <span class="s2-success-mark">${icon('check', 24)}</span>
-          <h2>接入完成</h2>
-          <p>发起请求后，Token、消费和响应时间会自动同步到仪表盘。你可以随时返回接入指南切换应用或协议。</p>
-          <div class="s2-panel-actions" style="justify-content:center"><button class="s2-btn s2-btn-primary" type="button" data-route="/usage">${icon('activity', 15)}查看使用记录</button><button class="s2-btn" type="button" data-overlay-view="dashboard">返回仪表盘</button></div>
+          <span class="s2-badge">步骤 4 / 4</span>
+          <h2>接入准备完成</h2>
+          <p>${pageState.selectedModel ? `已选择 ${escapeHtml(pageState.selectedModel)}。` : ''}将配置应用到客户端并发起首次请求后，Token、消费和响应时间将同步到仪表盘。</p>
+          <div class="s2-success-summary"><span>当前密钥</span><strong>${escapeHtml(selectedGuideKey()?.name || '尚未选择')}</strong><span>所选模型</span><strong>${escapeHtml(pageState.selectedModel || '尚未选择')}</strong></div>
+          <div class="s2-panel-actions"><button class="s2-btn s2-btn-primary" type="button" data-guide-step="2">${icon('copy', 15)}复制或导入配置</button><button class="s2-btn" type="button" data-route="/usage">${icon('activity', 15)}查看使用记录</button><button class="s2-btn s2-btn-quiet" type="button" data-overlay-view="dashboard">返回仪表盘</button></div>
         </div>
       </div>`;
   }
@@ -2167,33 +1196,33 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     } else {
       panel = guideStepFour();
     }
+    const illustration = `<svg class="s2-guide-illustration" viewBox="0 0 280 190" fill="none" aria-hidden="true">
+      <defs><linearGradient id="${PAGE_ROOT_ID}-guide-top" x1="65" y1="20" x2="231" y2="123" gradientUnits="userSpaceOnUse"><stop stop-color="#f9fcff"/><stop offset="1" stop-color="#9ec5ff"/></linearGradient><linearGradient id="${PAGE_ROOT_ID}-guide-side" x1="129" y1="44" x2="180" y2="178" gradientUnits="userSpaceOnUse"><stop stop-color="#c8dcff"/><stop offset="1" stop-color="#7d9cf7" stop-opacity=".5"/></linearGradient><linearGradient id="${PAGE_ROOT_ID}-guide-front" x1="56" y1="68" x2="148" y2="157" gradientUnits="userSpaceOnUse"><stop stop-color="white" stop-opacity=".98"/><stop offset="1" stop-color="#d7e3ff" stop-opacity=".8"/></linearGradient><filter id="${PAGE_ROOT_ID}-guide-shadow"><feGaussianBlur stdDeviation="9"/></filter></defs>
+      <ellipse cx="151" cy="165" rx="95" ry="11" fill="#4d81ee" opacity=".16" filter="url(#${PAGE_ROOT_ID}-guide-shadow)"/>
+      <path d="m161 19 37-18 38 20-37 20Z" fill="url(#${PAGE_ROOT_ID}-guide-top)" stroke="white" stroke-opacity=".8"/>
+      <path d="m161 19 38 22v17l-38-21Z" fill="#b7d1ff"/><path d="m199 41 37-20v17l-37 21Z" fill="#9fc1fc"/>
+      <path d="m157 72 56-31 45 27-57 32Z" fill="url(#${PAGE_ROOT_ID}-guide-top)" stroke="white" stroke-opacity=".8"/>
+      <path d="m201 100 57-32v66l-57 32Z" fill="url(#${PAGE_ROOT_ID}-guide-side)"/><path d="m157 72 44 28v66l-44-26Z" fill="#e5eeff"/>
+      <path d="m53 64 72-39 71 41-71 40Z" fill="url(#${PAGE_ROOT_ID}-guide-top)" stroke="white" stroke-opacity=".8"/>
+      <path d="m125 106 71-40v70l-71 41Z" fill="url(#${PAGE_ROOT_ID}-guide-side)" stroke="white" stroke-opacity=".55"/>
+      <path d="m53 64 72 42v71l-72-42Z" fill="url(#${PAGE_ROOT_ID}-guide-front)" stroke="white" stroke-opacity=".9"/>
+      <path d="M91 92c-10-5-18 0-18 10 0 8 4 14 10 18v19l11 7v-7l6 4v-8l-6-4v-6c9 2 14-3 14-11 0-9-7-18-17-22Z" fill="white"/><ellipse cx="91" cy="106" rx="5" ry="7" transform="rotate(-26 91 106)" fill="#b7b7f9"/>
+      <path d="m210 94 28-16m-28 29 20-12m-20 25 25-14" stroke="white" stroke-width="3" stroke-linecap="round" opacity=".8"/>
+      <path d="m32 103 17-9 17 10-17 10Zm0 0v18l17 10v-17m0 17 17-9v-18" fill="#e8f1ff" stroke="white" opacity=".8"/>
+    </svg>`;
     return `
       <section class="s2-page s2-guide-page" data-sub2api-page="guide">
-        <div class="s2-guide-breadcrumb"><button class="s2-btn s2-btn-ghost" type="button" data-overlay-view="dashboard">${icon('back', 14)}仪表盘</button><span>/</span><span>接入指南</span></div>
-        <article class="s2-card s2-hero">
-          <div class="s2-guide-hero-copy">
-            <div class="s2-eyebrow">${icon('sparkles', 18)}开发者快速开始</div>
-            <h1>5 分钟接入你的第一个模型</h1>
-            <p>一个 API Key，即可调用平台支持的 OpenAI、Claude 与 Gemini 模型。跟随四个步骤完成首次请求。</p>
-            <div class="s2-guide-trust">
-              <span class="s2-guide-trust-item">${icon('timer', 18)}约 5 分钟</span>
-              <span class="s2-guide-trust-item">${icon('shield', 18)}标准协议兼容</span>
-              <span class="s2-guide-trust-item">${icon('terminal', 18)}7×24 技术支持</span>
-            </div>
-          </div>
-          <div class="s2-asset-card">
-            <div class="s2-guide-status-head"><span class="s2-label">接入准备</span><span class="s2-badge">环境正常</span></div>
-            <div class="s2-asset-value">API 服务可用</div>
-            <span class="s2-guide-status-note">默认线路 · 实时可用</span>
-          </div>
-        </article>
+        <div class="s2-guide-breadcrumb">${icon('external', 15)}<button class="s2-btn s2-btn-ghost" type="button" data-overlay-view="dashboard">仪表盘</button><span>/</span><span>接入指南</span></div>
         <div class="s2-guide-layout">
-          <aside class="s2-card s2-steps">
-            <div class="s2-steps-title">接入进度</div>
+          <aside class="s2-steps" aria-label="接入步骤">
             <div class="s2-steps-list">${guideStepNavigation()}</div>
-            <div class="s2-guide-support"><strong>遇到问题？</strong><p>携带请求 ID 联系技术支持，可以更快定位问题。</p></div>
+            <div class="s2-guide-support"><strong>${icon('shield', 15)}遇到问题？</strong><p>携带请求 ID 联系技术支持，可以更快定位问题。</p></div>
           </aside>
-          <article class="s2-card s2-guide-panel">${panel}</article>
+          <div class="s2-guide-main">
+            ${pageState.guideStep === 1 ? `<div class="s2-guide-banner"><div class="s2-guide-banner-copy"><div class="s2-eyebrow">${icon('sparkles', 14)}开始接入</div><h1>5 分钟接入你的第一个模型</h1><p>一个 API Key，即可调用平台支持的 OpenAI、Claude 与 Gemini 模型。跟随四个步骤完成首次请求。</p></div>${illustration}</div>` : ''}
+            ${pageState.guideSettingsError ? `<div class="s2-guide-error" role="alert"><span>${escapeHtml(pageState.guideSettingsError)}</span><button type="button" class="s2-btn" data-guide-models-retry>${icon('refresh', 14)}重新获取</button></div>` : ''}
+            <article class="s2-guide-panel">${panel}</article>
+          </div>
         </div>
       </section>`;
   }
@@ -2255,18 +1284,20 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
 
   async function testGuideConnection() {
     const apiKey = selectedGuideKey();
-    if (!apiKey?.key) {
-      showPageToast('请先创建或选择 API Key');
+    const unavailable = guideProtocolUnavailable(pageState.selectedProtocol, apiKey);
+    if (unavailable) {
+      showPageToast(unavailable);
+      return;
+    }
+    if (!apiKey?.key || apiKey.status !== 'active') {
+      showPageToast('请先创建或选择有效的 API Key');
       return;
     }
     const version = pageRequestVersion;
     const viewVersion = pageViewVersion;
     const connectionVersion = ++connectionRequestVersion;
-    const baseUrl = String(
-      pageState.settings?.api_base_url || window.location.origin,
-    ).replace(/\/+$/, '');
     try {
-      const response = await fetchWithTimeout(`${baseUrl}/v1/models`, {
+      const response = await fetchWithTimeout(guideModelsEndpoint(apiKey), {
         headers: { Authorization: `Bearer ${apiKey.key}` },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -2284,7 +1315,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   async function handlePageClick(event) {
     if (destroyed || !(event.target instanceof Element)) return;
     const control = event.target.closest(
-      '[data-overlay-view], [data-route], [data-dashboard-days], [data-guide-step], [data-guide-mode], [data-guide-app], [data-guide-app-action], [data-guide-protocol], [data-guide-model], [data-guide-key-toggle], [data-guide-key-option], [data-copy-text], [data-copy-secret], [data-test-connection]',
+      '[data-overlay-view], [data-route], [data-dashboard-days], [data-dashboard-retry], [data-guide-step], [data-guide-mode], [data-guide-app], [data-guide-app-action], [data-guide-protocol], [data-guide-model], [data-guide-model-protocol], [data-guide-models-retry], [data-guide-key-toggle], [data-guide-key-option], [data-copy-text], [data-copy-secret], [data-test-connection]',
     );
     if (!control || !root.contains(control)) {
       if (pageState.keyMenuOpen) {
@@ -2294,6 +1325,10 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       return;
     }
 
+    if (control.hasAttribute('data-dashboard-retry')) {
+      loadDashboardIntoRoot();
+      return;
+    }
     if (control.dataset.dashboardDays) {
       const days = Number(control.dataset.dashboardDays) === 30 ? 30 : 7;
       if (pageState[DASHBOARD_DAYS_STATE_KEY] === days) return;
@@ -2310,6 +1345,16 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       pageState.selectedKeyId = control.dataset.guideKeyOption;
       pageState.selectedModel = '';
       pageState.keyMenuOpen = false;
+      void loadGuideModels();
+      return;
+    }
+    if (control.hasAttribute('data-guide-models-retry')) {
+      if (pageState.guideSettingsError) void loadGuideInitialData();
+      else void loadGuideModels();
+      return;
+    }
+    if (control.dataset.guideModelProtocol) {
+      pageState.guideModelProtocol = control.dataset.guideModelProtocol;
       rerenderGuide();
       return;
     }
@@ -2325,6 +1370,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       pageState.guideStep = Math.min(4, Math.max(1, Number(control.dataset.guideStep) || 1));
       pageState.keyMenuOpen = false;
       rerenderGuide();
+      root.scrollIntoView?.({ block: 'start', behavior: 'auto' });
       return;
     }
     if (control.dataset.guideMode) {
@@ -2343,7 +1389,9 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       return;
     }
     if (control.dataset.guideModel) {
+      if (!recommendedModelsForKey(selectedGuideKey()).some((model) => model.name === control.dataset.guideModel)) return;
       pageState.selectedModel = control.dataset.guideModel;
+      syncGuideProtocol();
       rerenderGuide();
       await copyWithToast(control.dataset.guideModel, '模型 ID 已复制', '请选择并复制模型 ID');
       return;
@@ -2353,6 +1401,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       return;
     }
     if (control.dataset.copyText) {
+      if (control.hasAttribute('data-guide-api-copy') && guideProtocolUnavailable(pageState.selectedProtocol)) return;
       await copyWithToast(control.dataset.copyText, '内容已复制', '复制失败，请手动选择文本');
       return;
     }
@@ -2362,12 +1411,21 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     }
     if (control.dataset.guideAppAction) {
       const key = selectedGuideKey();
-      if (!key?.key) {
-        showPageToast('请先创建或选择 API Key');
+      if (!key?.key || key.status !== 'active') {
+        showPageToast('请先创建或选择有效的 API Key');
+        return;
+      }
+      if (!hasVerifiedGuideModel()) {
+        showPageToast('请先读取并选择当前密钥的可用模型');
+        return;
+      }
+      const unavailable = guideAppUnavailable(control.dataset.guideAppAction, key);
+      if (unavailable) {
+        showPageToast(unavailable);
         return;
       }
       if (control.dataset.guideAppAction === 'ccswitch') {
-        const deepLink = buildCcSwitchImportUrl(key, pageState.settings || {}, 'claude');
+        const deepLink = buildCcSwitchImportUrl(key, pageState.settings || {}, guideClientType(key));
         const version = pageRequestVersion;
         const viewVersion = pageViewVersion;
         showPageToast('正在唤起 CC Switch');
@@ -2392,7 +1450,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     if (!select || !root.contains(select)) return;
     pageState.selectedKeyId = select.value;
     pageState.selectedModel = '';
-    rerenderGuide();
+    void loadGuideModels();
   }
 
   function handlePageKeydown(event) {
@@ -2434,25 +1492,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     root.dataset.pageMode = mode;
     pageState.keyMenuOpen = false;
     if (mode === 'guide') {
-      const requestVersion = pageRequestVersion;
-      root.innerHTML = buildGuideHtml(true);
-      loadGuideData()
-        .then((data) => {
-          if (!isCurrentPage(requestVersion, 'guide')) return;
-          pageState.settings = data.settings;
-          pageState.keys = data.keys;
-          pageState.models = data.models;
-          pageState.modelCatalog = data.modelCatalog;
-          if (!pageState.selectedKeyId && data.keys[0]) {
-            pageState.selectedKeyId = String(data.keys[0].id);
-          }
-          root.innerHTML = buildGuideHtml(false);
-        })
-        .catch((error) => {
-          debugLog('加载接入指南数据失败', error);
-          if (!isCurrentPage(requestVersion, 'guide')) return;
-          root.innerHTML = buildGuideHtml(false);
-        });
+      void loadGuideInitialData();
     } else {
       loadDashboardIntoRoot();
     }
@@ -2467,6 +1507,9 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     root.removeEventListener('click', handlePageClick);
     root.removeEventListener('change', handlePageChange);
     root.removeEventListener('keydown', handlePageKeydown);
+    root.removeEventListener('pointerover', handleTrendPoint);
+    root.removeEventListener('mouseover', handleTrendPoint);
+    root.removeEventListener('focusin', handleTrendPoint);
     root.remove();
     root.replaceChildren();
     pageStyle?.remove();
@@ -2475,6 +1518,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     pageState.keys = [];
     pageState.models = [];
     pageState.modelCatalog = [];
+    pageState.availableModels = [];
+    guideModelsController = null;
     pageState.selectedKeyId = '';
     pageState.selectedModel = '';
   }
@@ -2482,5 +1527,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   root.addEventListener('click', handlePageClick);
   root.addEventListener('change', handlePageChange);
   root.addEventListener('keydown', handlePageKeydown);
+  root.addEventListener('pointerover', handleTrendPoint);
+  root.addEventListener('mouseover', handleTrendPoint);
+  root.addEventListener('focusin', handleTrendPoint);
   return { render, destroy };
 }

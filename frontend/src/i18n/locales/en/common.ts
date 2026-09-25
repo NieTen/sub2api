@@ -163,6 +163,9 @@ export default {
 
   // Navigation
   nav: {
+    workspaceOverview: 'Overview',
+    integrationGuide: 'Integration guide',
+    usageStatistics: 'Usage statistics',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

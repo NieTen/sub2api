@@ -163,6 +163,9 @@ export default {
 
   // Navigation
   nav: {
+    workspaceOverview: '概览',
+    integrationGuide: '接入指南',
+    usageStatistics: '使用统计',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

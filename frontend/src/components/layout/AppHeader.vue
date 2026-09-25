@@ -1,6 +1,6 @@
 <template>
-  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50">
-    <div class="flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
+  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50" :class="{ 'workspace-header': compact }">
+    <div class="header-toolbar flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
@@ -11,7 +11,7 @@
           <Icon name="menu" size="md" />
         </button>
 
-        <div class="hidden lg:block">
+        <div v-if="!compact" class="hidden lg:block">
           <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
             {{ pageTitle }}
           </h1>
@@ -58,7 +58,7 @@
 
         <!-- Balance Display -->
         <div
-          v-if="user"
+          v-if="user && !compact"
           class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
         >
           <svg
@@ -119,7 +119,7 @@
               >
               <span v-else>{{ userInitials }}</span>
             </div>
-            <div class="hidden text-left md:block">
+            <div v-if="!compact" class="hidden text-left md:block">
               <div class="text-sm font-medium text-gray-900 dark:text-white">
                 {{ displayName }}
               </div>
@@ -142,7 +142,7 @@
               </div>
 
               <!-- Balance (mobile only) -->
-              <div class="border-b border-gray-100 px-4 py-2 dark:border-dark-700 sm:hidden">
+              <div class="border-b border-gray-100 px-4 py-2 dark:border-dark-700" :class="{ 'sm:hidden': !compact }">
                 <div class="text-xs text-gray-500 dark:text-dark-400">
                   {{ t('common.balance') }}
                 </div>
@@ -266,6 +266,7 @@ import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import { resolveRouteMetaKeys } from '@/router/title'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 
+withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
@@ -394,6 +395,20 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.workspace-header {
+  position: relative;
+  border: 0;
+  border-radius: 0 24px 0 0;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.workspace-header .header-toolbar { height: 52px; padding-right: 20px; }
+
+@media (max-width: 639px) {
+  .workspace-header .header-toolbar { padding-right: 10px; }
+}
+
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s ease;
