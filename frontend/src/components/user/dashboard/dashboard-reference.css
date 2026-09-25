@@ -16,6 +16,8 @@
   font-variant-numeric: tabular-nums;
   line-height: 1.5;
   min-width: 0;
+  /* 接入步骤滚动到内容顶部时，为原有固定页头保留空间。 */
+  scroll-margin-top: 80px;
 }
 .dark #s2-page-design-root {
   --s2-text: #e8f0ff;

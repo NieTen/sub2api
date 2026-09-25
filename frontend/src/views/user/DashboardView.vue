@@ -1,5 +1,5 @@
 <template>
-  <AppLayout :variant="activeView === 'classic' ? 'default' : 'workspace'">
+  <AppLayout>
     <SidebarDashboard v-if="activeView !== 'classic'" :mode="activeView" />
     <div v-else class="space-y-6" data-testid="dashboard-details">
       <div v-if="loading" class="flex items-center justify-center py-12"><LoadingSpinner /></div>

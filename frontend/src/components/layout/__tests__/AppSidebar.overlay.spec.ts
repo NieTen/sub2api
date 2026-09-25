@@ -117,6 +117,8 @@ describe('AppSidebar 普通用户参考布局', () => {
     batchImageAccess.canUseBatchImage.value = true
     appStore.cachedPublicSettings = {
       ...appStore.cachedPublicSettings,
+      available_channels_enabled: true,
+      affiliate_enabled: true,
       model_plaza_enabled: true,
       subscription_enabled: true,
       payment_enabled: true,
@@ -236,55 +238,48 @@ describe('AppSidebar 普通用户参考布局', () => {
     expect(links.find((link) => link.props('to') === '/purchase')?.text()).toBe('nav.buySubscription')
   })
 
-  it.each([
-    ['', '/dashboard'],
-    ['guide', '/dashboard?view=guide'],
-    ['classic', '/dashboard?view=classic'],
-  ])('工作台在 %s 视图只选中对应导航', (view, activeTarget) => {
+  it.each(['', 'guide', 'classic'])('仪表盘 %s 内容视图保留原菜单、名称和高亮', (view) => {
     route.query = view ? { view } : {}
     const wrapper = mount(AppSidebar, {
-      props: { workspace: true },
       global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: true } },
     })
-    const links = wrapper.get('.workspace-navigation').findAllComponents(RouterLinkStub)
+    const links = wrapper.get('.sidebar-user-section').findAllComponents(RouterLinkStub)
     expect(links.map(link => link.props('to'))).toEqual([
-      '/dashboard', '/dashboard?view=guide', '/model-plaza?embedded=1', '/dashboard?view=classic', '/keys', '/profile',
+      '/dashboard', '/keys', '/usage', '/purchase', '/orders', '/profile',
+      '/batch-image', '/available-channels', '/monitor', '/affiliate', '/tickets', '/community', '/custom/toolbox',
     ])
-    expect(links.filter(link => link.classes().includes('sidebar-link-active')).map(link => link.props('to'))).toEqual([activeTarget])
-    expect(links.find(link => link.props('to') === activeTarget)?.attributes('aria-current')).toBe('page')
+    expect(links.filter(link => link.classes().includes('sidebar-link-active')).map(link => link.props('to'))).toEqual(['/dashboard'])
+    expect(links.find(link => link.props('to') === '/dashboard')?.text()).toContain('nav.dashboard')
+    expect(links.find(link => link.props('to') === '/usage')?.text()).toContain('nav.usage')
+    expect(links.find(link => link.props('to') === '/profile')?.text()).toContain('nav.profile')
+    expect(wrapper.get('.sidebar-nav').findAll('button')).toHaveLength(0)
+    expect(wrapper.findComponent({ name: 'VersionBadge' }).exists()).toBe(true)
     wrapper.unmount()
   })
 
-  it('工作台展开分组后仍能访问原有账户和扩展功能', async () => {
-    const wrapper = mount(AppSidebar, {
-      props: { workspace: true },
-      global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: true } },
-    })
-    const buttons = wrapper.findAll('.workspace-extra-section > button')
-    expect(buttons).toHaveLength(2)
-    expect(buttons.every(button => button.attributes('aria-expanded') === 'false')).toBe(true)
-    for (const button of buttons) await button.trigger('click')
-    const targets = wrapper.get('.workspace-navigation').findAllComponents(RouterLinkStub).map(link => link.props('to'))
-    for (const path of ['/subscriptions', '/purchase', '/orders', '/redeem', '/affiliate', '/usage', '/batch-image', '/available-channels', '/monitor', '/tickets', '/community', '/custom/toolbox']) {
-      expect(targets).toContain(path)
-    }
-    await buttons[0].trigger('click')
-    expect(wrapper.find('#workspace-section-account').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
-  it('工作台仍遵循模型广场、订阅和支付开关', async () => {
-    appStore.cachedPublicSettings.model_plaza_enabled = false
-    appStore.cachedPublicSettings.subscription_enabled = false
+  it('原菜单继续遵循可用渠道、返利、支付和批量生图权限', () => {
+    appStore.cachedPublicSettings.available_channels_enabled = false
+    appStore.cachedPublicSettings.affiliate_enabled = false
     appStore.cachedPublicSettings.payment_enabled = false
+    batchImageAccess.canUseBatchImage.value = false
     const wrapper = mount(AppSidebar, {
-      props: { workspace: true },
       global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: true } },
     })
-    for (const button of wrapper.findAll('.workspace-extra-section > button')) await button.trigger('click')
-    const targets = wrapper.get('.workspace-navigation').findAllComponents(RouterLinkStub).map(link => link.props('to'))
-    for (const path of ['/model-plaza?embedded=1', '/subscriptions', '/purchase', '/orders']) expect(targets).not.toContain(path)
-    expect(targets).toContain('/dashboard?view=guide')
+    const targets = wrapper.get('.sidebar-nav').findAllComponents(RouterLinkStub).map(link => link.props('to'))
+    for (const path of ['/available-channels', '/affiliate', '/purchase', '/orders', '/batch-image']) expect(targets).not.toContain(path)
+    expect(targets).toContain('/keys')
+    expect(targets).toContain('/usage')
+    expect(targets).toContain('/custom/toolbox')
+    wrapper.unmount()
+  })
+
+  it('简易模式仍保留原密钥、资料及自定义入口', () => {
+    authStore.isSimpleMode = true
+    const wrapper = mount(AppSidebar, {
+      global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: true } },
+    })
+    const targets = wrapper.get('.sidebar-nav').findAllComponents(RouterLinkStub).map(link => link.props('to'))
+    expect(targets).toEqual(['/dashboard', '/keys', '/profile', '/monitor', '/tickets', '/community', '/custom/toolbox'])
     wrapper.unmount()
   })
 

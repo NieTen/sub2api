@@ -3,7 +3,6 @@
     class="sidebar"
     :class="[
       sidebarCollapsed ? 'w-[72px]' : 'w-64',
-      { 'workspace-sidebar': workspace, 'workspace-sidebar-collapsed': workspace && sidebarCollapsed },
       { '-translate-x-full lg:translate-x-0': !mobileOpen }
     ]"
   >
@@ -26,7 +25,7 @@
           {{ siteName }}
         </router-link>
         <!-- Version Badge -->
-        <VersionBadge v-if="!workspace" :version="siteVersion" />
+        <VersionBadge :version="siteVersion" />
       </div>
     </div>
 
@@ -129,57 +128,7 @@
 
       <!-- Regular User View -->
       <template v-else-if="!appStore.backendModeEnabled">
-        <div v-if="workspace" class="workspace-navigation">
-          <router-link
-            v-for="item in workspaceNavItems"
-            :key="item.path"
-            :to="item.path"
-            class="sidebar-link mb-1"
-            :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-            :title="sidebarCollapsed ? item.label : undefined"
-            :aria-current="isActive(item.path) ? 'page' : undefined"
-            :data-tour="item.path === '/keys' ? 'sidebar-my-keys' : undefined"
-            @click="handleMenuItemClick(item.path)"
-          >
-            <component :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-            <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }">{{ item.label }}</span>
-          </router-link>
-
-          <div v-for="section in workspaceExtraSections" :key="section.key" class="workspace-extra-section">
-            <button
-              type="button"
-              class="sidebar-link w-full"
-              :class="{ 'sidebar-link-collapsed': sidebarCollapsed }"
-              :title="sidebarCollapsed ? section.title : undefined"
-              :aria-expanded="isWorkspaceSectionExpanded(section)"
-              :aria-controls="`workspace-section-${section.key}`"
-              @click="toggleWorkspaceSection(section)"
-            >
-              <FolderIcon class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label sidebar-label-flex" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }">
-                <span class="min-w-0 truncate">{{ section.title }}</span>
-                <ChevronDownIcon class="h-4 w-4 flex-shrink-0" :class="{ 'rotate-180': isWorkspaceSectionExpanded(section) }" />
-              </span>
-            </button>
-            <div v-if="isWorkspaceSectionExpanded(section)" :id="`workspace-section-${section.key}`" class="workspace-extra-links">
-              <router-link
-                v-for="item in section.items"
-                :key="item.path"
-                :to="item.path"
-                class="sidebar-link mb-1"
-                :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-                :title="sidebarCollapsed ? item.label : undefined"
-                :aria-current="isActive(item.path) ? 'page' : undefined"
-                @click="handleMenuItemClick(item.path)"
-              >
-                <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-                <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-                <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }">{{ item.label }}</span>
-              </router-link>
-            </div>
-          </div>
-        </div>
-        <div v-else class="sidebar-section sidebar-user-section">
+        <div class="sidebar-section sidebar-user-section">
           <template v-for="section in userNavSections" :key="section.key">
             <router-link
               v-for="(item, itemIndex) in section.items"
@@ -303,7 +252,6 @@ function applyFeatureFlags(items: NavItem[]): NavItem[] {
 }
 
 const { t } = useI18n()
-const props = withDefaults(defineProps<{ workspace?: boolean }>(), { workspace: false })
 
 const route = useRoute()
 const router = useRouter()
@@ -326,7 +274,6 @@ const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboar
 // a chevron click records the user's choice, which wins over the automatic
 // state so an active group can still be collapsed manually.
 const groupExpandOverrides = ref<Map<string, boolean>>(new Map())
-const workspaceSectionOverrides = ref<Map<string, boolean>>(new Map())
 
 // Site settings from appStore (cached, no flicker)
 const siteName = computed(() => appStore.siteName)
@@ -348,10 +295,6 @@ const DashboardIcon = {
         })
       ]
     )
-}
-
-const GuideIcon = {
-  render: () => h(Icon, { name: 'book' }),
 }
 
 const KeyIcon = {
@@ -765,7 +708,6 @@ const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
 const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)
-const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)
 
 // 购买入口文案随站点计费模式切换：仅充值 → 「充值」，仅订阅 → 「订阅」，否则「充值/订阅」。
 const purchaseNavLabel = computed(() => {
@@ -896,35 +838,6 @@ const userNavSections = computed((): SidebarSection[] => {
   return sections
 })
 
-// 工作台使用简洁主导航，其余现有入口按原功能开关放入可展开分组。
-const workspaceNavItems = computed((): NavItem[] => finalizeNav([
-  { path: '/dashboard', label: t('nav.workspaceOverview'), icon: DashboardIcon },
-  { path: '/dashboard?view=guide', label: t('nav.integrationGuide'), icon: GuideIcon },
-  { path: '/model-plaza?embedded=1', label: t('nav.modelPlaza'), icon: FolderIcon, featureFlag: flagModelPlaza },
-  { path: '/dashboard?view=classic', label: t('nav.usageStatistics'), icon: ChartIcon, hideInSimpleMode: true },
-  { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-  { path: '/profile', label: t('common.settings'), icon: CogIcon },
-]))
-
-const workspaceExtraSections = computed((): SidebarSection[] => {
-  const primaryRoutes = new Set(['/dashboard', '/keys', '/profile'])
-  const secondaryItems = finalizeNav(buildSelfNavItems(false, customMenuItemsForUser.value))
-    .filter(item => !primaryRoutes.has(item.path))
-  const accountRoutes = new Set(['/subscriptions', '/purchase', '/orders', '/redeem', '/affiliate'])
-  return [
-    { key: 'account', title: t('nav.account'), items: secondaryItems.filter(item => accountRoutes.has(item.path)) },
-    { key: 'extension', title: t('nav.extension'), items: secondaryItems.filter(item => !accountRoutes.has(item.path)) },
-  ].filter(section => section.items.length > 0)
-})
-
-function isWorkspaceSectionExpanded(section: SidebarSection): boolean {
-  return workspaceSectionOverrides.value.get(section.key) ?? section.items.some(item => isActive(item.path))
-}
-
-function toggleWorkspaceSection(section: SidebarSection) {
-  workspaceSectionOverrides.value.set(section.key, !isWorkspaceSectionExpanded(section))
-}
-
 // Admin navigation items
 const adminNavItems = computed((): NavItem[] => {
   const baseItems: NavItem[] = [
@@ -1052,13 +965,6 @@ function handleMenuItemClick(itemPath: string) {
 }
 
 function isActive(path: string): boolean {
-  if (!props.workspace && path === '/dashboard') return route.path === '/dashboard'
-  if (path === '/dashboard' || path.startsWith('/dashboard?')) {
-    if (route.path !== '/dashboard') return false
-    const view = route.query?.view === 'guide' ? 'guide' : route.query?.view === 'classic' ? 'classic' : 'dashboard'
-    return path === (view === 'dashboard' ? '/dashboard' : `/dashboard?view=${view}`)
-  }
-  if (path === '/model-plaza?embedded=1') return route.path === '/model-plaza'
   if (path === '/admin/communications') {
     return ['/admin/communications', '/admin/support/settings', '/admin/bulk-emails', '/admin/community', '/admin/tickets']
       .some(section => route.path === section || route.path.startsWith(section + '/'))
@@ -1145,57 +1051,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.workspace-sidebar {
-  width: 100%;
-  height: calc(100vh - 50px);
-  position: sticky;
-  top: 24px;
-  align-self: start;
-  border: 0;
-  border-radius: 24px 0 0 24px;
-  background: linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(246 250 255 / 45%));
-}
-
-.workspace-sidebar .sidebar-header {
-  height: 72px;
-  padding: 0 20px;
-  gap: 9px;
-  border: 0;
-}
-
-.workspace-sidebar .sidebar-logo { flex-basis: 25px; min-width: 25px; width: 25px; height: 25px; border-radius: 9px; box-shadow: none; }
-.workspace-sidebar .sidebar-brand-title { font-size: 14px; }
-.workspace-sidebar .sidebar-nav { padding: 0 16px 18px; }
-.workspace-sidebar .sidebar-link { gap: 11px; padding: 11px 12px; border-radius: 12px; font-size: 13px; color: #415170; }
-.workspace-sidebar .sidebar-link:hover { color: #1766ed; background: #eaf2ff; }
-.workspace-sidebar .sidebar-link-active { color: #1672ff; background: #e5eeff; }
-.workspace-sidebar .sidebar-link svg { width: 18px; height: 18px; }
-.workspace-sidebar .sidebar-link:focus-visible { outline: 2px solid #297dff; outline-offset: 2px; }
-.workspace-extra-section { margin-top: 10px; }
-.workspace-extra-links { margin: 6px 0 10px 7px; padding-left: 7px; border-left: 1px solid #dce8fa; }
-.workspace-extra-links .sidebar-link { font-size: 12px; padding: 9px 10px; }
-.workspace-sidebar-collapsed .sidebar-header { justify-content: center; padding: 0; }
-.workspace-sidebar-collapsed .sidebar-logo { flex-basis: 30px; min-width: 30px; width: 30px; height: 30px; }
-.workspace-sidebar-collapsed .sidebar-brand { flex: 0; }
-.workspace-sidebar-collapsed .sidebar-nav { padding-right: 12px; padding-left: 12px; }
-.workspace-sidebar-collapsed .sidebar-link { justify-content: center; gap: 0; padding-left: 0; padding-right: 0; }
-.workspace-sidebar-collapsed .workspace-extra-links { margin-left: 0; padding-left: 0; border: 0; }
-
-.dark .workspace-sidebar { background: linear-gradient(180deg, #122238, #111e31); }
-.dark .workspace-sidebar .sidebar-link { color: #bbcae1; }
-.dark .workspace-sidebar .sidebar-link:hover { color: #a0c9ff; background: #203956; }
-.dark .workspace-sidebar .sidebar-link-active { color: #86b9ff; background: #1d3759; }
-.dark .workspace-extra-links { border-color: #2c4260; }
-
-@media (max-width: 1023px) {
-  .workspace-sidebar { position: fixed; top: 0; width: 240px; height: 100vh; height: 100dvh; border-radius: 0; background: #f7fbff; }
-  .workspace-sidebar-collapsed { width: 72px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .workspace-sidebar, .workspace-sidebar * { transition: none; }
-}
-
 /* 普通用户菜单沿用参考文件的分组间距，折叠后不保留标题或分隔线占位。 */
 .sidebar-user-section {
   display: flex;
