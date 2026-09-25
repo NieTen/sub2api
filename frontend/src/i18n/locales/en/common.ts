@@ -284,8 +284,14 @@ export default {
     loginFailed: 'Login failed. Please check your credentials and try again.',
     errors: {
       USER_NOT_ACTIVE: 'Account has been disabled.',
+      INVALID_VERIFY_CODE: 'The email verification code is invalid or expired. Please check it and try again.',
+      VERIFY_CODE_TOO_FREQUENT: 'Verification codes were requested too frequently. Please try again later.',
+      VERIFY_CODE_MAX_ATTEMPTS: 'Too many verification attempts. Please request a new code.',
     },
     registrationFailed: 'Registration failed. Please try again.',
+    registrationSettingsLoadFailed: 'Registration settings could not be loaded. Please reload them before registering.',
+    retryRegistrationSettings: 'Reload settings',
+    emailVerificationRequired: 'Send and enter an email verification code before creating your account.',
     emailDomainRegistrationLimit:
       'This email domain cannot register another account. Please use a mainstream email, or contact support to add your enterprise domain to the allowlist.',
     emailSuffixNotAllowed: 'This email domain is not allowed for registration.',

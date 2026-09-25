@@ -280,8 +280,14 @@ export default {
     loginFailed: '登录失败，请检查您的凭据后重试。',
     errors: {
       USER_NOT_ACTIVE: '账号已被禁用',
+      INVALID_VERIFY_CODE: '邮箱验证码无效或已过期，请检查后重试。',
+      VERIFY_CODE_TOO_FREQUENT: '验证码发送过于频繁，请稍后重试。',
+      VERIFY_CODE_MAX_ATTEMPTS: '验证码尝试次数过多，请重新发送验证码。',
     },
     registrationFailed: '注册失败，请重试。',
+    registrationSettingsLoadFailed: '注册设置加载失败，请重试后再注册。',
+    retryRegistrationSettings: '重新加载',
+    emailVerificationRequired: '请先发送并填写邮箱验证码，再创建账户。',
     emailDomainRegistrationLimit:
       '该邮箱域名无法注册新账户。请使用主流邮箱注册；如需使用企业邮箱，请联系客服添加域名白名单。',
     emailSuffixNotAllowed: '该邮箱域名不在允许注册范围内。',

@@ -1,20 +1,28 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
 const {
   getPublicSettingsMock,
+  sendVerifyCodeMock,
+  validateInvitationCodeMock,
+  validatePromoCodeMock,
   registerMock,
   showErrorMock,
   pushMock,
   verifyActionMock,
+  resetCaptchaMock,
   appStoreMock
 } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
+  sendVerifyCodeMock: vi.fn(),
+  validateInvitationCodeMock: vi.fn(),
+  validatePromoCodeMock: vi.fn(),
   registerMock: vi.fn(),
   showErrorMock: vi.fn(),
   pushMock: vi.fn(),
   verifyActionMock: vi.fn(),
+  resetCaptchaMock: vi.fn(),
   appStoreMock: {
     cachedPublicSettings: null as { promo_code_enabled?: boolean } | null,
     showError: (...args: unknown[]) => showErrorMock(...args),
@@ -69,7 +77,10 @@ vi.mock('@/api/auth', async () => {
   const actual = await vi.importActual<typeof import('@/api/auth')>('@/api/auth')
   return {
     ...actual,
-    getPublicSettings: (...args: unknown[]) => getPublicSettingsMock(...args)
+    getPublicSettings: (...args: unknown[]) => getPublicSettingsMock(...args),
+    sendVerifyCode: (...args: unknown[]) => sendVerifyCodeMock(...args),
+    validateInvitationCode: (...args: unknown[]) => validateInvitationCodeMock(...args),
+    validatePromoCode: (...args: unknown[]) => validatePromoCodeMock(...args)
   }
 })
 
@@ -81,9 +92,11 @@ function mountRegister() {
         Icon: true,
         TurnstileWidget: {
           template: '<div data-testid="turnstile-widget" />',
-          methods: { verifyAction: verifyActionMock, reset: vi.fn() }
+          methods: { verifyAction: verifyActionMock, reset: resetCaptchaMock }
         },
-        LoginAgreementPrompt: true,
+        LoginAgreementPrompt: {
+          template: '<button data-testid="accept-registration-agreement" type="button" @click="$emit(\'accept\')">同意协议</button>'
+        },
         EmailOAuthButtons: true,
         LinuxDoOAuthSection: true,
         WechatOAuthSection: true,
@@ -95,18 +108,35 @@ function mountRegister() {
   })
 }
 
+enableAutoUnmount(afterEach)
+
 describe('RegisterView', () => {
   beforeEach(() => {
     getPublicSettingsMock.mockReset()
+    sendVerifyCodeMock.mockReset()
+    validateInvitationCodeMock.mockReset()
+    validatePromoCodeMock.mockReset()
     registerMock.mockReset()
     showErrorMock.mockReset()
     pushMock.mockReset()
     verifyActionMock.mockReset()
+    resetCaptchaMock.mockReset()
+    appStoreMock.showWarning.mockReset()
+    appStoreMock.showSuccess.mockReset()
     appStoreMock.cachedPublicSettings = null
     sessionStorage.removeItem('register_data')
+    localStorage.removeItem('sub2api_login_agreement_consent')
     verifyActionMock.mockResolvedValue({ token: 'ticket', randstr: 'randstr' })
     getPublicSettingsMock.mockResolvedValue(publicSettings)
+    sendVerifyCodeMock.mockResolvedValue({ message: 'sent', countdown: 60 })
+    validateInvitationCodeMock.mockResolvedValue({ valid: true })
+    validatePromoCodeMock.mockResolvedValue({ valid: true, bonus_amount: 1 })
     registerMock.mockResolvedValue({})
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it.each([
@@ -212,7 +242,7 @@ describe('RegisterView', () => {
     expect(pushMock).toHaveBeenCalledWith('/dashboard')
   })
 
-  it('requires matching confirmation before storing only the registration fields for email verification', async () => {
+  it('邮箱验证在注册页提交验证码且不保存明文密码或跳转验证页', async () => {
     getPublicSettingsMock.mockResolvedValueOnce({
       ...publicSettings,
       turnstile_enabled: false,
@@ -222,6 +252,7 @@ describe('RegisterView', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
     await wrapper.get('#confirmPassword').setValue('different-password')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
@@ -233,12 +264,371 @@ describe('RegisterView', () => {
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(JSON.parse(sessionStorage.getItem('register_data')!)).toEqual({
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
       email: 'user@example.com',
-      password: 'secret-123'
+      password: 'secret-123',
+      verify_code: '123456'
+    }))
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+    expect(pushMock).toHaveBeenCalledWith('/dashboard')
+    expect(pushMock).not.toHaveBeenCalledWith('/email-verify')
+  })
+
+  it('只填写邮箱即可发送验证码，发送请求不包含密码或邀请码', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      tencent_captcha_enabled: true,
+      tencent_captcha_app_id: 'app-id'
     })
-    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+
+    expect(verifyActionMock).toHaveBeenCalledOnce()
+    expect(sendVerifyCodeMock).toHaveBeenCalledWith({
+      email: 'user@example.com',
+      tencent_captcha_ticket: 'ticket',
+      tencent_captcha_randstr: 'randstr'
+    })
+    expect(resetCaptchaMock).toHaveBeenCalledOnce()
     expect(registerMock).not.toHaveBeenCalled()
+    expect(showErrorMock).not.toHaveBeenCalled()
+
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(verifyActionMock).toHaveBeenCalledOnce()
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({ verify_code: '123456' }))
+    expect(registerMock.mock.calls[0][0].tencent_captcha_ticket).toBeUndefined()
+    expect(registerMock.mock.calls[0][0].tencent_captcha_randstr).toBeUndefined()
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+  })
+
+  it('发送验证码消耗 Turnstile 凭证后仍能直接注册', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, email_verify_enabled: true })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    wrapper.findComponent({ ref: 'turnstileRef' }).vm.$emit('verify', 'turnstile-proof')
+    await flushPromises()
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+
+    expect(sendVerifyCodeMock).toHaveBeenCalledWith({
+      email: 'user@example.com',
+      turnstile_token: 'turnstile-proof'
+    })
+    expect(resetCaptchaMock).toHaveBeenCalledOnce()
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledOnce()
+    expect(registerMock.mock.calls[0][0].turnstile_token).toBeUndefined()
+    expect(verifyActionMock).not.toHaveBeenCalled()
+    expect(pushMock).toHaveBeenCalledWith('/dashboard')
+  })
+
+  it.each([
+    ['', 'auth.emailRequired'],
+    ['invalid-email', 'auth.invalidEmail'],
+    ['user@blocked.com', 'auth.emailSuffixNotAllowedWithAllowed']
+  ])('发送验证码前拦截不合规邮箱 %j', async (email, error) => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      registration_email_suffix_whitelist: ['allowed.com']
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue(email)
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+
+    expect(sendVerifyCodeMock).not.toHaveBeenCalled()
+    expect(verifyActionMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith(error)
+  })
+
+  it('域名配额开启时允许发送验证码，由后端检查邮箱域名额度', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      registration_email_suffix_whitelist: ['allowed.com'],
+      registration_email_domain_quota_enabled: true
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@custom.example')
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+
+    expect(sendVerifyCodeMock).toHaveBeenCalledWith({ email: 'user@custom.example' })
+  })
+
+  it('发送验证码须先同意注册协议', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      login_agreement_enabled: true,
+      login_agreement_mode: 'checkbox',
+      login_agreement_revision: 'registration-test',
+      login_agreement_documents: [{ id: 'terms', title: '服务条款', content: '条款正文' }]
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+    expect(sendVerifyCodeMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="accept-registration-agreement"]').trigger('click')
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await flushPromises()
+    expect(sendVerifyCodeMock).toHaveBeenCalledOnce()
+  })
+
+  it('请求进行中不可重复发送，冷却时长使用接口返回值', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false
+    })
+    let resolveSend!: (value: { countdown: number }) => void
+    sendVerifyCodeMock.mockReturnValueOnce(new Promise((resolve) => { resolveSend = resolve }))
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    const sendButton = wrapper.get('[data-testid="send-register-code"]')
+    await sendButton.trigger('click')
+    await flushPromises()
+    expect(sendButton.attributes('disabled')).toBeDefined()
+    await sendButton.trigger('click')
+    expect(sendVerifyCodeMock).toHaveBeenCalledOnce()
+
+    resolveSend({ countdown: 3 })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(sendButton.attributes('disabled')).toBeDefined()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(sendButton.attributes('disabled')).toBeUndefined()
+    await sendButton.trigger('click')
+    await flushPromises()
+    expect(sendVerifyCodeMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('验证码发送失败后重置人机验证并允许重试', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      tencent_captcha_enabled: true,
+      tencent_captcha_app_id: 'app-id'
+    })
+    sendVerifyCodeMock.mockRejectedValueOnce({ message: '邮件发送失败' })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    const sendButton = wrapper.get('[data-testid="send-register-code"]')
+    await sendButton.trigger('click')
+    await flushPromises()
+
+    expect(resetCaptchaMock).toHaveBeenCalledOnce()
+    expect(showErrorMock).toHaveBeenCalled()
+    expect(sendButton.attributes('disabled')).toBeUndefined()
+    await sendButton.trigger('click')
+    await flushPromises()
+    expect(verifyActionMock).toHaveBeenCalledTimes(2)
+    expect(sendVerifyCodeMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['', '12345', 'abcdef'])('缺少或无效的六位验证码 %j 不发起注册请求', async (code) => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue(code)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(verifyActionMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalled()
+  })
+
+  it('修改邮箱时清空旧邮箱的验证码', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('first@example.com')
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('#email').setValue('second@example.com')
+
+    expect((wrapper.get('#verify_code').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('验证码注册仍提交邀请码和优惠码', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      invitation_code_enabled: true,
+      promo_code_enabled: true
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('#invitation_code').setValue('INVITE-123')
+    await wrapper.get('#promo_code').setValue('PROMO-123')
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
+      verify_code: '123456',
+      invitation_code: 'INVITE-123',
+      promo_code: 'PROMO-123'
+    }))
+  })
+
+  it('等待邀请码校验时锁定邮箱并阻止发码与重复注册，校验成功后正常提交', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false,
+      invitation_code_enabled: true
+    })
+    let resolveInvitation!: (value: { valid: boolean }) => void
+    validateInvitationCodeMock.mockReturnValueOnce(new Promise((resolve) => {
+      resolveInvitation = resolve
+    }))
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('#invitation_code').setValue('INVITE-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(validateInvitationCodeMock).toHaveBeenCalledOnce()
+    expect(wrapper.get('#email').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="send-register-code"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="send-register-code"]').trigger('click')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(sendVerifyCodeMock).not.toHaveBeenCalled()
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(validateInvitationCodeMock).toHaveBeenCalledOnce()
+
+    resolveInvitation({ valid: true })
+    await flushPromises()
+    expect(registerMock).toHaveBeenCalledOnce()
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'user@example.com',
+      verify_code: '123456',
+      invitation_code: 'INVITE-123'
+    }))
+    expect(pushMock).toHaveBeenCalledWith('/dashboard')
+    expect(wrapper.get('#email').attributes('disabled')).toBeUndefined()
+  })
+
+  it('设置尚未加载时禁止提交注册', async () => {
+    getPublicSettingsMock.mockReturnValueOnce(new Promise(() => {}))
+    const wrapper = mountRegister()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(sendVerifyCodeMock).not.toHaveBeenCalled()
+    expect(verifyActionMock).not.toHaveBeenCalled()
+  })
+
+  it('设置加载失败时禁止注册，重试成功后按邮箱验证设置显示表单', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getPublicSettingsMock.mockRejectedValueOnce(new Error('设置加载失败'))
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).not.toHaveBeenCalled()
+
+    getPublicSettingsMock.mockResolvedValueOnce({
+      ...publicSettings,
+      email_verify_enabled: true,
+      turnstile_enabled: false
+    })
+    await wrapper.get('[data-testid="retry-registration-settings"]').trigger('click')
+    await flushPromises()
+    expect(getPublicSettingsMock).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('#verify_code').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="retry-registration-settings"]').exists()).toBe(false)
+  })
+
+  it('后端要求邮箱验证时自动显示验证码输入并给出中文提示键', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
+    registerMock.mockRejectedValueOnce({
+      reason: 'EMAIL_VERIFY_REQUIRED',
+      message: 'email verification is required'
+    })
+    const wrapper = mountRegister()
+    await flushPromises()
+    expect(wrapper.find('#verify_code').exists()).toBe(false)
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(wrapper.get('#verify_code').exists()).toBe(true)
+    expect(showErrorMock).toHaveBeenCalledWith('auth.emailVerificationRequired')
+    expect(pushMock).not.toHaveBeenCalled()
+    await wrapper.get('#verify_code').setValue('123456')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).toHaveBeenLastCalledWith(expect.objectContaining({ verify_code: '123456' }))
+    expect(pushMock).toHaveBeenCalledWith('/dashboard')
   })
 
   it('keeps the optional affiliate invitation field before Turnstile', async () => {

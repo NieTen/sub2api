@@ -54,6 +54,13 @@
         <span>{{ t('auth.registerBenefitUsage') }}</span>
       </div>
 
+      <div v-if="settingsLoadFailed" role="alert" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
+        <p>{{ t('auth.registrationSettingsLoadFailed') }}</p>
+        <button type="button" data-testid="retry-registration-settings" class="mt-2 font-semibold underline" @click="loadRegistrationSettings">
+          {{ t('auth.retryRegistrationSettings') }}
+        </button>
+      </div>
+
       <!-- 注册开关提示 -->
       <div
         v-if="!registrationEnabled && settingsLoaded"
@@ -160,6 +167,39 @@
               <Icon v-else name="eye" size="md" />
             </button>
           </div>
+        </div>
+
+        <!-- 邮箱验证码与注册信息在同一页提交 -->
+        <div v-if="emailVerifyEnabled">
+          <label for="verify_code" class="input-label">{{ t('auth.verificationCode') }}</label>
+          <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="verify_code"
+              v-model="verifyCode"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              required
+              :disabled="registrationActionDisabled"
+              :aria-invalid="!!errors.verify_code"
+              aria-describedby="verify-code-hint"
+              class="input min-w-0 text-center font-mono tracking-[0.2em]"
+              :class="{ 'input-error': errors.verify_code }"
+              placeholder="000000"
+            />
+            <button
+              type="button"
+              data-testid="send-register-code"
+              :disabled="registrationActionDisabled || countdown > 0 || (turnstileEnabled && !turnstileToken)"
+              class="btn btn-secondary whitespace-nowrap px-3 text-sm"
+              @click="handleSendCode"
+            >
+              {{ isSendingCode ? t('auth.sendingCode') : countdown > 0 ? t('auth.resendCountdown', { countdown }) : codeSent ? t('auth.resendCode') : t('auth.sendCode') }}
+            </button>
+          </div>
+          <p id="verify-code-hint" class="input-hint">{{ t('auth.verificationCodeHint') }}</p>
         </div>
 
         <!-- Invitation Code Input (Required when enabled) -->
@@ -309,10 +349,12 @@
           @open="showAgreementModal = true"
         />
 
+        <p v-if="errorMessage" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ errorMessage }}</p>
+
         <!-- Submit Button -->
         <button
           type="submit"
-          :disabled="registrationActionDisabled || (turnstileEnabled && !turnstileToken)"
+          :disabled="registrationActionDisabled || (!emailVerifyEnabled && turnstileEnabled && !turnstileToken)"
           class="auth-submit btn btn-primary w-full"
         >
           <svg
@@ -340,7 +382,7 @@
             isLoading
               ? t('auth.processing')
               : emailVerifyEnabled
-                ? t('auth.continue')
+                ? t('auth.verifyAndCreate')
                 : t('auth.createAccount')
           }}
         </button>
@@ -423,6 +465,7 @@ import { useAuthStore, useAppStore } from '@/stores'
 import {
   buildOAuthLoginStartURL,
   getPublicSettings,
+  sendVerifyCode,
   isWeChatWebOAuthEnabled,
   startOAuthLogin,
   type OAuthLoginStart,
@@ -457,14 +500,21 @@ const appStore = useAppStore()
 
 const isLoading = ref<boolean>(false)
 const settingsLoaded = ref<boolean>(false)
+const settingsLoadFailed = ref(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
 const showConfirmPassword = ref<boolean>(false)
 const confirmPassword = ref('')
+const verifyCode = ref('')
+const isSendingCode = ref(false)
+const codeSent = ref(false)
+const countdown = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+let disposed = false
 
 // Public settings
 const registrationEnabled = ref<boolean>(true)
-const emailVerifyEnabled = ref<boolean>(false)
+const emailVerifyEnabled = ref(appStore.cachedPublicSettings?.email_verify_enabled === true)
 // Public settings are injected into the app store before Vue mounts. Use that
 // value for the first render so a disabled promo-code field never flashes
 // while the async settings request is still in flight. If injection is
@@ -553,6 +603,7 @@ const errors = reactive({
   email: '',
   password: '',
   confirmPassword: '',
+  verify_code: '',
   turnstile: '',
   invitation_code: ''
 })
@@ -561,6 +612,7 @@ const validationToastMessage = computed(() =>
   errors.email ||
   errors.password ||
   errors.confirmPassword ||
+  errors.verify_code ||
   (invitationValidation.invalid ? invitationValidation.message : '') ||
   errors.invitation_code ||
   (promoValidation.invalid ? promoValidation.message : '') ||
@@ -582,7 +634,7 @@ const agreementGateActive = computed(
 )
 
 const registrationActionDisabled = computed(
-  () => isLoading.value || !settingsLoaded.value || agreementGateActive.value
+  () => isLoading.value || isSendingCode.value || !settingsLoaded.value || !registrationEnabled.value || agreementGateActive.value
 )
 
 watch(validationToastMessage, (value, previousValue) => {
@@ -603,9 +655,17 @@ function syncAffiliateReferralCode(): string {
 
 onMounted(async () => {
   syncAffiliateReferralCode()
+  await loadRegistrationSettings()
+})
 
+async function loadRegistrationSettings(): Promise<void> {
+  settingsLoaded.value = false
+  settingsLoadFailed.value = false
   try {
     const settings = await getPublicSettings()
+    if (typeof settings.registration_enabled !== 'boolean' || typeof settings.email_verify_enabled !== 'boolean') {
+      throw new Error('注册设置缺少必要字段')
+    }
     registrationEnabled.value = settings.registration_enabled
     emailVerifyEnabled.value = settings.email_verify_enabled
     promoCodeEnabled.value = settings.promo_code_enabled
@@ -643,13 +703,18 @@ onMounted(async () => {
       }
     }
     syncAffiliateReferralCode()
-  } catch (error) {
-    console.error('Failed to load public settings:', error)
-    loginAgreementEnabled.value = false
-    agreementAccepted.value = true
-  } finally {
     settingsLoaded.value = true
+  } catch (error) {
+    console.error('加载注册设置失败：', error)
+    settingsLoadFailed.value = true
   }
+}
+
+watch(() => formData.email, () => {
+  verifyCode.value = ''
+  codeSent.value = false
+  errors.verify_code = ''
+  errorMessage.value = ''
 })
 
 watch(
@@ -660,6 +725,8 @@ watch(
 )
 
 onUnmounted(() => {
+  disposed = true
+  if (countdownTimer) clearInterval(countdownTimer)
   if (promoValidateTimeout) {
     clearTimeout(promoValidateTimeout)
   }
@@ -965,15 +1032,28 @@ function buildEmailSuffixNotAllowedMessage(): string {
   })
 }
 
-function validateForm(): boolean {
-  // Reset errors
+function validateRegistrationEmail(): boolean {
   errors.email = ''
+  if (!formData.email.trim()) {
+    errors.email = t('auth.emailRequired')
+  } else if (!validateEmail(formData.email.trim())) {
+    errors.email = t('auth.invalidEmail')
+  } else if (
+    !emailDomainQuotaEnabled.value &&
+    !isRegistrationEmailSuffixAllowed(formData.email, registrationEmailSuffixWhitelist.value)
+  ) {
+    // 域名限量注册关闭时保持严格白名单预检；开启时交给后端按域名额度判定
+    errors.email = buildEmailSuffixNotAllowedMessage()
+  }
+  return !errors.email
+}
+
+function validateForm(): boolean {
   errors.password = ''
   errors.confirmPassword = ''
+  errors.verify_code = ''
   errors.turnstile = ''
   errors.invitation_code = ''
-
-  let isValid = true
 
   if (agreementGateActive.value) {
     appStore.showWarning(t('legal.loginAgreementPrompt.registerRequiredWarning'))
@@ -983,21 +1063,7 @@ function validateForm(): boolean {
     return false
   }
 
-  // Email validation
-  if (!formData.email.trim()) {
-    errors.email = t('auth.emailRequired')
-    isValid = false
-  } else if (!validateEmail(formData.email)) {
-    errors.email = t('auth.invalidEmail')
-    isValid = false
-  } else if (
-    !emailDomainQuotaEnabled.value &&
-    !isRegistrationEmailSuffixAllowed(formData.email, registrationEmailSuffixWhitelist.value)
-  ) {
-    // 域名限量注册关闭时保持严格白名单预检；开启时交给后端按域名额度判定
-    errors.email = buildEmailSuffixNotAllowedMessage()
-    isValid = false
-  }
+  let isValid = validateRegistrationEmail()
 
   // Password validation
   if (!formData.password) {
@@ -1025,8 +1091,18 @@ function validateForm(): boolean {
     }
   }
 
-  // Turnstile validation
-  if (turnstileEnabled.value && !turnstileToken.value) {
+  if (emailVerifyEnabled.value) {
+    if (!verifyCode.value.trim()) {
+      errors.verify_code = t('auth.codeRequired')
+      isValid = false
+    } else if (!/^\d{6}$/.test(verifyCode.value.trim())) {
+      errors.verify_code = t('auth.invalidCode')
+      isValid = false
+    }
+  }
+
+  // 邮箱验证码发送时已完成人机验证，提交注册时不重复使用票据。
+  if (!emailVerifyEnabled.value && turnstileEnabled.value && !turnstileToken.value) {
     errors.turnstile = t('auth.completeVerification')
     isValid = false
   }
@@ -1036,7 +1112,56 @@ function validateForm(): boolean {
 
 // ==================== Form Handlers ====================
 
+function startCodeCountdown(seconds: number): void {
+  if (countdownTimer) clearInterval(countdownTimer)
+  countdown.value = Number.isFinite(seconds) ? Math.max(0, Math.ceil(seconds)) : 60
+  const deadline = Date.now() + countdown.value * 1000
+  countdownTimer = setInterval(() => {
+    countdown.value = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    if (countdown.value === 0 && countdownTimer) {
+      clearInterval(countdownTimer)
+      countdownTimer = null
+    }
+  }, 1000)
+}
+
+async function handleSendCode(): Promise<void> {
+  if (registrationActionDisabled.value || !emailVerifyEnabled.value || countdown.value > 0) return
+  errorMessage.value = ''
+  errors.turnstile = ''
+  if (!validateRegistrationEmail()) return
+  if (turnstileEnabled.value && !turnstileToken.value) {
+    errors.turnstile = t('auth.completeVerification')
+    return
+  }
+
+  isSendingCode.value = true
+  try {
+    if (!(await acquireActionProof())) return
+    if (disposed) return
+    const response = await sendVerifyCode({
+      email: formData.email.trim(),
+      turnstile_token:
+        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
+      tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
+      tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined
+    })
+    if (disposed) return
+    codeSent.value = true
+    startCodeCountdown(response.countdown)
+    appStore.showSuccess(t('auth.codeSentSuccess'))
+  } catch (error: unknown) {
+    errorMessage.value = buildRegistrationErrorMessage(error, t('auth.sendCodeFailed'))
+    appStore.showError(errorMessage.value)
+  } finally {
+    // 发送失败也可能已消耗一次性票据，重试必须重新获取。
+    if (captchaEnabled.value) resetCaptchaProof()
+    isSendingCode.value = false
+  }
+}
+
 async function handleRegister(): Promise<void> {
+  if (registrationActionDisabled.value) return
   // Clear previous error
   errorMessage.value = ''
 
@@ -1059,73 +1184,46 @@ async function handleRegister(): Promise<void> {
     }
   }
 
-  // Check invitation code validation status (if enabled and code provided)
-  if (invitationCodeEnabled.value) {
-    // If still validating, wait
-    if (invitationValidating.value) {
-      errorMessage.value = t('auth.invitationCodeValidating')
-      return
-    }
-    // If invitation code is invalid, block submission
-    if (invitationValidation.invalid) {
-      errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
-      return
-    }
-    // If invitation code is required but not validated yet
-    if (formData.invitation_code.trim() && !invitationValidation.valid) {
-      errorMessage.value = t('auth.invitationCodeValidating')
-      // Trigger validation
-      await validateInvitationCodeDebounced(formData.invitation_code.trim())
-      if (!invitationValidation.valid) {
-        errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
-        return
-      }
-    }
-  }
-
-  if (!(await acquireActionProof())) {
-    return
-  }
-
+  const requiresCaptcha = !emailVerifyEnabled.value
+  // 邀请码异步校验期间也锁定表单，避免更换邮箱或同时发送验证码。
   isLoading.value = true
 
   try {
+    if (invitationCodeEnabled.value) {
+      if (invitationValidating.value) {
+        errorMessage.value = t('auth.invitationCodeValidating')
+        return
+      }
+      if (invitationValidation.invalid) {
+        errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
+        return
+      }
+      if (formData.invitation_code.trim() && !invitationValidation.valid) {
+        errorMessage.value = t('auth.invitationCodeValidating')
+        await validateInvitationCodeDebounced(formData.invitation_code.trim())
+        if (!invitationValidation.valid) {
+          errorMessage.value = t('auth.invitationCodeInvalidCannotRegister')
+          return
+        }
+        errorMessage.value = ''
+      }
+    }
+    if (requiresCaptcha && !(await acquireActionProof())) return
+    if (disposed) return
     const affCode = formData.aff_code.trim() || loadAffiliateReferralCode()
     if (affCode) {
       formData.aff_code = affCode
     }
 
-    // If email verification is enabled, redirect to verification page
-    if (emailVerifyEnabled.value) {
-      // Store registration data in sessionStorage
-      sessionStorage.setItem(
-        'register_data',
-        JSON.stringify({
-          email: formData.email,
-          password: formData.password,
-          turnstile_token:
-            turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-          tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-          tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
-          promo_code: formData.promo_code || undefined,
-          invitation_code: formData.invitation_code || undefined,
-          ...(affCode ? { aff_code: affCode } : {})
-        })
-      )
-
-      // Navigate to email verification page
-      await router.push('/email-verify')
-      return
-    }
-
-    // Otherwise, directly register
+    // 邮箱验证码与账号信息一起提交，不再暂存密码或跳转验证页。
     await authStore.register({
-      email: formData.email,
+      email: formData.email.trim(),
       password: formData.password,
+      ...(emailVerifyEnabled.value ? { verify_code: verifyCode.value.trim() } : {}),
       turnstile_token:
-        turnstileEnabled.value || aliyunCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_ticket: tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
-      tencent_captcha_randstr: tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
+        requiresCaptcha && (turnstileEnabled.value || aliyunCaptchaEnabled.value) ? turnstileToken.value : undefined,
+      tencent_captcha_ticket: requiresCaptcha && tencentCaptchaEnabled.value ? turnstileToken.value : undefined,
+      tencent_captcha_randstr: requiresCaptcha && tencentCaptchaEnabled.value ? tencentCaptchaRandstr.value : undefined,
       promo_code: formData.promo_code || undefined,
       invitation_code: formData.invitation_code || undefined,
       ...(affCode ? { aff_code: affCode } : {})
@@ -1138,13 +1236,17 @@ async function handleRegister(): Promise<void> {
     // Redirect to dashboard
     await router.push('/dashboard')
   } catch (error: unknown) {
+    // 兼容页面打开后后台才开启邮箱验证的情况，保留已填资料供继续验证。
+    if (extractApiErrorCode(error) === 'EMAIL_VERIFY_REQUIRED') {
+      emailVerifyEnabled.value = true
+    }
     // Handle registration error
     errorMessage.value = buildRegistrationErrorMessage(error, t('auth.registrationFailed'))
 
     // Also show error toast
     appStore.showError(errorMessage.value)
   } finally {
-    if (captchaEnabled.value) {
+    if (requiresCaptcha && captchaEnabled.value) {
       resetCaptchaProof()
     }
     isLoading.value = false
@@ -1152,10 +1254,13 @@ async function handleRegister(): Promise<void> {
 }
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
+  if (extractApiErrorCode(error) === 'EMAIL_VERIFY_REQUIRED') {
+    return t('auth.emailVerificationRequired')
+  }
   if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
     return t('auth.emailDomainRegistrationLimit')
   }
-  return buildAuthErrorMessage(error, { fallback })
+  return extractI18nErrorMessage(error, t, 'auth.errors', buildAuthErrorMessage(error, { fallback }))
 }
 </script>
 
