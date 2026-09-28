@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { apiClient } from '@/api/client'
-import { modelDetectionAPI, detectionScore, detectionResultKey } from '../modelDetection'
+import { modelDetectionAPI, detectionScore, detectionResultKey, detectionPlanInput, newDetectionPlan } from '../modelDetection'
 vi.mock('@/api/client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }))
 
 describe('模型检测 API', () => {
@@ -24,5 +24,16 @@ describe('模型检测 API', () => {
     expect(detectionScore(33.3333333333333)).toBe('33.3')
     expect(detectionScore(null)).toBe('—')
     expect(detectionScore(0)).toBe('0')
+  })
+  it('批量手动检测只发送选择的模型，不允许另行覆盖参考模型', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({ data: { total: 2, success: 2, failed: 0, results: [] } })
+    await modelDetectionAPI.runAccountModels(7, ['model-a', 'model-b'])
+    expect(apiClient.post).toHaveBeenCalledWith('/admin/model-detection/accounts/7/runs', { model_ids: ['model-a', 'model-b'] })
+  })
+  it('编辑计划只提交可编辑配置，历史参考和能力字段不会回写', () => {
+    const input = detectionPlanInput({ ...newDetectionPlan(7), model_id: ' model-a ', reference_model: 'old-reference', baseline_score: 100 } as never)
+    expect(input.model_id).toBe('model-a')
+    expect(input).not.toHaveProperty('reference_model')
+    expect(input).not.toHaveProperty('baseline_score')
   })
 })

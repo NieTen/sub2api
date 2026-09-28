@@ -19,6 +19,8 @@ func TestModelDetectionHandlerRejectsInvalidInputs(t *testing.T) {
 	}{
 		{"非法账号", "POST", "/accounts/-1/run", `{"model_id":"model"}`, h.RunAccount},
 		{"非法模型请求", "POST", "/accounts/1/run", `{`, h.RunAccount},
+		{"非法批量模型请求", "POST", "/accounts/1/runs", `{"model_ids":"model"}`, h.RunAccountModels},
+		{"非法批量计划请求", "POST", "/plans/batch", `{"model_ids":{}}`, h.CreatePlansBatch},
 		{"超大请求", "POST", "/accounts/1/run", `{"model_id":"` + strings.Repeat("x", 40<<10) + `"}`, h.RunAccount},
 		{"历史游标", "GET", "/accounts/1/history?before_id=-1", "", h.History},
 		{"历史上限", "GET", "/accounts/1/history?limit=101", "", h.History},

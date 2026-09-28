@@ -202,17 +202,18 @@ func TestModelDetectionPostgresConcurrentManualAndPlanUniqueness(t *testing.T) {
 	require.Equal(t, plan.ID, manual.PlanID)
 	require.Equal(t, 17, manual.PlanSnapshot.IntervalMinutes)
 	require.False(t, manual.PlanSnapshot.Enabled)
-	require.Equal(t, "本轮选择的参考模型", manual.PlanSnapshot.ReferenceModel)
+	require.Equal(t, "manual-model", manual.PlanSnapshot.ReferenceModel)
 	saved, err := r.GetPlan(ctx, plan.ID)
 	require.NoError(t, err)
-	require.Equal(t, "已保存的参考模型", saved.ReferenceModel)
+	require.Equal(t, "manual-model", saved.ReferenceModel)
+	require.NotNil(t, saved.BaselineScore, "仅修正参考模型不得清空已有能力基线")
 	claimed, err = r.Claim(ctx, 7*time.Minute)
 	require.NoError(t, err)
 	detectionFinish(t, ctx, r, claimed, 85)
 	request.ReferenceModel = ""
 	manual, err = r.RunAccount(ctx, request)
 	require.NoError(t, err)
-	require.Empty(t, manual.PlanSnapshot.ReferenceModel, "空参考不能静默使用已保存的另一个参考")
+	require.Equal(t, "manual-model", manual.PlanSnapshot.ReferenceModel, "空参考仍自动使用所选模型")
 }
 
 func TestModelDetectionPostgresGlobalConcurrencyAndExpiredFencing(t *testing.T) {

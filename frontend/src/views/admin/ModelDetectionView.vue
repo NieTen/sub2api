@@ -29,7 +29,7 @@
       <section class="panel">
         <h2 class="border-b border-gray-200 px-4 py-3 font-semibold dark:border-dark-700">{{ t('modelDetection.plans') }} <span class="ml-2 text-sm font-normal text-gray-500">{{ plans.length }}</span></h2>
         <p v-if="!plans.length" class="p-8 text-center text-sm text-gray-500">{{ t('modelDetection.noPlans') }}</p>
-        <div v-else class="overflow-x-auto"><table class="w-full whitespace-nowrap text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900"><tr><th class="px-4 py-3">{{ t('modelDetection.account') }} / {{ t('modelDetection.model') }}</th><th class="px-4 py-3">{{ t('modelDetection.schedule') }}</th><th class="px-4 py-3">{{ t('modelDetection.baseline') }}</th><th class="px-4 py-3">{{ t('modelDetection.nextRun') }}</th><th class="px-4 py-3"><span class="sr-only">{{ t('modelDetection.editPlan') }}</span></th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="plan in plans" :key="plan.id"><td class="px-4 py-3"><span class="block font-medium">{{ plan.account_name || `#${plan.account_id}` }}</span><span class="mt-1 block max-w-64 truncate font-mono text-xs text-gray-500" :title="plan.model_id">{{ plan.model_id }}</span></td><td class="px-4 py-3"><span :class="plan.enabled ? 'text-green-700 dark:text-green-400' : 'text-gray-500'">{{ t(plan.enabled ? 'modelDetection.scheduled' : 'modelDetection.paused') }}</span><span class="mt-1 block text-xs text-gray-500">{{ scheduleText(plan) }}</span></td><td class="px-4 py-3 font-mono">{{ detectionScore(plan.baseline_score) }}</td><td class="px-4 py-3 text-xs text-gray-500">{{ plan.enabled && plan.next_run_at ? formatDateTime(plan.next_run_at) : '—' }}</td><td class="px-4 py-3"><div class="flex flex-wrap gap-x-3 gap-y-2"><button class="action" :disabled="!!busyId || isActive(plan.id)" @click="run(plan)">{{ t('modelDetection.run') }}</button><button class="action" :disabled="!!busyId" @click="togglePlan(plan)">{{ t(plan.enabled ? 'modelDetection.pause' : 'modelDetection.enable') }}</button><button class="action" :disabled="!!busyId" @click="openPlan(plan)">{{ t('modelDetection.edit') }}</button><button class="action" :disabled="!!busyId" @click="resetPlan = plan">{{ t('modelDetection.resetBaseline') }}</button></div></td></tr></tbody></table></div>
+        <div v-else class="overflow-x-auto"><table class="w-full whitespace-nowrap text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900"><tr><th class="px-4 py-3">{{ t('modelDetection.account') }} / {{ t('modelDetection.model') }}</th><th class="px-4 py-3">{{ t('modelDetection.schedule') }}</th><th class="px-4 py-3">{{ t('modelDetection.baseline') }}</th><th class="px-4 py-3">{{ t('modelDetection.nextRun') }}</th><th class="px-4 py-3"><span class="sr-only">{{ t('modelDetection.editPlan') }}</span></th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="plan in plans" :key="plan.id"><td class="px-4 py-3"><span class="block font-medium">{{ plan.account_name || `#${plan.account_id}` }}</span><span class="mt-1 block max-w-64 truncate font-mono text-xs text-gray-500" :title="plan.model_id">{{ plan.model_id }}</span></td><td class="px-4 py-3"><span :class="plan.enabled ? 'text-green-700 dark:text-green-400' : 'text-gray-500'">{{ t(plan.enabled ? 'modelDetection.scheduled' : 'modelDetection.paused') }}</span><span class="mt-1 block text-xs text-gray-500">{{ scheduleText(plan) }}</span></td><td class="px-4 py-3 font-mono">{{ detectionScore(plan.baseline_score) }}</td><td class="px-4 py-3 text-xs text-gray-500">{{ plan.enabled && plan.next_run_at ? formatDateTime(plan.next_run_at) : '—' }}</td><td class="px-4 py-3"><div class="flex flex-wrap gap-x-3 gap-y-2"><button class="action" :disabled="!!busyId || isActive(plan.id)" @click="run(plan)">{{ t('modelDetection.run') }}</button><button class="action" :disabled="!!busyId" @click="togglePlan(plan)">{{ t(plan.enabled ? 'modelDetection.pause' : 'modelDetection.enable') }}</button><button class="action" :disabled="!!busyId" @click="openPlan(plan)">{{ t('modelDetection.edit') }}</button></div></td></tr></tbody></table></div>
       </section>
       <section class="panel">
         <div class="flex items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700"><h2 class="font-semibold">{{ t('modelDetection.history') }}<span v-if="selectedAccount" class="ml-2 text-sm font-normal text-gray-500">{{ selectedAccount.name }}</span></h2><span v-if="historyLoading" class="text-xs text-gray-500">{{ t('common.loading') }}</span></div>
@@ -40,27 +40,31 @@
 
     <BaseDialog :show="showPlan" :title="t(editingPlanId ? 'modelDetection.editPlan' : 'modelDetection.createPlan')" width="wide" @close="closePlan">
       <form class="space-y-5" @submit.prevent="savePlan">
-        <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('modelDetection.costHint', { count: catalog?.requests_per_run || 4 }) }}</p>
+        <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('modelDetection.costHint', { count: (editingPlanId ? 1 : planModelIds.length) * (catalog?.requests_per_run || 4) }) }}</p>
         <div v-if="!editingPlanId" class="flex items-end gap-2"><label class="min-w-0 flex-1"><span class="field-label">{{ t('modelDetection.searchAccount') }}</span><input v-model="accountSearch" class="input" :disabled="saving" @keydown.enter.prevent="searchAccounts" /></label><button type="button" class="btn btn-secondary" :disabled="accountsLoading || saving" @click="searchAccounts">{{ t('modelDetection.search') }}</button></div>
         <p v-if="accountsError" role="alert" class="text-sm text-red-600">{{ accountsError }}</p>
         <fieldset :disabled="saving" class="grid gap-4 sm:grid-cols-2">
           <label><span class="field-label">{{ t('modelDetection.account') }}</span><select v-model.number="form.account_id" class="input" required :disabled="!!editingPlanId"><option :value="0" disabled>{{ t('modelDetection.chooseAccount') }}</option><option v-for="account in accounts" :key="account.id" :value="account.id">{{ account.name }} · #{{ account.id }}</option></select></label>
-          <label><span class="field-label">{{ t('modelDetection.model') }}</span><input v-model="form.model_id" class="input" list="plan-detection-models" required maxlength="200" :placeholder="t('modelDetection.modelHint')" /><datalist id="plan-detection-models"><option v-for="model in models" :key="model.id" :value="model.id">{{ model.display_name }}</option></datalist><span v-if="modelsFailed" class="mt-1 block text-xs text-gray-500">{{ t('modelDetection.modelsUnavailable') }}</span></label>
+          <label v-if="editingPlanId"><span class="field-label">{{ t('modelDetection.model') }}</span><input v-model="form.model_id" class="input font-mono" readonly /><span class="mt-1 block text-xs text-gray-500">{{ t('modelDetection.editSingleModelHint') }}</span></label>
+          <div v-else class="sm:col-span-2"><ModelDetectionModelPicker :key="form.account_id" v-model="planModelIds" :models="models" :disabled="saving || !form.account_id" /><p v-if="modelsFailed" class="mt-1 text-xs text-gray-500">{{ t('modelDetection.modelsUnavailable') }}</p></div>
           <label><span class="field-label">{{ t('modelDetection.schedule') }}</span><select v-model="form.schedule_type" class="input"><option value="interval">{{ t('modelDetection.interval') }}</option><option value="daily">{{ t('modelDetection.daily') }}</option></select></label>
           <label v-if="form.schedule_type === 'interval'"><span class="field-label">{{ t('modelDetection.minutes') }}</span><input v-model.number="form.interval_minutes" type="number" min="1" max="10080" step="1" required class="input" /></label>
           <label v-else><span class="field-label">{{ t('modelDetection.dailyTime') }}</span><input v-model="form.daily_time" type="time" required class="input" /></label>
           <label><span class="field-label">{{ t('modelDetection.timezone') }}</span><input v-model="form.timezone" class="input" required placeholder="Asia/Shanghai" /></label>
           <label><span class="field-label">{{ t('modelDetection.threshold') }}</span><input v-model.number="form.drop_threshold" type="number" min="0.1" max="100" step="0.1" required class="input" /><span class="mt-1 block text-xs text-gray-500">{{ t('modelDetection.thresholdHint') }}</span></label>
-          <label><span class="field-label">{{ t('modelDetection.reference') }}</span><select v-model="form.reference_model" class="input"><option value="">{{ t('modelDetection.noReference') }}</option><option v-for="model in catalog?.reference_models || []" :key="model.id" :value="model.id">{{ model.display_name }}</option></select><span class="mt-1 block text-xs text-gray-500">{{ t('modelDetection.referenceHint') }}</span></label>
+
           <label><span class="field-label">{{ t('modelDetection.retention') }}</span><input v-model.number="form.max_results" type="number" min="100" max="1000" step="1" required class="input" /></label>
           <label class="flex items-center gap-2 sm:col-span-2"><input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded" />{{ t('modelDetection.enabled') }}</label>
         </fieldset>
+        <p class="text-xs leading-5 text-gray-500">{{ t('modelDetection.automaticComparison') }}</p>
+        <p class="text-xs leading-5 text-gray-500">{{ t('modelDetection.longRunningHint', { seconds: catalog?.request_timeout_seconds || 600 }) }}</p>
+        <div v-if="planFailures.length" role="alert" class="rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20"><p class="font-medium text-red-700 dark:text-red-300">{{ t('modelDetection.batchPartial', { success: planSuccessCount, failed: planFailures.length }) }}</p><ul class="mt-2 space-y-1 text-red-600 dark:text-red-400"><li v-for="failure in planFailures" :key="failure.model_id" class="break-words"><span class="font-mono">{{ failure.model_id }}</span>: {{ failure.error || failure.reason || t('modelDetection.actionFailed') }}</li></ul><p class="mt-2 text-xs text-gray-500">{{ t('modelDetection.retryFailedOnly') }}</p></div>
         <p v-if="formError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ formError }}</p>
-        <div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="saving" @click="closePlan">{{ t('modelDetection.cancel') }}</button><button class="btn btn-primary" :disabled="saving">{{ t(saving ? 'common.saving' : 'modelDetection.save') }}</button></div>
+        <div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="saving" @click="closePlan">{{ t('modelDetection.cancel') }}</button><button class="btn btn-primary" :disabled="saving || (!editingPlanId && !planModelIds.length)">{{ t(saving ? 'common.saving' : 'modelDetection.save') }}</button></div>
       </form>
     </BaseDialog>
 
-    <BaseDialog :show="showDetail" :title="t('modelDetection.details')" width="wide" @close="showDetail = false">
+    <BaseDialog :show="showDetail" :title="t('modelDetection.details')" width="wide" @close="closeDetail">
       <p v-if="detailLoading" class="p-6 text-center text-gray-500">{{ t('common.loading') }}</p>
       <p v-else-if="detailError" role="alert" class="text-sm text-red-600">{{ detailError }}</p>
       <div v-else-if="detail" class="space-y-5 text-sm">
@@ -70,10 +74,9 @@
         <div><h3 class="font-semibold">{{ t('modelDetection.fingerprint') }}</h3><p class="mt-1 text-xs text-gray-500">{{ t('modelDetection.fingerprintHint') }}</p><dl class="mt-3 grid gap-3 sm:grid-cols-3"><div><dt class="text-xs text-gray-500">{{ t('modelDetection.fingerprintResult') }}</dt><dd class="mt-1 font-medium">{{ fingerprintStatus(detail.fingerprint.status) }}</dd></div><div v-if="detail.fingerprint.analysis?.prediction_name"><dt class="text-xs text-gray-500">{{ t('modelDetection.closestModel') }}</dt><dd class="mt-1">{{ detail.fingerprint.analysis.prediction_name }}</dd></div><div v-if="typeof detail.fingerprint.analysis?.probability === 'number'"><dt class="text-xs text-gray-500">{{ t('modelDetection.candidateProbability') }}</dt><dd class="mt-1 font-mono">{{ detectionScore(detail.fingerprint.analysis.probability * 100) }}%</dd></div></dl><p v-if="detail.fingerprint.reference_model" class="mt-2 text-xs text-gray-500">{{ t('modelDetection.reference') }}: <span class="font-mono">{{ detail.fingerprint.reference_model }}</span></p><p v-if="detail.fingerprint.message" class="mt-3 break-words text-xs text-gray-500">{{ detail.fingerprint.message }}</p><details v-if="detail.fingerprint.analysis" class="mt-3"><summary class="cursor-pointer text-xs text-primary-600">{{ t('modelDetection.fingerprintEvidence') }}</summary><pre class="evidence mt-2">{{ pretty(detail.fingerprint.analysis) }}</pre></details></div>
         <p class="text-xs text-gray-500">{{ t('modelDetection.suite') }}: {{ detail.suite_version }}</p>
         <p v-if="!detail.details?.length" class="text-gray-500">{{ t('modelDetection.noEvidence') }}</p>
-        <details v-for="(item, index) in detail.details || []" :key="index" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"><summary class="cursor-pointer font-medium">{{ index + 1 }}. {{ t(item.kind === 'fingerprint' ? 'modelDetection.fingerprintProbe' : 'modelDetection.quality') }}</summary><div class="mt-4 space-y-3"><div><h4 class="mb-1 font-medium">{{ t('modelDetection.prompt') }}</h4><pre class="evidence">{{ item.prompt }}</pre></div><div><h4 class="mb-1 font-medium">{{ t('modelDetection.response') }}</h4><pre class="evidence">{{ item.response || t('modelDetection.noResponse') }}</pre></div><div v-if="item.evaluation"><h4 class="mb-1 font-medium">{{ t('modelDetection.evaluation') }}</h4><pre class="evidence">{{ pretty(item.evaluation) }}</pre></div></div></details>
+        <details v-for="(item, index) in detail.details || []" :key="index" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"><summary class="cursor-pointer font-medium">{{ index + 1 }}. {{ t(item.kind === 'fingerprint' ? 'modelDetection.fingerprintProbe' : 'modelDetection.quality') }}</summary><div class="mt-4 space-y-3"><dl class="flex flex-wrap gap-x-5 gap-y-2 text-xs text-gray-500"><div v-if="item.status"><dt class="inline">{{ t('modelDetection.requestStatus') }}: </dt><dd class="inline">{{ t('modelDetection.status.' + item.status) }}</dd></div><div v-if="item.duration_ms != null"><dt class="inline">{{ t('modelDetection.duration') }}: </dt><dd class="inline font-mono">{{ t('modelDetection.seconds', { seconds: detectionScore(item.duration_ms / 1000) }) }}</dd></div><div v-if="item.timeout_seconds"><dt class="inline">{{ t('modelDetection.timeout') }}: </dt><dd class="inline font-mono">{{ t('modelDetection.seconds', { seconds: item.timeout_seconds }) }}</dd></div></dl><p v-if="item.status && item.status !== 'completed'" class="rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('modelDetection.incompleteEvidence') }}</p><p v-if="item.error_message" class="break-words text-xs text-red-600 dark:text-red-400">{{ item.error_message }}</p><div><h4 class="mb-1 font-medium">{{ t('modelDetection.prompt') }}</h4><pre class="evidence">{{ item.prompt }}</pre></div><div><h4 class="mb-1 font-medium">{{ t('modelDetection.response') }}</h4><pre class="evidence">{{ item.response || t('modelDetection.noResponse') }}</pre></div><div v-if="item.evaluation"><h4 class="mb-1 font-medium">{{ t('modelDetection.evaluation') }}</h4><pre class="evidence">{{ pretty(item.evaluation) }}</pre></div></div></details>
       </div>
     </BaseDialog>
-    <ConfirmDialog :show="!!resetPlan" :title="t('modelDetection.resetBaseline')" :message="t('modelDetection.resetHint')" :confirm-text="t('modelDetection.confirm')" @confirm="resetBaseline" @cancel="resetPlan = null" />
     <ManualModelDetectionDialog :show="!!manualAccount" :account="manualAccount" @close="manualAccount = null" @queued="onQueued" />
   </AppLayout>
 </template>
@@ -84,11 +87,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import ModelDetectionModelPicker from '@/components/admin/account/ModelDetectionModelPicker.vue'
 import ModelDetectionRunTable from '@/components/admin/account/ModelDetectionRunTable.vue'
 import ManualModelDetectionDialog from '@/components/admin/account/ManualModelDetectionDialog.vue'
 import { list as listAccounts, getById, getAvailableModels } from '@/api/admin/accounts'
-import { modelDetectionAPI, newDetectionPlan, detectionScore, detectionResultKey, type ModelDetectionCatalog, type ModelDetectionOverview, type ModelDetectionPlan, type ModelDetectionRun } from '@/api/admin/modelDetection'
+import { modelDetectionAPI, newDetectionPlan, detectionPlanInput, detectionScore, detectionResultKey, type ModelDetectionBatchItem, type ModelDetectionCatalog, type ModelDetectionOverview, type ModelDetectionPlan, type ModelDetectionRun } from '@/api/admin/modelDetection'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime } from '@/utils/format'
 import { useAppStore } from '@/stores/app'
@@ -127,18 +130,21 @@ const showPlan = ref(false)
 const editingPlanId = ref<number | null>(null)
 const form = ref(newDetectionPlan())
 const formError = ref('')
+const planModelIds = ref<string[]>([])
+const planFailures = ref<ModelDetectionBatchItem[]>([])
+const planSuccessCount = ref(0)
 const saving = ref(false)
 const models = ref<ClaudeModel[]>([])
 const modelsFailed = ref(false)
 let modelRequest = 0
 const busyId = ref<number | null>(null)
-const resetPlan = ref<ModelDetectionPlan | null>(null)
 const manualAccount = ref<{ id: number; name: string } | null>(null)
 const showDetail = ref(false)
 const detail = ref<ModelDetectionRun | null>(null)
 const detailLoading = ref(false)
 const detailError = ref('')
 let detailRequest = 0
+let detailPending = false
 let timer: ReturnType<typeof setInterval> | undefined
 let disposed = false
 const pretty = (value: unknown) => JSON.stringify(value, null, 2)
@@ -189,23 +195,34 @@ async function loadHistory(append = false) {
 }
 async function openPlan(plan?: ModelDetectionPlan) {
   editingPlanId.value = plan?.id ?? null
-  form.value = plan ? { ...plan } : newDetectionPlan(selectedAccountId.value)
+  form.value = plan ? detectionPlanInput(plan) : newDetectionPlan(selectedAccountId.value)
+  planModelIds.value = []; planFailures.value = []; planSuccessCount.value = 0
   formError.value = ''; showPlan.value = true
   if (plan) await ensureAccount(plan.account_id)
 }
 function closePlan() { if (!saving.value) showPlan.value = false }
 async function savePlan() {
   if (saving.value) return
-  const input = { ...form.value, model_id: form.value.model_id.trim(), timezone: form.value.timezone.trim() }
+  const input = detectionPlanInput(form.value)
   try {
     new Intl.DateTimeFormat('en', { timeZone: input.timezone })
-    if (!input.account_id || !input.model_id || !input.timezone || input.drop_threshold <= 0 || input.drop_threshold > 100 || (input.schedule_type === 'interval' && (!Number.isInteger(input.interval_minutes) || input.interval_minutes < 1 || input.interval_minutes > 10080)) || (input.schedule_type === 'daily' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.daily_time))) throw new Error('invalid')
+    if (!input.account_id || (editingPlanId.value ? !input.model_id : !planModelIds.value.length || planModelIds.value.length > 20) || !input.timezone || input.drop_threshold <= 0 || input.drop_threshold > 100 || (input.schedule_type === 'interval' && (!Number.isInteger(input.interval_minutes) || input.interval_minutes < 1 || input.interval_minutes > 10080)) || (input.schedule_type === 'daily' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.daily_time))) throw new Error('invalid')
   } catch { formError.value = t('modelDetection.invalidForm'); return }
   saving.value = true; formError.value = ''
   try {
-    if (editingPlanId.value) await modelDetectionAPI.update(editingPlanId.value, input)
-    else await modelDetectionAPI.create(input)
-    showPlan.value = false; app.showSuccess(t('modelDetection.saved')); await loadOverview()
+    if (editingPlanId.value) {
+      await modelDetectionAPI.update(editingPlanId.value, input)
+      showPlan.value = false; app.showSuccess(t('modelDetection.saved'))
+    } else {
+      const { model_id: _modelId, reference_model: _referenceModel, ...schedule } = input
+      const result = await modelDetectionAPI.createBatch({ ...schedule, model_ids: planModelIds.value })
+      planFailures.value = result.results.filter(item => !item.plan)
+      planSuccessCount.value = result.success
+      planModelIds.value = planFailures.value.map(item => item.model_id)
+      if (result.success > 0) app.showSuccess(t('modelDetection.saved'))
+      if (!planFailures.value.length) showPlan.value = false
+    }
+    await loadOverview()
   } catch (cause) { formError.value = extractApiErrorMessage(cause, t('modelDetection.actionFailed')) }
   finally { saving.value = false }
 }
@@ -217,15 +234,22 @@ async function planAction(plan: ModelDetectionPlan, action: () => Promise<unknow
   finally { busyId.value = null }
 }
 function run(plan: ModelDetectionPlan) { void planAction(plan, () => modelDetectionAPI.run(plan.id), 'modelDetection.queued') }
-function togglePlan(plan: ModelDetectionPlan) { void planAction(plan, () => modelDetectionAPI.update(plan.id, { ...plan, enabled: !plan.enabled }), 'modelDetection.saved') }
-function resetBaseline() { const plan = resetPlan.value; resetPlan.value = null; if (plan) void planAction(plan, () => modelDetectionAPI.resetBaseline(plan.id), 'modelDetection.baselineReset') }
+function togglePlan(plan: ModelDetectionPlan) { void planAction(plan, () => modelDetectionAPI.update(plan.id, { ...detectionPlanInput(plan), enabled: !plan.enabled }), 'modelDetection.saved') }
 function onQueued() { app.showSuccess(t('modelDetection.queued')); void refresh() }
+function closeDetail() { showDetail.value = false; detailRequest++; detailLoading.value = false; detailPending = false }
 async function openDetail(id: number) {
+  showDetail.value = true; detail.value = null
+  await loadDetail(id)
+}
+async function loadDetail(id: number, silent = false) {
+  if (silent && detailPending) return
   const request = ++detailRequest
-  showDetail.value = true; detailLoading.value = true; detailError.value = ''; detail.value = null
-  try { const data = await modelDetectionAPI.detail(id); if (request === detailRequest && !disposed) detail.value = data }
-  catch (cause) { if (request === detailRequest) detailError.value = extractApiErrorMessage(cause, t('modelDetection.failed')) }
-  finally { if (request === detailRequest) detailLoading.value = false }
+  detailPending = true
+  if (!silent) detailLoading.value = true
+  detailError.value = ''
+  try { const data = await modelDetectionAPI.detail(id); if (request === detailRequest && !disposed && showDetail.value) detail.value = data }
+  catch (cause) { if (request === detailRequest && showDetail.value) detailError.value = extractApiErrorMessage(cause, t('modelDetection.failed')) }
+  finally { if (request === detailRequest) { detailLoading.value = false; detailPending = false } }
 }
 watch(() => route.query.account_id, () => {
   const id = queryAccountId()
@@ -236,13 +260,14 @@ watch(() => route.query.account_id, () => {
 watch(() => [showPlan.value, form.value.account_id] as const, async ([show, id]) => {
   const request = ++modelRequest
   models.value = []; modelsFailed.value = false
+  if (!editingPlanId.value && show) { planModelIds.value = []; planFailures.value = [] }
   if (!show || !id) return
   try { const data = await getAvailableModels(id); if (request === modelRequest) models.value = data ?? [] }
   catch { if (request === modelRequest) modelsFailed.value = true }
 })
 onMounted(async () => {
   await Promise.all([refresh(), searchAccounts(), modelDetectionAPI.catalog().then(data => { catalog.value = data }).catch(cause => { error.value = extractApiErrorMessage(cause, t('modelDetection.failed')) })])
-  if (!disposed) timer = setInterval(() => { if (!document.hidden) { void loadOverview(); if (selectedAccountId.value && !historyLoading.value && history.value.length <= 20) void loadHistory() } }, 10_000)
+  if (!disposed) timer = setInterval(() => { if (!document.hidden) { void loadOverview(); if (selectedAccountId.value && !historyLoading.value && history.value.length <= 20) void loadHistory(); if (showDetail.value && detail.value && ['queued', 'running'].includes(detail.value.status)) void loadDetail(detail.value.id, true) } }, 10_000)
 })
 onUnmounted(() => { disposed = true; clearInterval(timer); historyRequest++; accountRequest++; modelRequest++; detailRequest++ })
 </script>

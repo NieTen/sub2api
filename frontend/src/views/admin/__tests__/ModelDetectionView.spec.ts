@@ -1,6 +1,6 @@
 import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { reactive } from 'vue'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ModelDetectionView from '../ModelDetectionView.vue'
 import { modelDetectionAPI, newDetectionPlan, type ModelDetectionPlan, type ModelDetectionRun } from '@/api/admin/modelDetection'
 import { list, getById, getAvailableModels } from '@/api/admin/accounts'
@@ -14,19 +14,20 @@ vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<mai
 vi.mock('@/api/admin/accounts', () => ({ list: vi.fn(), getById: vi.fn(), getAvailableModels: vi.fn() }))
 vi.mock('@/api/admin/modelDetection', async (original) => ({
   ...await original<typeof import('@/api/admin/modelDetection')>(),
-  modelDetectionAPI: { overview: vi.fn(), catalog: vi.fn(), history: vi.fn(), create: vi.fn(), update: vi.fn(), run: vi.fn(), resetBaseline: vi.fn(), detail: vi.fn() }
+  modelDetectionAPI: { overview: vi.fn(), catalog: vi.fn(), history: vi.fn(), createBatch: vi.fn(), update: vi.fn(), run: vi.fn(), resetBaseline: vi.fn(), detail: vi.fn() }
 }))
 const plan: ModelDetectionPlan = { ...newDetectionPlan(17), id: 3, account_name: '测试账号', model_id: 'model-a', baseline_score: 90, baseline_run_id: 1, baseline_generation: 1, baseline_version: 'v1', last_run_at: null, next_run_at: null, created_at: '', updated_at: '' }
 const run: ModelDetectionRun = { id: 8, plan_id: 3, account_id: 17, account_name: '测试账号', model_id: 'model-a', status: 'completed', verdict: 'suspected_drop', score: 60, baseline_score: 90, drop_points: 30, fingerprint: { status: 'unavailable', reference_model: '', message: '参考库未覆盖该模型' }, error_message: '', suite_version: 'v1', progress: 4, requests_total: 4, trigger: 'manual', started_at: null, finished_at: '2026-09-28T12:00:00Z', created_at: '2026-09-28T12:00:00Z', plan_snapshot: plan }
 function render() {
   return mount(ModelDetectionView, { global: { stubs: {
     AppLayout: { template: '<main><slot /></main>' },
-    BaseDialog: { props: ['show', 'title'], template: '<section v-if="show" :data-dialog="title"><slot /></section>' },
-    ConfirmDialog: true, ManualModelDetectionDialog: true, RouterLink: RouterLinkStub
+    BaseDialog: { props: ['show', 'title'], emits: ['close'], template: '<section v-if="show" :data-dialog="title"><button data-testid="close-dialog" @click="$emit(\'close\')">关闭</button><slot /></section>' },
+    ManualModelDetectionDialog: true, RouterLink: RouterLinkStub
   } } })
 }
 
 describe('管理员模型检测页面', () => {
+  afterEach(() => { vi.useRealTimers() })
   beforeEach(() => {
     vi.clearAllMocks()
     route.query = reactive({})
@@ -36,14 +37,14 @@ describe('管理员模型检测页面', () => {
     vi.mocked(modelDetectionAPI.catalog).mockResolvedValue({ reference_models: [], suite_version: 'v1', requests_per_run: 4 })
     vi.mocked(modelDetectionAPI.overview).mockResolvedValue({ active: [], recent: [run], plans: [plan], stats: { total: 1, normal: 0, suspected_drop: 1, error: 0, average_score: 60 } })
     vi.mocked(modelDetectionAPI.history).mockResolvedValue({ items: [run], next_before_id: null })
-    vi.mocked(modelDetectionAPI.create).mockResolvedValue(plan)
+    vi.mocked(modelDetectionAPI.createBatch).mockResolvedValue({ total: 1, success: 1, failed: 0, results: [{ model_id: 'custom-model', plan }] })
     vi.mocked(modelDetectionAPI.update).mockResolvedValue(plan)
   })
   it('加载总览只读取检测记录，不自动发起模型请求；区分能力变化与指纹', async () => {
     const wrapper = render()
     await flushPromises()
     expect(modelDetectionAPI.run).not.toHaveBeenCalled()
-    expect(modelDetectionAPI.create).not.toHaveBeenCalled()
+    expect(modelDetectionAPI.createBatch).not.toHaveBeenCalled()
     expect(modelDetectionAPI.history).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('modelDetection.explanation')
     expect(wrapper.text()).toContain('modelDetection.verdict.suspected_drop')
@@ -57,13 +58,14 @@ describe('管理员模型检测页面', () => {
     const dialog = wrapper.get('[data-dialog="modelDetection.createPlan"]')
     expect((dialog.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
     await dialog.findAll('select')[0].setValue(17)
-    await dialog.get('input[list="plan-detection-models"]').setValue('custom-model')
+    await dialog.get('[data-testid="custom-model"]').setValue('custom-model')
+    await dialog.get('[data-testid="custom-model"]').trigger('keydown', { key: 'Enter' })
     await dialog.findAll('select')[1].setValue('daily')
     await dialog.get('input[type="time"]').setValue('13:45')
     await dialog.get('input[placeholder="Asia/Shanghai"]').setValue('Asia/Tokyo')
     await dialog.get('form').trigger('submit')
     await flushPromises()
-    expect(modelDetectionAPI.create).toHaveBeenCalledWith(expect.objectContaining({ account_id: 17, model_id: 'custom-model', schedule_type: 'daily', daily_time: '13:45', timezone: 'Asia/Tokyo', enabled: false }))
+    expect(modelDetectionAPI.createBatch).toHaveBeenCalledWith(expect.objectContaining({ account_id: 17, model_ids: ['custom-model'], schedule_type: 'daily', daily_time: '13:45', timezone: 'Asia/Tokyo', enabled: false }))
     expect(modelDetectionAPI.run).not.toHaveBeenCalled()
     wrapper.unmount()
   })
@@ -98,12 +100,92 @@ describe('管理员模型检测页面', () => {
     await wrapper.findAll('button').find(button => button.text() === 'modelDetection.createPlan')!.trigger('click')
     const dialog = wrapper.get('[data-dialog="modelDetection.createPlan"]')
     await dialog.findAll('select')[0].setValue(17)
-    await dialog.get('input[list="plan-detection-models"]').setValue('model-a')
+    await dialog.get('[data-testid="custom-model"]').setValue('model-a')
+    await dialog.get('[data-testid="custom-model"]').trigger('keydown', { key: 'Enter' })
     await dialog.get('input[placeholder="Asia/Shanghai"]').setValue('invalid/timezone')
     await dialog.get('form').trigger('submit')
     await flushPromises()
-    expect(modelDetectionAPI.create).not.toHaveBeenCalled()
+    expect(modelDetectionAPI.createBatch).not.toHaveBeenCalled()
     expect(dialog.get('[role="alert"]').text()).toBe('modelDetection.invalidForm')
+    wrapper.unmount()
+  })
+  it('多模型计划部分保存失败只重试失败模型，不重复创建成功计划', async () => {
+    vi.mocked(modelDetectionAPI.createBatch).mockResolvedValueOnce({ total: 2, success: 1, failed: 1, results: [{ model_id: 'model-a', plan }, { model_id: 'custom-model', error: '已有同模型计划' }] })
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelDetection.createPlan')!.trigger('click')
+    const dialog = wrapper.get('[data-dialog="modelDetection.createPlan"]')
+    await dialog.findAll('select')[0].setValue(17)
+    await flushPromises()
+    await dialog.get('input[value="model-a"]').setValue(true)
+    await dialog.get('[data-testid="custom-model"]').setValue('custom-model')
+    await dialog.get('[data-testid="custom-model"]').trigger('keydown', { key: 'Enter' })
+    expect(dialog.findAll('select')).toHaveLength(2)
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    expect(modelDetectionAPI.createBatch).toHaveBeenCalledWith(expect.objectContaining({ model_ids: ['model-a', 'custom-model'], enabled: false }))
+    expect(vi.mocked(modelDetectionAPI.createBatch).mock.calls[0][0]).not.toHaveProperty('reference_model')
+    expect(dialog.get('[role="alert"]').text()).toContain('custom-model: 已有同模型计划')
+    expect(dialog.get('[data-testid="selected-models"]').text()).not.toContain('model-a')
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    expect(modelDetectionAPI.createBatch).toHaveBeenLastCalledWith(expect.objectContaining({ model_ids: ['custom-model'] }))
+    wrapper.unmount()
+  })
+  it('编辑只更新当前模型，模型固定且没有参考或重设基线配置', async () => {
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.findAll('button').some(button => button.text() === 'modelDetection.resetBaseline')).toBe(false)
+    await wrapper.findAll('button').find(button => button.text() === 'modelDetection.edit')!.trigger('click')
+    const dialog = wrapper.get('[data-dialog="modelDetection.editPlan"]')
+    const model = dialog.get('input[readonly]')
+    expect((model.element as HTMLInputElement).value).toBe('model-a')
+    expect(dialog.find('[data-testid="custom-model"]').exists()).toBe(false)
+    await dialog.get('input[type="number"]').setValue(30)
+    await dialog.get('form').trigger('submit')
+    await flushPromises()
+    expect(modelDetectionAPI.update).toHaveBeenCalledTimes(1)
+    expect(modelDetectionAPI.update).toHaveBeenCalledWith(3, expect.objectContaining({ model_id: 'model-a', interval_minutes: 30 }))
+    expect(vi.mocked(modelDetectionAPI.update).mock.calls[0][1]).not.toHaveProperty('reference_model')
+    expect(modelDetectionAPI.createBatch).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+  it('超时仍展示题目和部分回答，并明确不参与评分', async () => {
+    vi.mocked(modelDetectionAPI.detail).mockResolvedValue({ ...run, status: 'error', score: null, details: [{ kind: 'quality', prompt: '请完成推理题', response: '已生成的部分答案', status: 'error', duration_ms: 600123, timeout_seconds: 600, error_message: '本题超时' }] })
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelDetection.detail')!.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.get('[data-dialog="modelDetection.details"]')
+    expect(dialog.text()).toContain('请完成推理题')
+    expect(dialog.text()).toContain('已生成的部分答案')
+    expect(dialog.text()).toContain('modelDetection.incompleteEvidence')
+    expect(dialog.text()).toContain('modelDetection.duration')
+    expect(dialog.text()).toContain('modelDetection.timeout')
+    expect(dialog.text()).toContain('本题超时')
+    wrapper.unmount()
+  })
+  it('正在运行的详情自动刷新，关闭后不接收延迟回复也不继续轮询', async () => {
+    vi.useFakeTimers()
+    vi.mocked(modelDetectionAPI.detail).mockResolvedValueOnce({ ...run, status: 'running' })
+    let finish: ((value: ModelDetectionRun) => void) | undefined
+    vi.mocked(modelDetectionAPI.detail).mockImplementationOnce(async () => ({ ...run, status: 'running' })).mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelDetection.detail')!.trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+    expect(modelDetectionAPI.detail).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await flushPromises()
+    expect(modelDetectionAPI.detail).toHaveBeenCalledTimes(3)
+    await wrapper.get('[data-dialog="modelDetection.details"] [data-testid="close-dialog"]').trigger('click')
+    finish?.({ ...run, error_message: '关闭后的旧响应' })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(wrapper.find('[data-dialog="modelDetection.details"]').exists()).toBe(false)
+    expect(modelDetectionAPI.detail).toHaveBeenCalledTimes(3)
     wrapper.unmount()
   })
 })

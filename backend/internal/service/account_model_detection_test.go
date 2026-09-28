@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -96,7 +98,7 @@ func TestModelDetectionRejectsTruncatedStreamAndRedactsErrors(t *testing.T) {
 		s := &AccountTestService{accountRepo: &modelDetectionAccountRepo{account: account}, httpUpstream: upstream, cfg: &config.Config{}}
 		text, err := s.RunModelDetectionPrompt(context.Background(), 1, "gpt-5.4", "question")
 		require.Error(t, err)
-		require.Empty(t, text)
+		require.Equal(t, "partial", text, "中断文本只作为证据返回，错误仍阻止评分")
 	}
 	err := safeModelDetectionRequestError(io.ErrUnexpectedEOF)
 	require.NotContains(t, err.Error(), io.ErrUnexpectedEOF.Error())
@@ -174,6 +176,65 @@ func TestModelDetectionAntigravityDoesNotRetryOrChangeScheduling(t *testing.T) {
 	probe := &AccountTestService{accountRepo: &modelDetectionAccountRepo{account: account}}
 	probe.observeGrokTestResponse(ctx, account, &http.Response{StatusCode: http.StatusUnauthorized, Body: io.NopCloser(strings.NewReader("invalid key"))})
 	probe.reconcileOpenAI429State(ctx, account, http.Header{}, []byte(`{"error":{"type":"usage_limit_reached","resets_at":1893456000}}`))
+}
+
+type modelDetectionDelayedUpstream struct {
+	delay time.Duration
+}
+
+func (u *modelDetectionDelayedUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	reader, writer := io.Pipe()
+	go func() {
+		defer writer.Close()
+		_, _ = io.WriteString(writer, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"received text\"}\n\n")
+		select {
+		case <-req.Context().Done():
+			_ = writer.CloseWithError(req.Context().Err())
+		case <-time.After(u.delay):
+			_, _ = io.WriteString(writer, "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\"}}\n\n")
+		}
+	}()
+	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: reader}, nil
+}
+
+func (u *modelDetectionDelayedUpstream) DoWithTLS(req *http.Request, proxy string, id int64, limit int, _ *tlsfingerprint.Profile) (*http.Response, error) {
+	return u.Do(req, proxy, id, limit)
+}
+
+func TestModelDetectionSlowResponseAndTimeoutEvidence(t *testing.T) {
+	for _, delay := range []time.Duration{2 * time.Minute, 11 * time.Minute} {
+		t.Run(delay.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
+				s := &AccountTestService{accountRepo: &modelDetectionAccountRepo{account: account}, httpUpstream: &modelDetectionDelayedUpstream{delay: delay}, cfg: &config.Config{}}
+				ctx, cancel := context.WithTimeout(context.Background(), modelDetectionRequestTimeout)
+				defer cancel()
+				started := time.Now()
+				text, err := s.RunModelDetectionPrompt(ctx, 1, "gpt-5.6-sol", "benchmark question")
+				require.Equal(t, "received text", text)
+				if delay < modelDetectionRequestTimeout {
+					require.NoError(t, err)
+					require.Equal(t, delay, time.Since(started), "超过原90秒仍应等待完整答案")
+				} else {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+					require.Equal(t, modelDetectionRequestTimeout, time.Since(started))
+				}
+			})
+		})
+	}
+}
+
+func TestModelDetectionUsesNeutralInstructionsAndKeepsReasoningDefaults(t *testing.T) {
+	for _, protocol := range []string{"responses", "responses_oauth"} {
+		original := createOpenAITestPayload("gpt-5.6-sol", protocol == "responses_oauth")
+		oldInstructions := original["instructions"]
+		ctx := context.WithValue(context.Background(), accountModelDetectionContextKey{}, "benchmark question")
+		applyAccountModelDetectionPrompt(ctx, original, protocol)
+		require.NotEqual(t, oldInstructions, original["instructions"])
+		require.Less(t, len(original["instructions"].(string)), 200)
+		require.NotContains(t, original, "reasoning", "检测不得为提速而降低模型推理强度")
+		require.Equal(t, oldInstructions, createOpenAITestPayload("gpt-5.6-sol", protocol == "responses_oauth")["instructions"], "普通连通性请求保持原有构造")
+	}
 }
 
 func TestModelDetectionAntigravityCarriesPromptAndOutputBudget(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -73,18 +74,19 @@ func (s *AccountTestService) RunModelDetectionPrompt(ctx context.Context, accoun
 	c, _ := gin.CreateTestContext(w)
 	c.Request = (&http.Request{}).WithContext(ctx)
 	err = s.TestAccountConnection(c, accountID, modelID, prompt, AccountTestModeDefault)
+	// 无论成功与否都先提取已经收到的文本；不完整内容仅供排查，不交给评分器。
+	text, eventError := parseTestSSEOutput(w.buffer.String())
 	if w.overflow {
-		return "", errors.New("模型输出超过检测限制，本次结果不计入能力评分")
+		return text, &modelDetectionRequestError{message: modelDetectionOversizedMessage, cause: ErrModelDetectionInvalid}
 	}
 	if ctx.Err() != nil {
-		return "", fmt.Errorf("模型检测请求已取消或超时: %w", ctx.Err())
+		return text, safeModelDetectionRequestError(ctx.Err())
 	}
-	text, eventError := parseTestSSEOutput(w.buffer.String())
 	if err != nil || eventError != "" {
 		if err == nil {
 			err = errors.New(eventError)
 		}
-		return "", safeModelDetectionRequestError(err)
+		return text, safeModelDetectionRequestError(err)
 	}
 	complete := false
 	for _, line := range strings.Split(w.buffer.String(), "\n") {
@@ -97,7 +99,7 @@ func (s *AccountTestService) RunModelDetectionPrompt(ctx context.Context, accoun
 		}
 	}
 	if !complete || strings.TrimSpace(text) == "" || text == "(empty response)" {
-		return "", errors.New("模型未返回完整文本，本次结果不计入能力评分")
+		return text, &modelDetectionRequestError{message: modelDetectionIncompleteMessage}
 	}
 	return text, nil
 }
@@ -114,18 +116,67 @@ func modelDetectionTextModel(model string) bool {
 
 var modelDetectionHTTPStatus = regexp.MustCompile(`(?i)(?:returned|status|http|api)\s*[:=]?\s*([45][0-9]{2})\b`)
 
+const modelDetectionTimeoutMessage = "模型响应超时，本次结果不计入能力评分"
+const modelDetectionCanceledMessage = "检测已取消，未自动重发请求"
+const modelDetectionIncompleteMessage = "模型未返回完整文本，本次结果不计入能力评分"
+const modelDetectionTruncatedMessage = "模型输出被截断或拦截，本次结果不计入能力评分"
+const modelDetectionOversizedMessage = "模型输出超过检测限制，本次结果不计入能力评分"
+const modelDetectionUnknownErrorMessage = "模型未返回完整有效响应，请检查该账号的模型配置与上游连接；本次结果不计入能力评分"
+
+// 安全错误只携带固定诊断文本和分类标记，不保留可能包含凭据的上游原始错误。
+type modelDetectionRequestError struct {
+	message string
+	cause   error
+}
+
+func (e *modelDetectionRequestError) Error() string { return e.message }
+func (e *modelDetectionRequestError) Unwrap() error { return e.cause }
+
 // 上游错误正文可能含请求头或密钥，检测历史只保存可操作的原因与状态码。
 func safeModelDetectionRequestError(err error) error {
+	var safe *modelDetectionRequestError
+	if errors.As(err, &safe) {
+		return safe
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		return errors.New("模型响应超时，本次结果不计入能力评分")
+		return &modelDetectionRequestError{message: modelDetectionTimeoutMessage, cause: context.DeadlineExceeded}
 	}
 	if errors.Is(err, context.Canceled) {
-		return errors.New("模型检测已取消")
+		return &modelDetectionRequestError{message: modelDetectionCanceledMessage, cause: context.Canceled}
+	}
+	if errors.Is(err, ErrModelDetectionInvalid) {
+		return &modelDetectionRequestError{message: modelDetectionOversizedMessage, cause: ErrModelDetectionInvalid}
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return &modelDetectionRequestError{message: modelDetectionTimeoutMessage, cause: context.DeadlineExceeded}
 	}
 	if match := modelDetectionHTTPStatus.FindStringSubmatch(err.Error()); len(match) > 1 {
-		return fmt.Errorf("模型请求失败（HTTP %s），请检查该账号的模型权限、凭据、额度或上游状态", match[1])
+		return &modelDetectionRequestError{message: fmt.Sprintf("模型请求失败（HTTP %s），请检查该账号的模型权限、凭据、额度或上游状态", match[1])}
 	}
-	return errors.New("模型未返回完整有效响应，请检查该账号的模型配置与上游连接；本次结果不计入能力评分")
+	// 原连通性服务通过 SSE 文本传递错误，只识别固定原因，绝不复制上游正文。
+	message := err.Error()
+	if strings.Contains(message, context.DeadlineExceeded.Error()) || strings.Contains(message, "timeout awaiting response headers") || strings.Contains(message, "i/o timeout") || strings.Contains(message, "Client.Timeout exceeded") {
+		return &modelDetectionRequestError{message: modelDetectionTimeoutMessage, cause: context.DeadlineExceeded}
+	}
+	if strings.Contains(message, context.Canceled.Error()) {
+		return &modelDetectionRequestError{message: modelDetectionCanceledMessage, cause: context.Canceled}
+	}
+	switch message {
+	case modelDetectionTimeoutMessage:
+		return &modelDetectionRequestError{message: modelDetectionTimeoutMessage, cause: context.DeadlineExceeded}
+	case modelDetectionCanceledMessage:
+		return &modelDetectionRequestError{message: modelDetectionCanceledMessage, cause: context.Canceled}
+	case modelDetectionOversizedMessage:
+		return &modelDetectionRequestError{message: modelDetectionOversizedMessage, cause: ErrModelDetectionInvalid}
+	case modelDetectionIncompleteMessage, "模型检测响应在完成前中断", "模型检测响应缺少正常结束状态", "模型检测响应缺少正常结束原因", "模型检测响应未正常完成", "模型检测响应未正常结束", "Stream ended before response.completed", "Chat Completions stream from /v1/chat/completions ended before [DONE]":
+		return &modelDetectionRequestError{message: modelDetectionIncompleteMessage}
+	case modelDetectionTruncatedMessage, "模型检测输出被截断或拦截":
+		return &modelDetectionRequestError{message: modelDetectionTruncatedMessage}
+	case "账号检测服务尚未就绪", "检测模型或题目无效", "检测账号不存在或不可访问":
+		return &modelDetectionRequestError{message: message}
+	}
+	return &modelDetectionRequestError{message: modelDetectionUnknownErrorMessage}
 }
 
 func applyAccountModelDetectionPrompt(ctx context.Context, payload map[string]any, protocol string) {
@@ -140,6 +191,8 @@ func applyAccountModelDetectionPrompt(ctx context.Context, payload map[string]an
 		delete(payload, "temperature")
 	case "responses", "responses_oauth":
 		payload["input"] = []map[string]any{{"role": "user", "content": []map[string]any{{"type": "input_text", "text": prompt}}}}
+		// OAuth 需要非空 instructions；检测不继承普通探针的编程代理身份和工具使用指南。
+		payload["instructions"] = "Follow the user's task exactly. Return only the requested answer."
 		if protocol == "responses" {
 			payload["max_output_tokens"] = 4096
 		}

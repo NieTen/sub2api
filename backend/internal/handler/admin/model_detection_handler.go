@@ -24,6 +24,10 @@ type modelDetectionAccountRunRequest struct {
 	ReferenceModel string `json:"reference_model"`
 }
 
+type modelDetectionAccountRunsRequest struct {
+	ModelIDs []string `json:"model_ids"`
+}
+
 func detectionID(c *gin.Context) (int64, bool) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -34,7 +38,7 @@ func detectionID(c *gin.Context) (int64, bool) {
 }
 
 func (h *ModelDetectionHandler) Catalog(c *gin.Context) {
-	response.Success(c, gin.H{"reference_models": modeltrace.Models(), "suite_version": service.ModelDetectionSuiteVersion, "requests_per_run": 4, "limitation": modeltrace.Limitation})
+	response.Success(c, gin.H{"reference_models": modeltrace.Models(), "suite_version": service.ModelDetectionSuiteVersion, "requests_per_run": 4, "request_timeout_seconds": service.ModelDetectionRequestTimeoutSeconds, "limitation": modeltrace.Limitation})
 }
 func (h *ModelDetectionHandler) ListPlans(c *gin.Context) {
 	var id int64
@@ -100,6 +104,38 @@ func (h *ModelDetectionHandler) RunAccount(c *gin.Context) {
 		return
 	}
 	response.Success(c, item)
+}
+
+func (h *ModelDetectionHandler) RunAccountModels(c *gin.Context) {
+	id, ok := detectionID(c)
+	if !ok {
+		return
+	}
+	var req modelDetectionAccountRunsRequest
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "请选择有效的检测模型列表")
+		return
+	}
+	result, err := h.service.RunAccountModels(c.Request.Context(), id, req.ModelIDs)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *ModelDetectionHandler) CreatePlansBatch(c *gin.Context) {
+	var req service.ModelDetectionBatchPlanInput
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 32<<10)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "批量检测计划格式无效")
+		return
+	}
+	result, err := h.service.CreatePlansBatch(c.Request.Context(), req)
+	if response.ErrorFrom(c, err) {
+		return
+	}
+	response.Success(c, result)
 }
 func (h *ModelDetectionHandler) ResetBaseline(c *gin.Context) {
 	id, ok := detectionID(c)

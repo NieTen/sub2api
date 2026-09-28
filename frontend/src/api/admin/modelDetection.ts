@@ -8,7 +8,7 @@ export interface ModelDetectionPlanInput {
   interval_minutes: number
   daily_time: string
   timezone: string
-  reference_model: string
+  reference_model?: string
   drop_threshold: number
   max_results: number
 }
@@ -32,6 +32,10 @@ export interface ModelDetectionDetail {
   response: string
   expected_count?: number
   evaluation?: Record<string, unknown>
+  status?: 'running' | 'completed' | 'error'
+  duration_ms?: number
+  timeout_seconds?: number
+  error_message?: string
 }
 
 export interface ModelDetectionRun {
@@ -76,7 +80,25 @@ export interface ModelDetectionCatalog {
   reference_models: { id: string; display_name: string; family: string }[]
   suite_version: string
   requests_per_run: number
+  request_timeout_seconds?: number
 }
+
+export interface ModelDetectionBatchItem {
+  model_id: string
+  run?: ModelDetectionRun
+  plan?: ModelDetectionPlan
+  error?: string
+  reason?: string
+}
+
+export interface ModelDetectionBatchResult {
+  total: number
+  success: number
+  failed: number
+  results: ModelDetectionBatchItem[]
+}
+
+export type ModelDetectionBatchPlanInput = Omit<ModelDetectionPlanInput, 'model_id' | 'reference_model'> & { model_ids: string[] }
 
 const prefix = '/admin/model-detection'
 
@@ -87,10 +109,14 @@ export const modelDetectionAPI = {
     return (await apiClient.get<ModelDetectionPlan[]>(`${prefix}/plans`, { params: { account_id: accountId } })).data ?? []
   },
   async create(input: ModelDetectionPlanInput) { return (await apiClient.post<ModelDetectionPlan>(`${prefix}/plans`, input)).data },
+  async createBatch(input: ModelDetectionBatchPlanInput) { return (await apiClient.post<ModelDetectionBatchResult>(`${prefix}/plans/batch`, input)).data },
   async update(id: number, input: ModelDetectionPlanInput) { return (await apiClient.put<ModelDetectionPlan>(`${prefix}/plans/${id}`, input)).data },
   async run(id: number) { return (await apiClient.post<ModelDetectionRun>(`${prefix}/plans/${id}/run`)).data },
   async runAccount(accountId: number, modelId: string, referenceModel = '') {
     return (await apiClient.post<ModelDetectionRun>(`${prefix}/accounts/${accountId}/run`, { model_id: modelId, reference_model: referenceModel })).data
+  },
+  async runAccountModels(accountId: number, modelIds: string[]) {
+    return (await apiClient.post<ModelDetectionBatchResult>(`${prefix}/accounts/${accountId}/runs`, { model_ids: modelIds })).data
   },
   async resetBaseline(id: number) { return (await apiClient.post<ModelDetectionPlan>(`${prefix}/plans/${id}/reset-baseline`)).data },
   async detail(id: number) { return (await apiClient.get<ModelDetectionRun>(`${prefix}/runs/${id}`)).data },
@@ -109,7 +135,12 @@ export const modelDetectionAPI = {
 }
 
 export function newDetectionPlan(accountId = 0): ModelDetectionPlanInput {
-  return { account_id: accountId, model_id: '', enabled: false, schedule_type: 'interval', interval_minutes: 60, daily_time: '09:00', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', reference_model: '', drop_threshold: 20, max_results: 100 }
+  return { account_id: accountId, model_id: '', enabled: false, schedule_type: 'interval', interval_minutes: 60, daily_time: '09:00', timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai', drop_threshold: 20, max_results: 100 }
+}
+
+// 只提交管理员可编辑字段；模型指纹参考与历史能力分由后端自动维护。
+export function detectionPlanInput(plan: ModelDetectionPlanInput): ModelDetectionPlanInput {
+  return { account_id: plan.account_id, model_id: plan.model_id.trim(), enabled: plan.enabled, schedule_type: plan.schedule_type, interval_minutes: plan.interval_minutes, daily_time: plan.daily_time, timezone: plan.timezone.trim(), drop_threshold: plan.drop_threshold, max_results: plan.max_results }
 }
 
 export function detectionResultKey(run: ModelDetectionRun): string {

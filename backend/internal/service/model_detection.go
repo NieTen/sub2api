@@ -10,7 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/modeltrace"
 )
 
-const ModelDetectionSuiteVersion = "modeltrace-" + modeltrace.BankVersion + "+" + modelquality.Version
+const ModelDetectionSuiteVersion = "modeltrace-" + modeltrace.BankVersion + "+" + modelquality.Version + "+probe-v2"
 
 var (
 	ErrModelDetectionInvalid     = infraerrors.BadRequest("MODEL_DETECTION_INVALID", "模型检测配置无效")
@@ -54,11 +54,15 @@ type ModelDetectionFingerprint struct {
 }
 
 type ModelDetectionDetail struct {
-	Kind          string          `json:"kind"`
-	Prompt        string          `json:"prompt"`
-	Response      string          `json:"response"`
-	ExpectedCount int             `json:"expected_count,omitempty"`
-	Evaluation    json.RawMessage `json:"evaluation,omitempty"`
+	Kind           string          `json:"kind"`
+	Prompt         string          `json:"prompt"`
+	Response       string          `json:"response"`
+	ExpectedCount  int             `json:"expected_count,omitempty"`
+	Evaluation     json.RawMessage `json:"evaluation,omitempty"`
+	Status         string          `json:"status,omitempty"`
+	DurationMS     int64           `json:"duration_ms,omitempty"`
+	TimeoutSeconds int             `json:"timeout_seconds,omitempty"`
+	ErrorMessage   string          `json:"error_message,omitempty"`
 }
 
 // ModelDetectionRun 保存执行时配置快照，编辑计划不会修改历史证据。
@@ -112,6 +116,34 @@ type ModelDetectionOverview struct {
 	Recent []*ModelDetectionRun  `json:"recent"`
 	Stats  ModelDetectionStats   `json:"stats"`
 	Plans  []*ModelDetectionPlan `json:"plans"`
+}
+
+// ModelDetectionBatchPlanInput 将所选模型分别建为独立计划，彼此保留独立历史和基线。
+type ModelDetectionBatchPlanInput struct {
+	AccountID       int64    `json:"account_id"`
+	ModelIDs        []string `json:"model_ids"`
+	Enabled         bool     `json:"enabled"`
+	ScheduleType    string   `json:"schedule_type"`
+	IntervalMinutes int      `json:"interval_minutes"`
+	DailyTime       string   `json:"daily_time"`
+	Timezone        string   `json:"timezone"`
+	DropThreshold   float64  `json:"drop_threshold"`
+	MaxResults      int      `json:"max_results"`
+}
+
+type ModelDetectionBatchItem struct {
+	ModelID string              `json:"model_id"`
+	Run     *ModelDetectionRun  `json:"run,omitempty"`
+	Plan    *ModelDetectionPlan `json:"plan,omitempty"`
+	Error   string              `json:"error,omitempty"`
+	Reason  string              `json:"reason,omitempty"`
+}
+
+type ModelDetectionBatchResult struct {
+	Total   int                       `json:"total"`
+	Success int                       `json:"success"`
+	Failed  int                       `json:"failed"`
+	Results []ModelDetectionBatchItem `json:"results"`
 }
 
 type ModelDetectionRepository interface {

@@ -34,6 +34,7 @@ func scanDetectionPlan(row detectionScanner) (*service.ModelDetectionPlan, error
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrModelDetectionNotFound
 	}
+	p.ReferenceModel = p.ModelID
 	return p, err
 }
 func scanDetectionRun(row detectionScanner) (*service.ModelDetectionRun, error) {
@@ -69,6 +70,7 @@ func (r *modelDetectionRepository) GetPlan(ctx context.Context, id int64) (*serv
 }
 
 func insertDetectionPlan(ctx context.Context, tx *sql.Tx, p *service.ModelDetectionPlan) (int64, error) {
+	p.ReferenceModel = p.ModelID
 	next, err := service.ModelDetectionNextRun(p, time.Now())
 	if err != nil {
 		return 0, err
@@ -78,6 +80,7 @@ func insertDetectionPlan(ctx context.Context, tx *sql.Tx, p *service.ModelDetect
 	return id, err
 }
 func (r *modelDetectionRepository) SavePlan(ctx context.Context, p *service.ModelDetectionPlan) (*service.ModelDetectionPlan, error) {
+	p.ReferenceModel = p.ModelID
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -105,7 +108,7 @@ func (r *modelDetectionRepository) SavePlan(ctx context.Context, p *service.Mode
 		if nextErr != nil {
 			return nil, nextErr
 		}
-		changed := old.ModelID != p.ModelID || old.ReferenceModel != p.ReferenceModel
+		changed := old.ModelID != p.ModelID
 		_, err = tx.ExecContext(ctx, `UPDATE model_detection_plans SET model_id=$2,enabled=$3,schedule_type=$4,interval_minutes=$5,daily_time=$6,timezone=$7,reference_model=$8,drop_threshold=$9,max_results=$10,next_run_at=$11,baseline_score=CASE WHEN $12 THEN NULL ELSE baseline_score END,baseline_version=CASE WHEN $12 THEN '' ELSE baseline_version END,baseline_run_id=CASE WHEN $12 THEN NULL ELSE baseline_run_id END,baseline_generation=baseline_generation+CASE WHEN $12 THEN 1 ELSE 0 END,updated_at=NOW() WHERE id=$1`, id, p.ModelID, p.Enabled, p.ScheduleType, p.IntervalMinutes, p.DailyTime, p.Timezone, p.ReferenceModel, p.DropThreshold, p.MaxResults, next, changed)
 	}
 	if err != nil {
@@ -163,6 +166,8 @@ func (r *modelDetectionRepository) ResetBaseline(ctx context.Context, id int64) 
 }
 
 func enqueueDetection(ctx context.Context, tx *sql.Tx, p *service.ModelDetectionPlan, trigger string) (*service.ModelDetectionRun, error) {
+	// 所选模型就是本轮参考，旧计划的手工参考不再参与新任务。
+	p.ReferenceModel = p.ModelID
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM model_detection_runs WHERE plan_id=$1 AND status IN ('queued','running'))`, p.ID).Scan(&exists); err != nil {
 		return nil, err
@@ -231,9 +236,8 @@ func (r *modelDetectionRepository) RunAccount(ctx context.Context, p *service.Mo
 	if err != nil {
 		return nil, err
 	}
-	// 即时检测按本轮选择使用参考指纹；空值由服务层精确匹配模型名，否则保持未知。
-	// 此处仅修改执行快照，不覆盖已有计划的参考设置或定时参数。
-	plan.ReferenceModel = p.ReferenceModel
+	// 复用原计划的周期与能力基线，参考始终跟随所选模型。
+	plan.ReferenceModel = plan.ModelID
 	run, err := enqueueDetection(ctx, tx, plan, "manual")
 	if err != nil {
 		return nil, err
@@ -303,7 +307,8 @@ func (r *modelDetectionRepository) Claim(ctx context.Context, lease time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	run, err := scanDetectionRun(tx.QueryRowContext(ctx, `UPDATE model_detection_runs SET status='running',started_at=NOW(),lease_token=$2,lease_until=NOW()+($3::double precision*INTERVAL '1 second') WHERE id=$1 AND status='queued' RETURNING `+detectionRunColumns, id, uuid.NewString(), lease.Seconds()))
+	// 升级前已排队的快照同样改为所选模型，不改动已结束历史证据。
+	run, err := scanDetectionRun(tx.QueryRowContext(ctx, `UPDATE model_detection_runs SET status='running',started_at=NOW(),lease_token=$2,lease_until=NOW()+($3::double precision*INTERVAL '1 second'),plan_snapshot=jsonb_set(plan_snapshot,'{reference_model}',to_jsonb(model_id),true),fingerprint=jsonb_set(fingerprint,'{reference_model}',to_jsonb(model_id),true) WHERE id=$1 AND status='queued' RETURNING `+detectionRunColumns, id, uuid.NewString(), lease.Seconds()))
 	if err != nil {
 		return nil, err
 	}

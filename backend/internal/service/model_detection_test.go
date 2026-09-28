@@ -72,7 +72,11 @@ func TestModelDetectionPlanValidation(t *testing.T) {
 	known.ModelID = modeltrace.Models()[0].ID
 	require.NoError(t, s.validatePlan(context.Background(), known))
 	require.Equal(t, known.ModelID, known.ReferenceModel)
-	for _, change := range []func(*ModelDetectionPlan){func(p *ModelDetectionPlan) { p.IntervalMinutes = -1 }, func(p *ModelDetectionPlan) { p.IntervalMinutes = 10081 }, func(p *ModelDetectionPlan) { p.Timezone = "invalid/local" }, func(p *ModelDetectionPlan) { p.DailyTime = "25:01" }, func(p *ModelDetectionPlan) { p.ModelID = "x\ny" }, func(p *ModelDetectionPlan) { p.MaxResults = 99 }, func(p *ModelDetectionPlan) { p.DropThreshold = 101 }, func(p *ModelDetectionPlan) { p.ReferenceModel = "unknown" }} {
+	unknown := valid()
+	unknown.ReferenceModel = "不允许覆盖的其他模型"
+	require.NoError(t, s.validatePlan(context.Background(), unknown))
+	require.Equal(t, "gpt-test", unknown.ReferenceModel)
+	for _, change := range []func(*ModelDetectionPlan){func(p *ModelDetectionPlan) { p.IntervalMinutes = -1 }, func(p *ModelDetectionPlan) { p.IntervalMinutes = 10081 }, func(p *ModelDetectionPlan) { p.Timezone = "invalid/local" }, func(p *ModelDetectionPlan) { p.DailyTime = "25:01" }, func(p *ModelDetectionPlan) { p.ModelID = "x\ny" }, func(p *ModelDetectionPlan) { p.MaxResults = 99 }, func(p *ModelDetectionPlan) { p.DropThreshold = 101 }} {
 		p := valid()
 		change(p)
 		require.ErrorIs(t, s.validatePlan(context.Background(), p), ErrModelDetectionInvalid)
@@ -157,7 +161,7 @@ func TestModelDetectionProgressLeaseFailureStopsRequests(t *testing.T) {
 	probe := &detectionTestProbe{call: func(context.Context, int, string) (string, error) { return "1 2 3", nil }}
 	s := NewModelDetectionService(repo, nil, probe)
 	s.executeRun(context.Background(), &ModelDetectionRun{Status: "running"})
-	require.Equal(t, 1, probe.calls)
+	require.Equal(t, 0, probe.calls, "题目保存失败时不能发起可能计费的请求")
 	require.Nil(t, repo.complete.Score)
 }
 func TestModelDetectionFingerprintInvalidAndUnsupported(t *testing.T) {

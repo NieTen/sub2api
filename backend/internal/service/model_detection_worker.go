@@ -12,9 +12,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
 
-const modelDetectionRunTimeout = 6 * time.Minute
-const modelDetectionRequestTimeout = 90 * time.Second
-const modelDetectionLeaseDuration = 7 * time.Minute
+// 长整数序列和推理题不能沿用短连通性探针的截止时间；租约须覆盖四次请求及保存时间。
+const ModelDetectionRequestTimeoutSeconds = 600
+const modelDetectionRequestTimeout = time.Duration(ModelDetectionRequestTimeoutSeconds) * time.Second
+const modelDetectionRunTimeout = 4*modelDetectionRequestTimeout + time.Minute
+const modelDetectionLeaseDuration = modelDetectionRunTimeout + time.Minute
 
 // Start 两个受控工作线程只认领持久任务；停止时取消上游请求并等待线程退出。
 func (s *ModelDetectionService) Start() {
@@ -120,52 +122,75 @@ func (s *ModelDetectionService) executeRun(parent context.Context, run *ModelDet
 	}
 	outputs := make([]modeltrace.Output, 0, 3)
 	for _, challenge := range modeltrace.GenerateChallenges() {
-		text, err := s.probeOne(ctx, run, challenge.Prompt)
+		text, err := s.executeDetectionPrompt(ctx, run, ModelDetectionDetail{Kind: "fingerprint", Prompt: challenge.Prompt, ExpectedCount: challenge.ExpectedCount})
 		if err != nil {
-			markDetectionRequestError(run, err)
 			return
 		}
 		outputs = append(outputs, modeltrace.Output{Text: text, ExpectedCount: challenge.ExpectedCount})
-		run.Details = append(run.Details, ModelDetectionDetail{Kind: "fingerprint", Prompt: challenge.Prompt, Response: logredact.RedactText(text), ExpectedCount: challenge.ExpectedCount})
-		run.Progress++
-		if err = s.repo.Progress(ctx, run); err != nil {
-			run.Status = "error"
-			run.ErrorMessage = "检测状态保存失败，本次不参与能力下降判断"
-			return
-		}
 	}
 	run.Fingerprint = classifyDetectionFingerprint(outputs, run.PlanSnapshot.ReferenceModel)
 	challenge := s.qualityChallenge()
-	text, err := s.probeOne(ctx, run, challenge.Prompt)
+	text, err := s.executeDetectionPrompt(ctx, run, ModelDetectionDetail{Kind: "quality", Prompt: challenge.Prompt})
 	if err != nil {
-		markDetectionRequestError(run, err)
 		return
 	}
-	detail := ModelDetectionDetail{Kind: "quality", Prompt: challenge.Prompt, Response: logredact.RedactText(text)}
+	detail := &run.Details[len(run.Details)-1]
 	evaluation, err := modelquality.Evaluate(challenge, text)
 	if err != nil {
-		run.Details = append(run.Details, detail)
-		run.Progress++
 		run.Status = "inconclusive"
 		run.ErrorMessage = "能力题回答格式无效、缺失或不完整，本次不参与能力下降判断"
+		detail.Status = "error"
+		detail.ErrorMessage = run.ErrorMessage
 		return
 	}
 	detail.Evaluation, _ = json.Marshal(evaluation)
-	run.Details = append(run.Details, detail)
-	run.Progress++
 	score := evaluation.Score
 	run.Score = &score
 	run.Status = "completed"
 }
+
+// 发送请求前保存题目，超时也保留已经收到的回答和耗时，方便区分等待响应与中途断流。
+func (s *ModelDetectionService) executeDetectionPrompt(ctx context.Context, run *ModelDetectionRun, detail ModelDetectionDetail) (string, error) {
+	detail.Status = "running"
+	detail.TimeoutSeconds = ModelDetectionRequestTimeoutSeconds
+	run.Details = append(run.Details, detail)
+	index := len(run.Details) - 1
+	if err := s.repo.Progress(ctx, run); err != nil {
+		run.Status = "error"
+		run.ErrorMessage = "检测状态保存失败，尚未发送本题请求"
+		run.Details[index].Status = "error"
+		run.Details[index].ErrorMessage = run.ErrorMessage
+		return "", err
+	}
+	started := time.Now()
+	text, err := s.probeOne(ctx, run, detail.Prompt)
+	run.Details[index].DurationMS = time.Since(started).Milliseconds()
+	run.Details[index].Response = logredact.RedactText(text)
+	if err != nil {
+		markDetectionRequestError(run, err)
+		run.Details[index].Status = "error"
+		run.Details[index].ErrorMessage = run.ErrorMessage
+		return "", err
+	}
+	run.Details[index].Status = "completed"
+	run.Progress++
+	if err := s.repo.Progress(ctx, run); err != nil {
+		run.Status = "error"
+		run.ErrorMessage = "检测状态保存失败，本次不参与能力下降判断"
+		return "", err
+	}
+	return text, nil
+}
+
 func (s *ModelDetectionService) probeOne(ctx context.Context, run *ModelDetectionRun, prompt string) (string, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, modelDetectionRequestTimeout)
 	defer cancel()
 	text, err := s.probe.RunModelDetectionPrompt(requestCtx, run.AccountID, run.ModelID, prompt)
 	if err == nil && requestCtx.Err() != nil {
-		return "", requestCtx.Err()
+		err = requestCtx.Err()
 	}
 	if len(text) > 256*1024 {
-		return "", ErrModelDetectionInvalid
+		return text[:256*1024], ErrModelDetectionInvalid
 	}
 	return text, err
 }
@@ -173,18 +198,14 @@ func markDetectionRequestError(run *ModelDetectionRun, err error) {
 	run.Status = "error"
 	run.Verdict = ""
 	run.Score = nil
-	run.ErrorMessage = "模型请求失败，本次不参与能力下降判断；请检查账号连通性、额度或代理后重试"
+	safeError := safeModelDetectionRequestError(err)
+	run.ErrorMessage = safeError.Error()
 	if errors.Is(err, ErrModelDetectionUnsupported) {
 		run.Status = "inconclusive"
 		run.Fingerprint.Status = "unsupported"
 		run.ErrorMessage = "该账号或模型暂不支持文本能力检测"
-	} else if errors.Is(err, context.DeadlineExceeded) {
-		run.ErrorMessage = "模型请求超时，本次不参与能力下降判断"
-	} else if errors.Is(err, context.Canceled) {
-		run.ErrorMessage = "检测已随服务停止取消，未自动重发请求"
-	} else if errors.Is(err, ErrModelDetectionInvalid) {
+	} else if errors.Is(safeError, ErrModelDetectionInvalid) {
 		run.Status = "inconclusive"
-		run.ErrorMessage = "模型返回内容超出允许范围，本次不参与能力下降判断"
 	}
 }
 func classifyDetectionFingerprint(outputs []modeltrace.Output, reference string) ModelDetectionFingerprint {

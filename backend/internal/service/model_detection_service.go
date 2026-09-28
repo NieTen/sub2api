@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/modelquality"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/modeltrace"
 )
 
 type ModelDetectionService struct {
@@ -62,16 +61,24 @@ func ModelDetectionNextRun(plan *ModelDetectionPlan, from time.Time) (*time.Time
 }
 
 func (s *ModelDetectionService) validatePlan(ctx context.Context, p *ModelDetectionPlan) error {
-	p.ModelID = strings.TrimSpace(p.ModelID)
-	p.ReferenceModel = strings.TrimSpace(p.ReferenceModel)
-	if p.ReferenceModel == "" {
-		for _, m := range modeltrace.Models() {
-			if m.ID == p.ModelID {
-				p.ReferenceModel = m.ID
-				break
-			}
-		}
+	if err := validateModelDetectionPlan(p); err != nil {
+		return err
 	}
+	account, err := s.accounts.GetByID(ctx, p.AccountID)
+	if err != nil {
+		return err
+	}
+	if account == nil {
+		return ErrAccountNotFound
+	}
+	p.AccountName = account.Name
+	return nil
+}
+
+func validateModelDetectionPlan(p *ModelDetectionPlan) error {
+	p.ModelID = strings.TrimSpace(p.ModelID)
+	// 所选模型就是参考，兼容旧请求字段但不允许调用方另选或覆盖参考模型。
+	p.ReferenceModel = p.ModelID
 	if p.AccountID <= 0 || p.ModelID == "" || len(p.ModelID) > 200 || strings.ContainsAny(p.ModelID, "\r\n\x00") {
 		return modelDetectionInvalid("请选择账号并填写有效的模型名称")
 	}
@@ -114,26 +121,6 @@ func (s *ModelDetectionService) validatePlan(ctx context.Context, p *ModelDetect
 	if p.MaxResults < 100 || p.MaxResults > 1000 {
 		return modelDetectionInvalid("每个计划须保留 100～1000 条历史记录")
 	}
-	if p.ReferenceModel != "" {
-		found := false
-		for _, m := range modeltrace.Models() {
-			if m.ID == p.ReferenceModel {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return modelDetectionInvalid("所选参考模型不在本地指纹库中")
-		}
-	}
-	account, err := s.accounts.GetByID(ctx, p.AccountID)
-	if err != nil {
-		return err
-	}
-	if account == nil {
-		return ErrAccountNotFound
-	}
-	p.AccountName = account.Name
 	return nil
 }
 

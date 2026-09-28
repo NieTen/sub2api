@@ -22,7 +22,7 @@ func TestModelDetectionRoutesUseAdminGroup(t *testing.T) {
 	})
 	h := &handler.Handlers{Admin: &handler.AdminHandlers{ModelDetection: admin.NewModelDetectionHandler(nil)}}
 	registerModelDetectionRoutes(group, h)
-	require.Len(t, router.Routes(), 11)
+	require.Len(t, router.Routes(), 13)
 	for _, route := range router.Routes() {
 		req := httptest.NewRequest(route.Method, route.Path, nil)
 		rec := httptest.NewRecorder()
