@@ -8,12 +8,15 @@ import (
 )
 
 var (
-	ErrCommunityInvalid     = infraerrors.BadRequest("COMMUNITY_INVALID", "社群配置或邀请信息无效")
-	ErrCommunityDisabled    = infraerrors.Forbidden("COMMUNITY_DISABLED", "社群入群服务尚未开启")
-	ErrCommunityNotFound    = infraerrors.NotFound("COMMUNITY_NOT_FOUND", "入群信息不存在或已失效")
-	ErrCommunityConflict    = infraerrors.Conflict("COMMUNITY_CONFLICT", "入群身份已被占用或邀请状态已变化，请刷新后重试")
-	ErrCommunityBusy        = infraerrors.Conflict("COMMUNITY_BUSY", "邀请链接正在生成，请稍后重试")
-	ErrCommunityVIPRequired = infraerrors.Forbidden("COMMUNITY_VIP_REQUIRED", "仅成功支付过余额充值订单的用户可加入此群")
+	ErrCommunityInvalid      = infraerrors.BadRequest("COMMUNITY_INVALID", "社群配置或邀请信息无效")
+	ErrCommunityDisabled     = infraerrors.Forbidden("COMMUNITY_DISABLED", "社群入群服务尚未开启")
+	ErrCommunityNotFound     = infraerrors.NotFound("COMMUNITY_NOT_FOUND", "入群信息不存在或已失效")
+	ErrCommunityConflict     = infraerrors.Conflict("COMMUNITY_CONFLICT", "入群身份已被占用或邀请状态已变化，请刷新后重试")
+	ErrCommunityBusy         = infraerrors.Conflict("COMMUNITY_BUSY", "邀请链接正在生成，请稍后重试")
+	ErrCommunityVIPRequired  = infraerrors.Forbidden("COMMUNITY_VIP_REQUIRED", "仅成功支付过余额充值订单的用户可加入此群")
+	ErrCommunityBanned       = infraerrors.Forbidden("COMMUNITY_BANNED", "已被管理员移出社群，禁止重新加入")
+	ErrCommunityForbidden    = infraerrors.Forbidden("COMMUNITY_FORBIDDEN", "仅管理员可以审核解除社群绑定")
+	ErrCommunityUnbindTicket = infraerrors.BadRequest("COMMUNITY_UNBIND_TICKET", "请提供该用户提交且尚未用于解除绑定的有效工单")
 )
 
 type CommunitySettings struct {
@@ -43,6 +46,7 @@ type CommunityMembership struct {
 	GroupChatID        int64      `json:"-"`
 	Status             string     `json:"status"`
 	JoinedAt           *time.Time `json:"joined_at,omitempty"`
+	BoundAt            *time.Time `json:"bound_at,omitempty"`
 	AuthorizedInviteID int64      `json:"-"`
 	LastEventDate      int64      `json:"-"`
 	LastUpdateID       int64      `json:"-"`
@@ -79,6 +83,7 @@ type CommunityState struct {
 	PromptKey           string               `json:"prompt_key,omitempty"`
 	ContactURL          string               `json:"contact_url"`
 	Enabled             bool                 `json:"enabled"`
+	Banned              bool                 `json:"banned"`
 	GroupName           string               `json:"group_name"`
 	BotUsername         string               `json:"bot_username"`
 	Membership          *CommunityMembership `json:"membership"`
@@ -118,6 +123,7 @@ type CommunityMemberSummary struct {
 	NotJoined int64 `json:"not_joined"`
 	Pending   int64 `json:"pending"`
 	Left      int64 `json:"left"`
+	Banned    int64 `json:"banned"`
 }
 type CommunityMemberPage struct {
 	Items    []CommunityMemberItem  `json:"items"`
@@ -127,10 +133,22 @@ type CommunityMemberPage struct {
 	Summary  CommunityMemberSummary `json:"summary"`
 }
 
+type CommunityUnbindResult struct {
+	UserID         int64 `json:"user_id"`
+	TelegramUserID int64 `json:"telegram_user_id"`
+	TicketID       int64 `json:"ticket_id"`
+	Unbound        bool  `json:"unbound"`
+	Banned         bool  `json:"banned"`
+}
+
 // CommunityRepository 将身份确认、唯一归属、加入授权和事件顺序验证放在数据库事务中。
 type CommunityRepository interface {
+	CommunityChatRepository
 	Cleanup(ctx context.Context) error
 	EnsureActiveUser(ctx context.Context, userID int64) error
+	CheckAdmission(ctx context.Context, userID, telegramID, groupID int64) error
+	RecordMemberRemoval(ctx context.Context, telegramID, groupID, eventDate, updateID, actorID int64, banned bool) error
+	Unbind(ctx context.Context, adminID, userID, ticketID int64) (*CommunityUnbindResult, error)
 	HasPaidBalanceRecharge(ctx context.Context, userID int64) (bool, error)
 	GetState(ctx context.Context, userID int64) (*CommunityMembership, *CommunityChallenge, *CommunityInvite, error)
 	ListMembers(ctx context.Context, groupID, botID int64, filter CommunityMemberFilter) (*CommunityMemberPage, error)

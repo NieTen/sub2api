@@ -296,6 +296,46 @@ func TestSecurityHeaders(t *testing.T) {
 	})
 }
 
+func TestSecurityHeadersAllowsAuthenticatedMedia(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		policy  string
+		sources []string
+	}{
+		{name: "default", sources: []string{"'self'", "blob:"}},
+		{name: "legacy-without-media", policy: "default-src 'self'; script-src 'self' __CSP_NONCE__", sources: []string{"'self'", "blob:"}},
+		{name: "legacy-same-origin-media", policy: "default-src 'self'; media-src 'self'", sources: []string{"'self'", "blob:"}},
+		{name: "existing-blob-media", policy: "default-src 'self'; media-src 'self' blob:", sources: []string{"'self'", "blob:"}},
+		{name: "preserve-explicit-media-origin", policy: "default-src 'self'; media-src https://media.example.com", sources: []string{"https://media.example.com", "'self'", "blob:"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(SecurityHeaders(config.CSPConfig{Enabled: true, Policy: tc.policy}, nil))
+			router.GET("/admin/community/members", func(c *gin.Context) {
+				c.Data(http.StatusOK, "text/html; charset=utf-8", []byte("<!doctype html><title>群消息</title>"))
+			})
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/admin/community/members", nil))
+			require.Equal(t, http.StatusOK, w.Code)
+			csp := w.Result().Header.Get("Content-Security-Policy")
+			mediaDirectiveCount := 0
+			for _, rawDirective := range strings.Split(csp, ";") {
+				fields := strings.Fields(rawDirective)
+				if len(fields) > 0 && fields[0] == "media-src" {
+					mediaDirectiveCount++
+					// 精确核对最终响应中的媒体来源，避免意外加入 *、https: 或 data:。
+					require.ElementsMatch(t, tc.sources, fields[1:])
+				}
+			}
+			require.Equal(t, 1, mediaDirectiveCount)
+			require.Contains(t, csp, "default-src 'self'")
+			require.NotContains(t, csp, NonceTemplate)
+			require.Equal(t, "nosniff", w.Result().Header.Get("X-Content-Type-Options"))
+			require.Equal(t, "DENY", w.Result().Header.Get("X-Frame-Options"))
+		})
+	}
+}
+
 func TestCSPNonceKey(t *testing.T) {
 	t.Run("constant_value", func(t *testing.T) {
 		assert.Equal(t, "csp_nonce", CSPNonceKey)

@@ -34,6 +34,11 @@ type communityTestRepository struct {
 	listGroupID          int64
 	listBotID            int64
 	listFilter           CommunityMemberFilter
+	bannedTelegram       map[[2]int64]bool
+	bannedUsers          map[[2]int64]bool
+	ticketOwners         map[int64]int64
+	usedTickets          map[int64]bool
+	unbindCalls          int
 }
 
 func (r *communityTestRepository) Cleanup(context.Context) error { return nil }
@@ -43,6 +48,59 @@ func (r *communityTestRepository) EnsureActiveUser(context.Context, int64) error
 		return ErrCommunityNotFound
 	}
 	return nil
+}
+
+func (r *communityTestRepository) CheckAdmission(_ context.Context, userID, telegramID, groupID int64) error {
+	if r.bannedTelegram[[2]int64{groupID, telegramID}] || r.bannedUsers[[2]int64{groupID, userID}] {
+		return ErrCommunityBanned
+	}
+	if r.member != nil && r.member.GroupChatID == groupID && r.member.Status == "banned" && (r.member.UserID == userID || r.member.TelegramUserID == telegramID) {
+		return ErrCommunityBanned
+	}
+	return nil
+}
+
+func (r *communityTestRepository) RecordMemberRemoval(ctx context.Context, telegramID, groupID, eventDate, updateID, _ int64, banned bool) error {
+	if !banned {
+		return r.MarkMembership(ctx, telegramID, groupID, "left", eventDate, updateID)
+	}
+	if r.bannedTelegram == nil {
+		r.bannedTelegram = make(map[[2]int64]bool)
+		r.bannedUsers = make(map[[2]int64]bool)
+	}
+	r.bannedTelegram[[2]int64{groupID, telegramID}] = true
+	if r.member != nil && r.member.TelegramUserID == telegramID && r.member.GroupChatID == groupID {
+		r.bannedUsers[[2]int64{groupID, r.member.UserID}] = true
+		r.member.Status, r.member.AuthorizedInviteID = "banned", 0
+		if eventDate > r.member.LastEventDate || (eventDate == r.member.LastEventDate && updateID > r.member.LastUpdateID) {
+			r.member.LastEventDate, r.member.LastUpdateID = eventDate, updateID
+		}
+		r.marked = append(r.marked, "banned")
+		if r.invite != nil {
+			r.invite.Status = "revoke_pending"
+		}
+	}
+	return nil
+}
+
+func (r *communityTestRepository) Unbind(ctx context.Context, _, userID, ticketID int64) (*CommunityUnbindResult, error) {
+	r.unbindCalls++
+	if r.ticketOwners[ticketID] != userID || r.usedTickets[ticketID] {
+		return nil, ErrCommunityUnbindTicket
+	}
+	if r.member == nil || r.member.UserID != userID {
+		return nil, ErrCommunityNotFound
+	}
+	result := &CommunityUnbindResult{UserID: userID, TelegramUserID: r.member.TelegramUserID, TicketID: ticketID, Unbound: true, Banned: r.CheckAdmission(ctx, userID, r.member.TelegramUserID, r.member.GroupChatID) != nil}
+	if r.usedTickets == nil {
+		r.usedTickets = make(map[int64]bool)
+	}
+	r.usedTickets[ticketID] = true
+	r.member, r.challenge = nil, nil
+	if r.invite != nil {
+		r.invite.Status = "revoke_pending"
+	}
+	return result, nil
 }
 func (r *communityTestRepository) HasPaidBalanceRecharge(context.Context, int64) (bool, error) {
 	r.paidChecks++
@@ -78,8 +136,16 @@ func (r *communityTestRepository) ConfirmChallenge(_ context.Context, userID int
 	if r.challenge == nil || r.challenge.ID != id || r.challenge.TelegramUserID != telegramID || r.challenge.BotID != botID {
 		return nil, ErrCommunityConflict
 	}
+	if r.member != nil && r.member.TelegramUserID != telegramID {
+		return nil, ErrCommunityConflict
+	}
 	r.challenge.Status = "confirmed"
-	r.member = &CommunityMembership{UserID: userID, TelegramUserID: telegramID, TelegramUsername: r.challenge.TelegramUsername, GroupChatID: groupID, Status: "pending"}
+	boundAt := time.Now()
+	if r.member == nil {
+		r.member = &CommunityMembership{UserID: userID, TelegramUserID: telegramID, TelegramUsername: r.challenge.TelegramUsername, GroupChatID: groupID, Status: "pending", BoundAt: &boundAt}
+	} else if r.member.BoundAt == nil {
+		r.member.BoundAt = &boundAt
+	}
 	return r.member, nil
 }
 func (r *communityTestRepository) GetMembershipByTelegram(_ context.Context, id int64) (*CommunityMembership, error) {
@@ -108,6 +174,9 @@ func (r *communityTestRepository) AuthorizeJoin(ctx context.Context, hash string
 	if !r.active || r.invite == nil || r.invite.URLHash != hash || (r.invite.TelegramUserID != 0 && r.invite.TelegramUserID != identity.ID) || r.invite.GroupChatID != groupID || r.invite.BotID != botID || !r.invite.ExpiresAt.After(time.Now()) {
 		return nil, nil, ErrCommunityNotFound
 	}
+	if err := r.CheckAdmission(ctx, r.invite.UserID, identity.ID, groupID); err != nil {
+		return nil, nil, err
+	}
 	if r.member != nil && r.member.TelegramUserID != identity.ID {
 		return nil, nil, ErrCommunityConflict
 	}
@@ -127,9 +196,12 @@ func (r *communityTestRepository) AuthorizeJoin(ctx context.Context, hash string
 	r.member.AuthorizedInviteID = r.invite.ID
 	return r.member, r.invite, nil
 }
-func (r *communityTestRepository) MarkMembership(_ context.Context, telegramID, groupID int64, status string, eventDate, updateID int64) error {
+func (r *communityTestRepository) MarkMembership(ctx context.Context, telegramID, groupID int64, status string, eventDate, updateID int64) error {
 	if r.member == nil || r.member.TelegramUserID != telegramID {
 		return ErrCommunityNotFound
+	}
+	if err := r.CheckAdmission(ctx, r.member.UserID, telegramID, groupID); err != nil {
+		return err
 	}
 	if eventDate < r.member.LastEventDate || (eventDate == r.member.LastEventDate && updateID < r.member.LastUpdateID) {
 		return ErrCommunityConflict
@@ -143,12 +215,15 @@ func (r *communityTestRepository) MarkMembership(_ context.Context, telegramID, 
 	r.member.LastUpdateID = updateID
 	if status == "left" {
 		r.member.AuthorizedInviteID = 0
-		if r.member.JoinedAt == nil {
+		if r.member.JoinedAt == nil && r.member.BoundAt == nil {
 			r.member = nil
 		}
 	} else if r.member.JoinedAt == nil {
 		now := time.Now()
 		r.member.JoinedAt = &now
+		if r.member.BoundAt == nil {
+			r.member.BoundAt = &now
+		}
 	}
 	return nil
 }
@@ -188,6 +263,7 @@ type communityTestTelegram struct {
 	badMember    bool
 	sendStatus   int
 	messages     []supportTelegramTextRequest
+	bans         []communityBanMemberRequest
 	beforeMember func()
 }
 
@@ -233,6 +309,10 @@ func (r *communityTestTelegram) RoundTrip(request *http.Request) (*http.Response
 			status = r.sendStatus
 		}
 		result = SupportTelegramMessage{MessageID: 1}
+	case "banChatMember":
+		var input communityBanMemberRequest
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		r.bans = append(r.bans, input)
 	case "createChatInviteLink":
 		result = communityTelegramInvite{InviteLink: "https://t.me/+personal_link", CreatesJoinRequest: true, ExpireDate: time.Now().Add(15 * time.Minute).Unix()}
 	case "approveChatJoinRequest":

@@ -21,7 +21,7 @@ func communityTestRepo(t *testing.T) (service.CommunityRepository, sqlmock.Sqlmo
 	return NewCommunityRepository(db), mock
 }
 func communityTestMember(status string, authorized, eventDate, updateID int64) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"user_id", "telegram_user_id", "telegram_username", "telegram_name", "group_chat_id", "status", "joined_at", "authorized_invite_id", "last_event_date", "last_update_id"}).AddRow(2, 99, "alice", "用户", -100, status, nil, authorized, eventDate, updateID)
+	return sqlmock.NewRows([]string{"user_id", "telegram_user_id", "telegram_username", "telegram_name", "group_chat_id", "status", "joined_at", "authorized_invite_id", "last_event_date", "last_update_id", "bound_at"}).AddRow(2, 99, "alice", "用户", -100, status, nil, authorized, eventDate, updateID, nil)
 }
 func communityTestChallenge(telegramID int64, status string) *sqlmock.Rows {
 	return sqlmock.NewRows([]string{"id", "user_id", "bot_id", "token_hash", "telegram_user_id", "telegram_username", "telegram_name", "status", "expires_at"}).AddRow("challenge", 2, 88, "hash", telegramID, "alice", "用户", status, time.Now().Add(time.Minute))
@@ -31,6 +31,14 @@ func communityTestInvite(status string, expires time.Time) *sqlmock.Rows {
 }
 func communityExpectActiveLock(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 AND status='active' AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(2)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+}
+
+func communityExpectAdmissionLock(mock sqlmock.Sqlmock) {
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WithArgs(int64(-100)).WillReturnResult(sqlmock.NewResult(0, 1))
+}
+
+func communityExpectAdmissionAllowed(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT EXISTS .*community_bans`).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 }
 
 func TestCommunityChallengeIdentityCannotBeReplaced(t *testing.T) {
@@ -61,6 +69,7 @@ func TestCommunityChallengeReplacesOnlyCurrentUsersExpiredData(t *testing.T) {
 func TestCommunityInactiveUserCannotConfirm(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT id FROM users .*status='active'.*FOR NO KEY UPDATE`).WithArgs(int64(2)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
 	_, err := r.ConfirmChallenge(context.Background(), 2, "challenge", 99, -100, 88)
@@ -71,7 +80,9 @@ func TestCommunityInactiveUserCannotConfirm(t *testing.T) {
 func TestCommunityTelegramIdentityIsGloballyUnique(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_challenges WHERE id=\$1 AND user_id=\$2 AND bot_id=\$3.*FOR UPDATE`).WithArgs("challenge", int64(2), int64(88)).WillReturnRows(communityTestChallenge(99, "claimed"))
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO community_memberships`).WithArgs(int64(2), int64(99), "alice", "用户", int64(-100)).WillReturnError(&pq.Error{Code: "23505", Constraint: "community_memberships_telegram_user_id_key"})
@@ -84,8 +95,10 @@ func TestCommunityTelegramIdentityIsGloballyUnique(t *testing.T) {
 func TestCommunityClaimedInvitationCannotAuthorizeOtherTelegram(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(regexp.QuoteMeta(`SELECT user_id FROM community_invites WHERE url_hash=$1 AND group_chat_id=$2 AND bot_id=$3`)).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("pending", 7, 1000, 24))
 	mock.ExpectRollback()
 	_, _, err := r.AuthorizeJoin(context.Background(), "invite-hash", service.CommunityTelegramIdentity{ID: 100}, -100, 1000, 25, 88, false)
@@ -96,8 +109,10 @@ func TestCommunityClaimedInvitationCannotAuthorizeOtherTelegram(t *testing.T) {
 func TestCommunityOldJoinRequestCannotOverrideLaterLeave(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_invites`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships.*FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("left", 0, 2000, 30))
 	mock.ExpectRollback()
 	_, _, err := r.AuthorizeJoin(context.Background(), "invite-hash", service.CommunityTelegramIdentity{ID: 99}, -100, 1000, 25, 88, false)
@@ -114,8 +129,10 @@ func TestCommunityExpiredAuthorizationOnlyReplaysExactEvent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			r, mock := communityTestRepo(t)
 			mock.ExpectBegin()
+			communityExpectAdmissionLock(mock)
 			mock.ExpectQuery(`SELECT user_id FROM community_invites`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 			communityExpectActiveLock(mock)
+			communityExpectAdmissionAllowed(mock)
 			mock.ExpectQuery(`SELECT .* FROM community_memberships.*FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("pending", 7, 1000, 25))
 			query := mock.ExpectQuery(`SELECT .* FROM community_invites .*bot_id=\$5 AND \(\(status='active' AND expires_at>NOW\(\)\) OR \(id=\$6 AND \$7::bigint=\$8::bigint AND \$9::bigint=\$10::bigint\)\) FOR UPDATE`).WithArgs("invite-hash", int64(2), int64(99), int64(-100), int64(88), int64(7), tt.date, int64(1000), tt.update, int64(25))
 			if tt.allowed {
@@ -141,8 +158,10 @@ func TestCommunityExpiredAuthorizationOnlyReplaysExactEvent(t *testing.T) {
 func TestCommunityJoinRequiresSavedAuthorization(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_memberships`).WithArgs(int64(99), int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("pending", 0, 0, -1))
 	mock.ExpectRollback()
 	err := r.MarkMembership(context.Background(), 99, -100, "joined", 1000, 25)
@@ -153,8 +172,10 @@ func TestCommunityJoinRequiresSavedAuthorization(t *testing.T) {
 func TestCommunityLateMemberEventCannotUndoNewerLeaveInSameSecond(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_memberships`).WithArgs(int64(99), int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("left", 0, 1000, 26))
 	mock.ExpectRollback()
 	require.ErrorIs(t, r.MarkMembership(context.Background(), 99, -100, "joined", 1000, 25), service.ErrCommunityConflict)
@@ -164,8 +185,10 @@ func TestCommunityLateMemberEventCannotUndoNewerLeaveInSameSecond(t *testing.T) 
 func TestCommunityJoinedStateAndRevocationCommitTogether(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_memberships`).WithArgs(int64(99), int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityTestMember("pending", 7, 1000, 25))
 	mock.ExpectExec(`UPDATE community_memberships SET status=\$2.*WHERE user_id=\$1`).WithArgs(int64(2), "joined", int64(1000), int64(25)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE community_invites SET status='revoke_pending'.*WHERE user_id=\$1 AND status='active'`).WithArgs(int64(2)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -177,7 +200,9 @@ func TestCommunityJoinedStateAndRevocationCommitTogether(t *testing.T) {
 func TestCommunitySaveInviteDoesNotOverwriteConcurrentJoin(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectExec(`DELETE FROM community_invite_leases l .*l.lease_token=\$3 AND l.lease_until>NOW\(\) AND NOT EXISTS.*m.status='joined' OR m.authorized_invite_id IS NOT NULL`).WithArgs(int64(2), int64(-100), "lease").WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectRollback()
 	err := r.SaveInvite(context.Background(), &service.CommunityInvite{UserID: 2, TelegramUserID: 99, GroupChatID: -100}, "lease")
@@ -188,7 +213,9 @@ func TestCommunitySaveInviteDoesNotOverwriteConcurrentJoin(t *testing.T) {
 func TestCommunityInviteLeaseProtectsApprovalAndExistingInvitation(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectExec(`INSERT INTO community_invite_leases.*NOT EXISTS.*m.status='joined' OR m.authorized_invite_id IS NOT NULL.*NOT EXISTS\(SELECT 1 FROM community_invites.*ON CONFLICT\(user_id\).*WHERE community_invite_leases.lease_until<=NOW\(\)`).WithArgs(int64(2), int64(-100), "lease", int64(120)).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
 	ok, err := r.AcquireInviteLease(context.Background(), 2, -100, "lease", 2*time.Minute)

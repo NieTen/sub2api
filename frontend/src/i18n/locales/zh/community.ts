@@ -8,6 +8,10 @@ export default {
     telegramName: '显示名称', telegramUsername: '用户名', telegramId: 'Telegram 用户 ID',
     noUsername: '未设置用户名', boundIdentity: '已绑定的 Telegram 账号', requestIdentity: '本次申请的 Telegram 账号',
     pending: '已领取邀请，等待入群', joined: '已加入群组', left: '已离开群组',
+    banned: '已被踢出，禁止重入', bannedHint: '您已被管理员移出群组，禁止再次加入。如需申诉，请提交工单；解除账号绑定也不会取消禁入。',
+    leftHint: '主动退群后，原绑定仍然保留。您可以重新领取邀请，使用同一 Telegram 账号加入。',
+    bindingPolicy: 'Telegram 账号绑定后不能自行取消。更换账号前，请提交工单，由管理员核实并解除原绑定，再绑定其他账号。',
+    bindingTicket: '提交工单申请解除绑定',
     joinedAt: '加入时间：{time}', join: '使用个人链接加入群组',
     getInvite: '领取个人入群链接', inviteDescription: '领取分配给您网站账号的独立邀请链接，打开链接加入群组后会自动绑定 Telegram 账号。',
     inviteHint: '每条邀请链接仅供一个 Telegram 账号使用，首次申请后即锁定该账号，成功入群后自动失效。请勿转发，其他账号需登录各自的网站账号领取邀请。',
@@ -31,7 +35,7 @@ export default {
     botUsernameHint: '填写机器人用户名，例如 support_bot；此处不填写令牌。',
     prerequisites: '启用前准备', privateGroup: '群组必须是私密群。请将机器人设为管理员，并授予邀请用户和封禁用户权限。',
     reuseBot: '复用「机器人设置」中配置的 Telegram 机器人令牌和 Webhook 验证密钥。',
-    configureBot: '配置 Telegram 机器人', webhook: 'Webhook 需要接收 message、chat_join_request 和 chat_member 三类更新。',
+    configureBot: '配置 Telegram 机器人', webhook: 'Webhook 需要接收 message、edited_message、chat_join_request 和 chat_member 四类更新。',
     validateHint: '保存启用状态时，服务器会核验机器人、私密群组和管理员权限。',
     invalidContactURL: '请填写有效的 HTTP 或 HTTPS 客服地址，不包含用户名、密码或空格。',
     invalidChatID: '群组 Chat ID 应为负整数，例如 -1001234567890。',
@@ -41,10 +45,24 @@ export default {
       title: '社群成员', description: '查看网站用户的入群情况及绑定的 Telegram 账号。',
       search: '搜索用户 ID、邮箱、用户名或 Telegram ID', all: '全部状态', total: '网站用户',
       joined: '已入群', not_joined: '未入群', pending: '待入群', left: '已离群',
-      summaryHint: '统计包含当前搜索匹配的全部网站用户，不受状态筛选影响。“未入群”包含未领取邀请、待入群和已离群。',
+      banned: '已踢出', noReentry: '禁止再次入群', bannedHint: '此用户已被管理员移出群组，禁止再次加入。解除账号绑定不会取消禁入。',
+      summaryHint: '统计包含当前搜索匹配的全部网站用户，不受状态筛选影响。“未入群”包含未领取邀请、待入群、已离群和已踢出。',
       siteIdentity: '网站用户', telegramIdentity: 'Telegram 身份', userStatus: '账号状态', membershipStatus: '入群状态',
       joinedAt: '首次入群时间', inviteExpires: '邀请到期', notBound: '尚未绑定', active: '启用', disabled: '已停用',
-      empty: '没有匹配的用户', emptyHint: '调整搜索关键词或状态筛选后重试。', loadFailed: '加载社群成员失败，请重试。'
+      empty: '没有匹配的用户', emptyHint: '调整搜索关键词或状态筛选后重试。', loadFailed: '加载社群成员失败，请重试。',
+      openDetail: '查看 {name} 的用户详情', detail: '社群用户详情', detailFailed: '加载用户详情失败，请点击头像重试。', botAccount: '机器人账号',
+      unbindTitle: '按工单解除绑定', unbindHint: '仅处理此网站用户提交的解绑工单。解除后，用户才能绑定其他 Telegram 账号；原禁入限制仍保留。',
+      ticketID: '该用户的工单 ID', ticketPlaceholder: '填写已核实的工单编号', unbindConfirm: '我已核实工单申请人及当前绑定，确认解除此绑定。',
+      unbind: '解除绑定', unbinding: '正在解除…', unbound: '已解除绑定。用户可以重新核对并绑定其他账号，原禁入限制仍然有效。', unbindFailed: '解除绑定失败，请检查工单与用户信息后重试。'
+    },
+    chat: {
+      title: '群消息', description: '仅管理员可查看机器人收到的群消息。支持自动刷新与加载更早记录；机器人未收到的历史消息无法补取。',
+      empty: '暂无群消息', emptyHint: '机器人收到本群消息后，会显示在这里。', older: '加载更早消息', newMessages: '查看 {count} 条新消息',
+      unknownSender: '未知发送者', sentByBot: '机器人发送', edited: '编辑后的内容', anonymousHint: '此消息以群组或频道身份发送，无法识别为某个 Telegram 用户。',
+      compose: '发送群消息', placeholder: '输入要发送到当前 Telegram 群的文字…', sendHint: '以配置的机器人身份发送纯文本',
+      send: '发送到群', sending: '正在发送…', sendFailed: '发送结果暂未确认。可保留原内容重试，系统会避免重复发送。', loadFailed: '群消息加载失败，请重试。',
+      loadMedia: '加载附件', download: '下载附件', mediaUnavailable: '此附件暂不可下载或超过 20 MB，请在 Telegram 中查看。', mediaFailed: '附件加载失败，请重试。', noText: '此消息没有文字内容。',
+      types: { text: '文字', photo: '图片', video: '视频', animation: '动图', audio: '音频', voice: '语音', document: '文件', sticker: '贴纸', video_note: '视频消息', contact: '联系人', location: '位置', venue: '地点', poll: '投票', dice: '骰子', service: '群组事件', unsupported: '其他消息' }
     }
   }
 }

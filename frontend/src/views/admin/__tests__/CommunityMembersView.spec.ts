@@ -15,7 +15,7 @@ vi.mock('@/components/common/Pagination.vue', () => ({ default: {
   template: `<button data-test="next-page" @click="$emit('update:page', page + 1)">Next</button>`
 } }))
 vi.mock('@/api/support', () => ({ supportError: (_error: unknown, fallback: string) => fallback }))
-vi.mock('@/api/community', () => ({ communityAPI: { members: vi.fn() } }))
+vi.mock('@/api/community', () => ({ communityAPI: { members: vi.fn(), telegramUser: vi.fn(), avatar: vi.fn() } }))
 
 const data: CommunityMembersPage = {
   items: [
@@ -25,10 +25,10 @@ const data: CommunityMembersPage = {
   total: 70, page: 1, page_size: 20,
   summary: { total: 70, joined: 10, not_joined: 60, pending: 5, left: 2 }
 }
-const render = () => mount(CommunityMembersView, { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } })
+const render = () => mount(CommunityMembersView, { global: { stubs: { Teleport: true, RouterLink: { template: '<a><slot /></a>' } } } })
 
 describe('社群成员列表', () => {
-  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); vi.mocked(communityAPI.members).mockResolvedValue(data) })
+  beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); vi.mocked(communityAPI.members).mockResolvedValue(data); vi.mocked(communityAPI.avatar).mockRejectedValue({ status: 404 }) })
   afterEach(() => { vi.useRealTimers() })
 
   it('展示未入群网站用户与实际 Telegram 身份，统计使用搜索全集而非当前页', async () => {
@@ -46,7 +46,7 @@ describe('社群成员列表', () => {
     wrapper.unmount()
   })
 
-  it.each(['joined', 'not_joined', 'pending', 'left'])('分页后切换 %s 筛选会回到第一页', async status => {
+  it.each(['joined', 'not_joined', 'pending', 'left', 'banned'])('分页后切换 %s 筛选会回到第一页', async status => {
     const wrapper = render()
     await flushPromises()
     await wrapper.find('[data-test="next-page"]').trigger('click')
@@ -87,5 +87,24 @@ describe('社群成员列表', () => {
     const count = vi.mocked(communityAPI.members).mock.calls.length
     await vi.advanceTimersByTimeAsync(500)
     expect(communityAPI.members).toHaveBeenCalledTimes(count)
+  })
+
+  it('网站与 Telegram 头像都能打开详情，Telegram 详情使用最新绑定', async () => {
+    const identity = { telegram_user_id: 123456789, telegram_name: 'Telegram 用户', telegram_username: 'telegram_user', banned: false, member: data.items[1] }
+    vi.mocked(communityAPI.telegramUser).mockResolvedValue(identity)
+    const wrapper = render()
+    await flushPromises()
+    const avatars = wrapper.findAll('button[aria-label="community.members.openDetail"]')
+    expect(avatars).toHaveLength(3)
+    await avatars[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[role="dialog"]').text()).toContain('new@example.com')
+    expect(communityAPI.telegramUser).not.toHaveBeenCalled()
+    await wrapper.find('[aria-label="Close modal"]').trigger('click')
+    await avatars[2].trigger('click')
+    await flushPromises()
+    expect(communityAPI.telegramUser).toHaveBeenCalledWith(123456789)
+    expect(wrapper.find('[role="dialog"]').text()).toContain('joined@example.com')
+    wrapper.unmount()
   })
 })

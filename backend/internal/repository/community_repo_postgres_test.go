@@ -54,9 +54,9 @@ func communityPostgresRepository(t *testing.T) (*communityRepository, context.Co
 	var currentSchema string
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT current_schema()").Scan(&currentSchema))
 	require.Equal(t, schema, currentSchema, "创建测试表前必须确认连接指向独占 schema")
-	_, err = db.ExecContext(ctx, `CREATE TABLE users (id BIGINT PRIMARY KEY, status VARCHAR(16) NOT NULL, deleted_at TIMESTAMPTZ)`)
+	_, err = db.ExecContext(ctx, `CREATE TABLE users (id BIGINT PRIMARY KEY, status VARCHAR(16) NOT NULL, role VARCHAR(16) NOT NULL DEFAULT 'user',email VARCHAR(256) NOT NULL DEFAULT '',username VARCHAR(256) NOT NULL DEFAULT '',deleted_at TIMESTAMPTZ)`)
 	require.NoError(t, err)
-	for _, name := range []string{"230_telegram_community.sql", "231_community_direct_invites.sql"} {
+	for _, name := range []string{"227_support_tickets.sql", "230_telegram_community.sql", "231_community_direct_invites.sql", "242_community_binding_moderation.sql"} {
 		migration, readErr := migrations.FS.ReadFile(name)
 		require.NoError(t, readErr)
 		_, err = db.ExecContext(ctx, string(migration))

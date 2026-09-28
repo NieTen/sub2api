@@ -38,6 +38,7 @@ type SupportDeliverySettings struct {
 	TelegramWebhookPath             string   `json:"telegram_webhook_path,omitempty"`
 	TelegramWebhookURL              string   `json:"telegram_webhook_url,omitempty"`
 	TelegramWebhookRegistered       bool     `json:"telegram_webhook_registered"`
+	TelegramWebhookRevision         int      `json:"telegram_webhook_revision,omitempty"`
 }
 
 type SupportDeliveryService struct {
@@ -52,6 +53,7 @@ type SupportDeliveryService struct {
 	mu                 sync.Mutex
 	wg                 sync.WaitGroup
 	cancel             context.CancelFunc
+	webhookSyncAttempt time.Time
 }
 
 type supportEmailRecipient struct {
@@ -212,11 +214,13 @@ func (s *SupportDeliveryService) UpdateSettings(ctx context.Context, c SupportDe
 	}
 	// 只有 Telegram 确认注册成功才记录状态，不信任客户端传入的注册标志。
 	c.TelegramWebhookRegistered = false
+	c.TelegramWebhookRevision = 0
 	if c.TelegramWebhookURL != "" && c.TelegramBotToken != "" && c.TelegramWebhookSecret != "" {
 		if err = s.registerTelegramWebhook(ctx, &c); err != nil {
 			return nil, err
 		}
 		c.TelegramWebhookRegistered = true
+		c.TelegramWebhookRevision = supportTelegramWebhookRevision
 	}
 	c.ClearTelegramBotToken = false
 	c.ClearTelegramWebhookSecret = false
@@ -292,6 +296,9 @@ func (s *SupportDeliveryService) process(ctx context.Context) {
 			slog.Warn("工单通知配置读取失败", "error", err)
 		}
 		return
+	}
+	if c.TelegramWebhookRevision != supportTelegramWebhookRevision && c.TelegramWebhookURL != "" && c.TelegramBotToken != "" && c.TelegramWebhookSecret != "" {
+		s.syncTelegramWebhook(ctx)
 	}
 	replyEmailEnabled, err := s.loadTicketReplyEmailEnabled(ctx)
 	if err != nil {

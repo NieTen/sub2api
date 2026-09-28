@@ -23,6 +23,12 @@ func registerSupportTicketRoutes(group *gin.RouterGroup, h *handler.Handlers, ad
 func registerSupportAdminRoutes(group *gin.RouterGroup, h *handler.Handlers) {
 	group.GET("/community/settings", h.Community.GetSettings)
 	group.GET("/community/members", h.Community.ListMembers)
+	group.POST("/community/members/:id/unbind", h.Community.Unbind)
+	group.GET("/community/messages", h.Community.ChatMessages)
+	group.POST("/community/messages", h.Community.SendChatMessage)
+	group.GET("/community/messages/:id/media", h.Community.ChatFile(false))
+	group.GET("/community/telegram-users/:id", h.Community.ChatPerson)
+	group.GET("/community/telegram-users/:id/avatar", h.Community.ChatFile(true))
 	group.PUT("/community/settings", h.Community.UpdateSettings)
 	registerSupportTicketRoutes(group, h, true)
 	group.GET("/support/settings", h.SupportDelivery.GetSettings)

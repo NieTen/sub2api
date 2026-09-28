@@ -14,7 +14,7 @@ import (
 )
 
 func communityDirectMember(telegramID, groupID int64, status string, joinedAt *time.Time, authorized, date, update int64) *sqlmock.Rows {
-	return sqlmock.NewRows([]string{"user_id", "telegram_user_id", "telegram_username", "telegram_name", "group_chat_id", "status", "joined_at", "authorized_invite_id", "last_event_date", "last_update_id"}).AddRow(2, telegramID, "alice", "用户", groupID, status, joinedAt, authorized, date, update)
+	return sqlmock.NewRows([]string{"user_id", "telegram_user_id", "telegram_username", "telegram_name", "group_chat_id", "status", "joined_at", "authorized_invite_id", "last_event_date", "last_update_id", "bound_at"}).AddRow(2, telegramID, "alice", "用户", groupID, status, joinedAt, authorized, date, update, joinedAt)
 }
 
 func communityDirectInvite(telegramID int64) *sqlmock.Rows {
@@ -24,7 +24,9 @@ func communityDirectInvite(telegramID int64) *sqlmock.Rows {
 func TestCommunityFirstInviteLeaseDoesNotRequireMembership(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectExec(`INSERT INTO community_invite_leases.*WHERE NOT EXISTS\(SELECT 1 FROM community_memberships.*ON CONFLICT\(user_id\).*WHERE community_invite_leases.lease_until<=NOW\(\)`).WithArgs(int64(2), int64(-100), "first", int64(120)).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	acquired, err := r.AcquireInviteLease(context.Background(), 2, -100, "first", 2*time.Minute)
@@ -37,7 +39,9 @@ func TestCommunitySaveFirstInviteKeepsTelegramUnclaimed(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	expires := time.Now().Add(time.Hour)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectExec(`DELETE FROM community_invite_leases l WHERE l.user_id=\$1 AND l.group_chat_id=\$2 AND l.lease_token=\$3 AND l.lease_until>NOW\(\).*m.authorized_invite_id IS NOT NULL`).WithArgs(int64(2), int64(-100), "lease").WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(`UPDATE community_invites SET status='revoke_pending'.*WHERE user_id=\$1 AND status='active'`).WithArgs(int64(2)).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -55,8 +59,10 @@ func TestCommunityFirstJoinClaimAndGlobalIdentityReservationAreAtomic(t *testing
 		t.Run(map[bool]string{false: "首次认领", true: "同一Telegram被另一网站用户并发占用"}[occupied], func(t *testing.T) {
 			r, mock := communityTestRepo(t)
 			mock.ExpectBegin()
+			communityExpectAdmissionLock(mock)
 			mock.ExpectQuery(`SELECT user_id FROM community_invites WHERE url_hash=\$1 AND group_chat_id=\$2 AND bot_id=\$3`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 			communityExpectActiveLock(mock)
+			communityExpectAdmissionAllowed(mock)
 			mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnError(sql.ErrNoRows)
 			mock.ExpectQuery(`SELECT .* FROM community_invites .*telegram_user_id IS NULL OR telegram_user_id=\$3.*status='active' AND expires_at>NOW\(\).*FOR UPDATE`).WithArgs("invite-hash", int64(2), int64(99), int64(-100), int64(88), int64(0), int64(1000), int64(0), int64(25), int64(-1)).WillReturnRows(communityDirectInvite(0))
 			insert := mock.ExpectQuery(`INSERT INTO community_memberships.*authorized_invite_id,last_event_date,last_update_id.*RETURNING`).WithArgs(int64(2), int64(99), "alice", "用户", int64(-100), int64(7), int64(1000), int64(25))
@@ -88,6 +94,7 @@ func TestCommunityFirstJoinClaimAndGlobalIdentityReservationAreAtomic(t *testing
 func TestCommunityDirectJoinRejectsInactiveOrDeletedUserBeforeClaim(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_invites`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 AND status='active' AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(2)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectRollback()
@@ -102,8 +109,10 @@ func TestCommunityTemporaryReservationReleasedOnlyWithoutRealJoin(t *testing.T) 
 		t.Run(map[bool]string{false: "释放未完成预留", true: "保留真实绑定"}[history != nil], func(t *testing.T) {
 			r, mock := communityTestRepo(t)
 			mock.ExpectBegin()
+			communityExpectAdmissionLock(mock)
 			mock.ExpectQuery(`SELECT user_id FROM community_memberships`).WithArgs(int64(99), int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 			mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 FOR NO KEY UPDATE`).WithArgs(int64(2)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+			communityExpectAdmissionAllowed(mock)
 			mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityDirectMember(99, -100, "pending", history, 7, 1000, 25))
 			if history != nil {
 				mock.ExpectExec(`UPDATE community_memberships SET status=\$2.*ELSE joined_at END.*WHERE user_id=\$1`).WithArgs(int64(2), "left", int64(1001), int64(26)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -122,8 +131,10 @@ func TestCommunityTemporaryReservationReleasedOnlyWithoutRealJoin(t *testing.T) 
 func TestCommunityStaleMemberLookupCannotModifyReplacementReservation(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_memberships`).WithArgs(int64(99), int64(-100)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 FOR NO KEY UPDATE`).WithArgs(int64(2)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	communityExpectAdmissionAllowed(mock)
 	// 等待用户锁期间，旧预留已经删除并被新 Telegram 身份重新领取。
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityDirectMember(100, -100, "pending", nil, 8, 1000, 25))
 	mock.ExpectRollback()
@@ -135,8 +146,10 @@ func TestCommunityGroupChangePreservesPreviouslyJoinedIdentity(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	joined := time.Now().Add(-24 * time.Hour)
 	mock.ExpectBegin()
+	communityExpectAdmissionLock(mock)
 	mock.ExpectQuery(`SELECT user_id FROM community_invites`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 	communityExpectActiveLock(mock)
+	communityExpectAdmissionAllowed(mock)
 	mock.ExpectQuery(`SELECT .* FROM community_memberships WHERE user_id=\$1 FOR UPDATE`).WithArgs(int64(2)).WillReturnRows(communityDirectMember(99, -200, "left", &joined, 0, 2000, 40))
 	mock.ExpectQuery(`SELECT .* FROM community_invites.*FOR UPDATE`).WithArgs("invite-hash", int64(2), int64(99), int64(-100), int64(88), int64(0), int64(1000), int64(0), int64(25), int64(-1)).WillReturnRows(communityDirectInvite(99))
 	mock.ExpectExec(regexp.QuoteMeta(`UPDATE community_memberships SET telegram_username=$2,telegram_name=$3,group_chat_id=$4,status='pending',authorized_invite_id=$5,last_event_date=$6,last_update_id=$7,updated_at=NOW() WHERE user_id=$1 AND telegram_user_id=$8`)).WithArgs(int64(2), "alice", "用户", int64(-100), int64(7), int64(1000), int64(25), int64(99)).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -151,13 +164,13 @@ func TestCommunityGroupChangePreservesPreviouslyJoinedIdentity(t *testing.T) {
 func TestCommunityMembersIncludesUninvitedUsersAndSearchSummaryIgnoresStatus(t *testing.T) {
 	r, mock := communityTestRepo(t)
 	// 精确断言用户全集和当前群 LEFT JOIN；统计查询没有状态筛选参数。
-	summarySQL := communityMemberListBase + `SELECT COUNT(*),COUNT(*) FILTER (WHERE status='joined'),COUNT(*) FILTER (WHERE status<>'joined'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='left') FROM members`
+	summarySQL := communityMemberListBase + `SELECT COUNT(*),COUNT(*) FILTER (WHERE status='joined'),COUNT(*) FILTER (WHERE status<>'joined'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='left'),COUNT(*) FILTER (WHERE status='banned') FROM members`
 	require.Contains(t, communityMemberListBase, "FROM users u")
 	require.Contains(t, communityMemberListBase, "LEFT JOIN community_memberships m ON m.user_id=u.id AND m.group_chat_id=$1")
 	require.Contains(t, communityMemberListBase, "WHERE u.deleted_at IS NULL")
 	require.Contains(t, communityMemberListBase, "i.bot_id=$2 AND i.status='active' AND i.expires_at>NOW()")
 	require.NotContains(t, communityMemberListBase, "u.status='active'")
-	mock.ExpectQuery(regexp.QuoteMeta(summarySQL)).WithArgs(int64(-100), int64(88), "", "%%").WillReturnRows(sqlmock.NewRows([]string{"total", "joined", "not_joined", "pending", "left"}).AddRow(5, 2, 3, 1, 1))
+	mock.ExpectQuery(regexp.QuoteMeta(summarySQL)).WithArgs(int64(-100), int64(88), "", "%%").WillReturnRows(sqlmock.NewRows([]string{"total", "joined", "not_joined", "pending", "left", "banned"}).AddRow(5, 2, 3, 1, 1, 0))
 	expires := time.Now().Add(time.Hour)
 	mock.ExpectQuery(`WITH members AS .*SELECT user_id,email,username,user_status,telegram_user_id,telegram_username,telegram_name,status,joined_at,invite_expires_at FROM members WHERE \(\$5='all' OR \(\$5='not_joined' AND status<>'joined'\) OR status=\$5\) ORDER BY user_id DESC LIMIT \$6 OFFSET \$7`).WithArgs(int64(-100), int64(88), "", "%%", "not_joined", 20, int64(0)).WillReturnRows(sqlmock.NewRows([]string{"user_id", "email", "username", "user_status", "telegram_user_id", "telegram_username", "telegram_name", "status", "joined_at", "invite_expires_at"}).AddRow(5, "new@example.com", "新用户", "active", 0, "", "", "not_joined", nil, nil).AddRow(4, "waiting@example.com", "待入群", "active", 0, "", "", "pending", nil, expires).AddRow(3, "left@example.com", "离群", "disabled", 99, "alice", "用户", "left", nil, nil))
 	page, err := r.ListMembers(context.Background(), -100, 88, service.CommunityMemberFilter{Status: "not_joined"})
@@ -176,7 +189,7 @@ func TestCommunityMembersIncludesUninvitedUsersAndSearchSummaryIgnoresStatus(t *
 
 func TestCommunityMembersSearchEscapesWildcardsAndKeepsEmptyArray(t *testing.T) {
 	r, mock := communityTestRepo(t)
-	mock.ExpectQuery(`WITH members AS .*SELECT COUNT\(\*\).*FROM members`).WithArgs(int64(-100), int64(88), `a_%`, `%a\_\%%`).WillReturnRows(sqlmock.NewRows([]string{"total", "joined", "not_joined", "pending", "left"}).AddRow(0, 0, 0, 0, 0))
+	mock.ExpectQuery(`WITH members AS .*SELECT COUNT\(\*\).*FROM members`).WithArgs(int64(-100), int64(88), `a_%`, `%a\_\%%`).WillReturnRows(sqlmock.NewRows([]string{"total", "joined", "not_joined", "pending", "left", "banned"}).AddRow(0, 0, 0, 0, 0, 0))
 	mock.ExpectQuery(`WITH members AS .*SELECT user_id,email.*LIMIT \$6 OFFSET \$7`).WithArgs(int64(-100), int64(88), `a_%`, `%a\_\%%`, "joined", 10, int64(20)).WillReturnRows(sqlmock.NewRows([]string{"user_id", "email", "username", "user_status", "telegram_user_id", "telegram_username", "telegram_name", "status", "joined_at", "invite_expires_at"}))
 	page, err := r.ListMembers(context.Background(), -100, 88, service.CommunityMemberFilter{Page: 3, PageSize: 10, Search: " a_% ", Status: "joined"})
 	require.NoError(t, err)

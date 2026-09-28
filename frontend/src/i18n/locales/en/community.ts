@@ -8,6 +8,10 @@ export default {
     telegramName: 'Display name', telegramUsername: 'Username', telegramId: 'Telegram user ID',
     noUsername: 'No username set', boundIdentity: 'Linked Telegram account', requestIdentity: 'Telegram account requesting to join',
     pending: 'Invitation issued, waiting to join', joined: 'Joined the group', left: 'Left the group',
+    banned: 'Removed, rejoining blocked', bannedHint: 'An administrator removed you from the group. You cannot rejoin. Open a support ticket to appeal; unlinking your account does not remove the ban.',
+    leftHint: 'Leaving voluntarily keeps your account linked. You can request another invitation and rejoin with the same Telegram account.',
+    bindingPolicy: 'You cannot unlink your Telegram account yourself. To change accounts, open a support ticket. An administrator must verify and unlink the current account before you link another one.',
+    bindingTicket: 'Request unlinking through a ticket',
     joinedAt: 'Joined: {time}', join: 'Join with my personal link',
     getInvite: 'Get my personal invitation', inviteDescription: 'Get an invitation assigned to your website account. Your Telegram account is linked when you join through it.',
     inviteHint: 'Each invitation is for one Telegram account. It is reserved for the first account that requests to join and becomes invalid after a successful join. Do not share it. Other accounts must sign in to their own website account to get an invitation.',
@@ -31,7 +35,7 @@ export default {
     botUsernameHint: 'Enter the bot username, such as support_bot. Do not enter a token here.',
     prerequisites: 'Before enabling', privateGroup: 'Use a private group. Add the bot as an administrator with permission to invite and ban users.',
     reuseBot: 'Uses the Telegram bot token and webhook secret configured under Bot settings.',
-    configureBot: 'Configure Telegram bot', webhook: 'Your webhook must receive message, chat_join_request and chat_member updates.',
+    configureBot: 'Configure Telegram bot', webhook: 'Your webhook must receive message, edited_message, chat_join_request and chat_member updates.',
     validateHint: 'When you enable and save, the server verifies the bot, private group and administrator permissions.',
     invalidContactURL: 'Enter a valid HTTP or HTTPS support URL without usernames, passwords or spaces.',
     invalidChatID: 'The group chat ID must be a negative integer, such as -1001234567890.',
@@ -41,10 +45,24 @@ export default {
       title: 'Community members', description: 'Review website users, group membership and linked Telegram accounts.',
       search: 'Search user ID, email, username or Telegram ID', all: 'All statuses', total: 'Website users',
       joined: 'Joined', not_joined: 'Not joined', pending: 'Waiting to join', left: 'Left',
-      summaryHint: 'Counts cover all users matching the search and are not affected by the status filter. Not joined includes users without invitations, users waiting to join and users who left.',
+      banned: 'Removed', noReentry: 'Rejoining blocked', bannedHint: 'An administrator removed this user from the group. Rejoining is blocked, and unlinking does not remove the ban.',
+      summaryHint: 'Counts cover all users matching the search and are not affected by the status filter. Not joined includes users without invitations, users waiting to join, users who left and users who were removed.',
       siteIdentity: 'Website user', telegramIdentity: 'Telegram identity', userStatus: 'Account status', membershipStatus: 'Group status',
       joinedAt: 'First joined at', inviteExpires: 'Invitation expires', notBound: 'Not linked', active: 'Active', disabled: 'Disabled',
-      empty: 'No matching users', emptyHint: 'Try another search or status filter.', loadFailed: 'Could not load community members. Please try again.'
+      empty: 'No matching users', emptyHint: 'Try another search or status filter.', loadFailed: 'Could not load community members. Please try again.',
+      openDetail: 'View details for {name}', detail: 'Community user details', detailFailed: 'Could not load user details. Click the avatar to retry.', botAccount: 'Bot account',
+      unbindTitle: 'Unlink through a support ticket', unbindHint: 'Only process an unlink request submitted by this website user. They can link another Telegram account afterwards. Existing bans remain in effect.',
+      ticketID: 'This user’s support ticket ID', ticketPlaceholder: 'Enter the verified ticket number', unbindConfirm: 'I verified the requester and the linked account, and confirm unlinking.',
+      unbind: 'Unlink account', unbinding: 'Unlinking…', unbound: 'Account unlinked. The user can verify and link another account. Existing bans remain in effect.', unbindFailed: 'Could not unlink the account. Check the ticket and user details, then retry.'
+    },
+    chat: {
+      title: 'Group messages', description: 'Only administrators can view group messages received by the bot. Refreshes automatically and supports older records. Messages the bot never received cannot be recovered.',
+      empty: 'No group messages yet', emptyHint: 'Messages from this group appear here when the bot receives them.', older: 'Load older messages', newMessages: 'View {count} new messages',
+      unknownSender: 'Unknown sender', sentByBot: 'Sent by bot', edited: 'Edited content', anonymousHint: 'This message was sent as a group or channel. It cannot be identified as an individual Telegram user.',
+      compose: 'Send a group message', placeholder: 'Write a message for the current Telegram group…', sendHint: 'Plain text sent by the configured bot',
+      send: 'Send to group', sending: 'Sending…', sendFailed: 'Delivery is not yet confirmed. Retry with the same text to avoid sending a duplicate.', loadFailed: 'Could not load group messages. Please retry.',
+      loadMedia: 'Load attachment', download: 'Download attachment', mediaUnavailable: 'This attachment is unavailable or exceeds 20 MB. Open it in Telegram.', mediaFailed: 'Could not load the attachment. Please retry.', noText: 'This message has no text.',
+      types: { text: 'Text', photo: 'Photo', video: 'Video', animation: 'Animation', audio: 'Audio', voice: 'Voice message', document: 'File', sticker: 'Sticker', video_note: 'Video message', contact: 'Contact', location: 'Location', venue: 'Venue', poll: 'Poll', dice: 'Dice', service: 'Group event', unsupported: 'Other message' }
     }
   }
 }

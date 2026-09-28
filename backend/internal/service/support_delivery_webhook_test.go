@@ -56,7 +56,7 @@ func TestSupportDeliveryWebhookRegistersAllRequiredUpdates(t *testing.T) {
 				require.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
 				require.Equal(t, "https://portal.example.com"+SupportTelegramWebhookPath, payload["url"])
 				require.Equal(t, config.TelegramWebhookSecret, payload["secret_token"])
-				require.ElementsMatch(t, []any{"message", "chat_join_request", "chat_member"}, payload["allowed_updates"])
+				require.ElementsMatch(t, []any{"message", "edited_message", "chat_join_request", "chat_member"}, payload["allowed_updates"])
 				if drop, exists := payload["drop_pending_updates"]; exists {
 					require.Equal(t, false, drop, "注册不能丢弃等待中的入群或消息回调")
 				}

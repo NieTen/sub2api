@@ -2,15 +2,52 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"strings"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
+
+const supportTelegramWebhookRevision = 2
+
+// 升级后自动补订阅编辑消息；配置锁防止后台同步覆盖管理员刚保存的令牌或地址。
+func (s *SupportDeliveryService) syncTelegramWebhook(ctx context.Context) {
+	s.mu.Lock()
+	if time.Since(s.webhookSyncAttempt) < time.Minute {
+		s.mu.Unlock()
+		return
+	}
+	s.webhookSyncAttempt = time.Now()
+	s.mu.Unlock()
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	c, err := s.loadSettings(ctx)
+	if err != nil || c.TelegramWebhookRevision == supportTelegramWebhookRevision || c.TelegramBotToken == "" || !supportTelegramSecretPattern.MatchString(c.TelegramWebhookSecret) || validateSupportTelegramWebhookURL(c.TelegramWebhookURL) != nil {
+		return
+	}
+	work, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	if err = s.registerTelegramWebhook(work, c); err != nil {
+		slog.Warn("Telegram 群消息回调订阅更新失败，将稍后重试")
+		return
+	}
+	c.TelegramWebhookRevision = supportTelegramWebhookRevision
+	c.TelegramWebhookRegistered = true
+	raw, err := json.Marshal(c)
+	if err == nil {
+		err = s.settings.Set(work, SettingKeySupportDelivery, string(raw))
+	}
+	if err != nil {
+		slog.Warn("Telegram 群消息回调订阅状态保存失败，将稍后重试")
+	}
+}
 
 type supportTelegramWebhookRequest struct {
 	URL            string   `json:"url"`
@@ -52,7 +89,7 @@ func (s *SupportDeliveryService) registerTelegramWebhook(ctx context.Context, c 
 	err := s.telegramJSON(ctx, c.TelegramBotToken, "setWebhook", supportTelegramWebhookRequest{
 		URL: c.TelegramWebhookURL, SecretToken: c.TelegramWebhookSecret,
 		// 必须显式订阅成员变化；Telegram 默认订阅不包含 chat_member。
-		AllowedUpdates: []string{"message", "chat_join_request", "chat_member"},
+		AllowedUpdates: []string{"message", "edited_message", "chat_join_request", "chat_member"},
 	}, &registered)
 	if err == nil && registered {
 		return nil

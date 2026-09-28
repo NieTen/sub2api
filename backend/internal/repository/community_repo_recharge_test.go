@@ -58,8 +58,10 @@ func TestCommunityVIPJoinChecksPaymentBeforeReservingIdentity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r, mock := communityTestRepo(t)
 			mock.ExpectBegin()
+			communityExpectAdmissionLock(mock)
 			mock.ExpectQuery(`SELECT user_id FROM community_invites WHERE url_hash=\$1 AND group_chat_id=\$2 AND bot_id=\$3`).WithArgs("invite-hash", int64(-100), int64(88)).WillReturnRows(sqlmock.NewRows([]string{"user_id"}).AddRow(2))
 			communityExpectActiveLock(mock)
+			communityExpectAdmissionAllowed(mock)
 			if tc.required {
 				query := mock.ExpectQuery(regexp.QuoteMeta(communityPaidBalanceRechargeQuery)).WithArgs(int64(2))
 				if tc.queryErr != nil {

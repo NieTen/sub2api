@@ -10,6 +10,7 @@ import (
 
 // CommunityOperations 将认证和请求解析与社群业务分离。
 type CommunityOperations interface {
+	CommunityChatOperations
 	Get(context.Context, int64) (*service.CommunityState, error)
 	StartVerification(context.Context, int64) (*service.CommunityState, error)
 	CreateInvite(context.Context, int64, service.CommunityInviteInput) (*service.CommunityState, error)

@@ -3,6 +3,7 @@
     <div class="mx-auto max-w-6xl space-y-5 text-gray-900 dark:text-gray-100">
       <p class="text-sm text-gray-500 dark:text-dark-400">{{ t(hideVIP ? 'community.contactDescription' : 'community.description') }}</p>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ error }}</p>
+      <div v-if="banned" role="status" class="rounded-lg bg-red-50 p-4 text-sm leading-6 text-red-700 dark:bg-red-900/20 dark:text-red-300" data-test="banned-notice"><p>{{ t('community.bannedHint') }}</p><router-link to="/tickets" class="mt-2 inline-block font-medium underline">{{ t('community.tickets') }}</router-link></div>
       <div v-if="loading" class="p-10 text-center text-gray-500">{{ t('common.loading') }}</div>
       <div v-else-if="state" :class="['grid items-start gap-5', hideVIP ? 'max-w-xl' : 'lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]']">
         <section class="space-y-4 rounded-xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-800">
@@ -24,7 +25,7 @@
             <div v-if="state.membership?.telegram_user_id" class="rounded-lg border border-primary-100 bg-primary-50/60 p-4 dark:border-primary-900/40 dark:bg-primary-900/10" aria-live="polite">
               <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <h3 class="text-sm font-semibold">{{ t(joined || state.membership.joined_at ? 'community.boundIdentity' : 'community.requestIdentity') }}</h3>
-                <span :class="['badge', joined ? 'badge-success' : 'badge-gray']">{{ t('community.' + state.membership.status) }}</span>
+                <span :class="['badge', banned ? 'badge-danger' : joined ? 'badge-success' : 'badge-gray']">{{ t('community.' + state.membership.status) }}</span>
               </div>
               <dl class="grid gap-3 text-sm sm:grid-cols-2">
                 <div><dt class="text-xs text-gray-500">{{ t('community.telegramName') }}</dt><dd data-test="telegram-name" class="mt-1 break-words">{{ state.membership.telegram_name || '—' }}</dd></div>
@@ -32,8 +33,10 @@
                 <div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('community.telegramId') }}</dt><dd data-test="telegram-id" class="mt-1 font-mono">{{ state.membership.telegram_user_id }}</dd></div>
               </dl>
             </div>
+            <div class="rounded-lg bg-gray-50 p-4 text-sm leading-6 text-gray-600 dark:bg-dark-900/60 dark:text-dark-300" data-test="binding-policy"><p>{{ t('community.bindingPolicy') }}</p><router-link to="/tickets" class="mt-2 inline-block font-medium text-primary-600 underline dark:text-primary-400">{{ t('community.bindingTicket') }}</router-link></div>
+            <p v-if="!banned && state.membership?.status === 'left'" class="text-sm text-gray-500">{{ t('community.leftHint') }}</p>
             <p v-if="joined && state.membership?.joined_at" class="text-sm text-gray-500">{{ t('community.joinedAt', { time: date(state.membership.joined_at) }) }}</p>
-            <template v-if="!joined">
+            <template v-if="!joined && !banned">
               <div v-if="inviteURL && inviteActive" class="space-y-3">
                 <span class="badge badge-warning">{{ t('community.pending') }}</span>
                 <div><a :href="inviteURL" target="_blank" rel="noopener noreferrer" data-test="invite-link" class="btn btn-primary">{{ t('community.join') }}</a></div>
@@ -99,12 +102,13 @@ const contactURL = computed(() => safeCommunityContactURL(state.value?.contact_u
 const inviteURL = computed(() => safeCommunityTelegramURL(state.value?.invite?.url))
 const inviteActive = computed(() => !!state.value?.invite && Date.parse(state.value.invite.expires_at) > now.value)
 const joined = computed(() => state.value?.membership?.status === 'joined')
+const banned = computed(() => state.value?.banned === true || state.value?.membership?.status === 'banned')
 const hideVIP = computed(() => state.value?.require_paid_recharge === true && state.value.eligible !== true)
 const acting = computed(() => issuing.value || verifying.value || confirming.value)
-const canVerifyIdentity = computed(() => state.value?.enabled === true && state.value.eligible === true && state.value.membership === null)
+const canVerifyIdentity = computed(() => !banned.value && state.value?.enabled === true && state.value.eligible === true && state.value.membership === null)
 const challenge = computed(() => {
   const current = state.value?.challenge
-  if (!state.value?.enabled || !state.value.eligible || joined.value || !current || Date.parse(current.expires_at) <= now.value) return null
+  if (!state.value?.enabled || !state.value.eligible || joined.value || banned.value || !current || Date.parse(current.expires_at) <= now.value) return null
   const membership = state.value.membership
   if (membership && (membership.status !== 'pending' || current.status !== 'confirmed' || membership.telegram_user_id !== current.telegram_user_id)) return null
   return ['waiting', 'claimed', 'confirmed'].includes(current.status) && Number.isFinite(Date.parse(current.expires_at)) ? current : null

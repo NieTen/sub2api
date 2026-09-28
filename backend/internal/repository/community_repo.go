@@ -19,14 +19,14 @@ func NewCommunityRepository(db *sql.DB) service.CommunityRepository {
 	return &communityRepository{db: db}
 }
 
-const communityMemberColumns = `user_id,telegram_user_id,telegram_username,telegram_name,group_chat_id,status,joined_at,COALESCE(authorized_invite_id,0),last_event_date,last_update_id`
+const communityMemberColumns = `user_id,telegram_user_id,telegram_username,telegram_name,group_chat_id,status,joined_at,COALESCE(authorized_invite_id,0),last_event_date,last_update_id,bound_at`
 const communityChallengeColumns = `id,user_id,bot_id,token_hash,COALESCE(telegram_user_id,0),telegram_username,telegram_name,status,expires_at`
 const communityInviteColumns = `id,user_id,bot_id,COALESCE(telegram_user_id,0),group_chat_id,url,url_hash,expires_at,status,COALESCE(lease_token,''),attempts`
 const communityPaidBalanceRechargeQuery = `SELECT EXISTS (SELECT 1 FROM payment_orders po WHERE po.user_id=$1 AND po.order_type='balance' AND po.paid_at IS NOT NULL AND po.pay_amount>0)`
 
 func scanCommunityMember(row communityScanner) (*service.CommunityMembership, error) {
 	m := &service.CommunityMembership{}
-	err := row.Scan(&m.UserID, &m.TelegramUserID, &m.TelegramUsername, &m.TelegramName, &m.GroupChatID, &m.Status, &m.JoinedAt, &m.AuthorizedInviteID, &m.LastEventDate, &m.LastUpdateID)
+	err := row.Scan(&m.UserID, &m.TelegramUserID, &m.TelegramUsername, &m.TelegramName, &m.GroupChatID, &m.Status, &m.JoinedAt, &m.AuthorizedInviteID, &m.LastEventDate, &m.LastUpdateID, &m.BoundAt)
 	return m, communityError(err)
 }
 func scanCommunityChallenge(row communityScanner) (*service.CommunityChallenge, error) {
@@ -175,7 +175,13 @@ func (r *communityRepository) ClaimChallenge(ctx context.Context, tokenHash stri
 func (r *communityRepository) ConfirmChallenge(ctx context.Context, userID int64, challengeID string, telegramID, groupID, botID int64) (*service.CommunityMembership, error) {
 	var result *service.CommunityMembership
 	err := r.transaction(ctx, func(tx *sql.Tx) error {
+		if err := communityLockAdmission(ctx, tx, groupID); err != nil {
+			return err
+		}
 		if err := communityLockUser(ctx, tx, userID, true); err != nil {
+			return err
+		}
+		if err := communityCheckAdmission(ctx, tx, userID, telegramID, groupID); err != nil {
 			return err
 		}
 		c, err := scanCommunityChallenge(tx.QueryRowContext(ctx, `SELECT `+communityChallengeColumns+` FROM community_challenges WHERE id=$1 AND user_id=$2 AND bot_id=$3 AND expires_at>NOW() AND status IN ('claimed','confirmed') FOR UPDATE`, challengeID, userID, botID))
@@ -194,6 +200,12 @@ func (r *communityRepository) ConfirmChallenge(ctx context.Context, userID int64
 		}
 		if m.TelegramUserID != telegramID {
 			return service.ErrCommunityConflict
+		}
+		if m.Status == "banned" {
+			return service.ErrCommunityBanned
+		}
+		if err = tx.QueryRowContext(ctx, `UPDATE community_memberships SET bound_at=COALESCE(bound_at,NOW()),updated_at=NOW() WHERE user_id=$1 AND telegram_user_id=$2 RETURNING bound_at`, userID, telegramID).Scan(&m.BoundAt); err != nil {
+			return err
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE community_challenges SET status='confirmed',updated_at=NOW() WHERE id=$1 AND user_id=$2`, challengeID, userID); err != nil {
 			return err
@@ -215,7 +227,13 @@ func (r *communityRepository) GetMembershipByTelegram(ctx context.Context, teleg
 func (r *communityRepository) AcquireInviteLease(ctx context.Context, userID, groupID int64, token string, lease time.Duration) (bool, error) {
 	acquired := false
 	err := r.transaction(ctx, func(tx *sql.Tx) error {
+		if err := communityLockAdmission(ctx, tx, groupID); err != nil {
+			return err
+		}
 		if err := communityLockUser(ctx, tx, userID, true); err != nil {
+			return err
+		}
+		if err := communityCheckAdmission(ctx, tx, userID, 0, groupID); err != nil {
 			return err
 		}
 		// 无会员记录时同样可以领取；已有审批中的身份或有效邀请不能被新请求覆盖。
@@ -232,7 +250,13 @@ func (r *communityRepository) AcquireInviteLease(ctx context.Context, userID, gr
 
 func (r *communityRepository) SaveInvite(ctx context.Context, i *service.CommunityInvite, leaseToken string) error {
 	return r.transaction(ctx, func(tx *sql.Tx) error {
+		if err := communityLockAdmission(ctx, tx, i.GroupChatID); err != nil {
+			return err
+		}
 		if err := communityLockUser(ctx, tx, i.UserID, true); err != nil {
+			return err
+		}
+		if err := communityCheckAdmission(ctx, tx, i.UserID, i.TelegramUserID, i.GroupChatID); err != nil {
 			return err
 		}
 		// 事务中消费生成租约；无会员时不创建任何虚假的 Telegram 身份。
@@ -270,11 +294,17 @@ func (r *communityRepository) AuthorizeJoin(ctx context.Context, inviteHash stri
 	var member *service.CommunityMembership
 	var invite *service.CommunityInvite
 	err := r.transaction(ctx, func(tx *sql.Tx) error {
+		if err := communityLockAdmission(ctx, tx, groupID); err != nil {
+			return err
+		}
 		var userID int64
 		if err := tx.QueryRowContext(ctx, `SELECT user_id FROM community_invites WHERE url_hash=$1 AND group_chat_id=$2 AND bot_id=$3`, inviteHash, groupID, botID).Scan(&userID); err != nil {
 			return err
 		}
 		if err := communityLockUser(ctx, tx, userID, true); err != nil {
+			return err
+		}
+		if err := communityCheckAdmission(ctx, tx, userID, identity.ID, groupID); err != nil {
 			return err
 		}
 		// 在认领身份前核对当前群要求，旧邀请也不能绕过新增的充值门槛。
@@ -296,6 +326,9 @@ func (r *communityRepository) AuthorizeJoin(ctx context.Context, inviteHash stri
 		var authorizedID, lastDate, lastUpdate int64
 		lastUpdate = -1
 		if m != nil {
+			if m.Status == "banned" {
+				return service.ErrCommunityBanned
+			}
 			if m.TelegramUserID != identity.ID {
 				return service.ErrCommunityConflict
 			}
@@ -343,11 +376,17 @@ func (r *communityRepository) MarkMembership(ctx context.Context, telegramID, gr
 		return service.ErrCommunityInvalid
 	}
 	return r.transaction(ctx, func(tx *sql.Tx) error {
+		if err := communityLockAdmission(ctx, tx, groupID); err != nil {
+			return err
+		}
 		var userID int64
 		if err := tx.QueryRowContext(ctx, `SELECT user_id FROM community_memberships WHERE telegram_user_id=$1 AND group_chat_id=$2`, telegramID, groupID).Scan(&userID); err != nil {
 			return err
 		}
 		if err := communityLockUser(ctx, tx, userID, status == "joined"); err != nil {
+			return err
+		}
+		if err := communityCheckAdmission(ctx, tx, userID, telegramID, groupID); err != nil {
 			return err
 		}
 		m, err := scanCommunityMember(tx.QueryRowContext(ctx, `SELECT `+communityMemberColumns+` FROM community_memberships WHERE user_id=$1 FOR UPDATE`, userID))
@@ -357,18 +396,21 @@ func (r *communityRepository) MarkMembership(ctx context.Context, telegramID, gr
 		if m.TelegramUserID != telegramID || m.GroupChatID != groupID || eventDate < m.LastEventDate || (eventDate == m.LastEventDate && updateID < m.LastUpdateID) {
 			return service.ErrCommunityConflict
 		}
+		if m.Status == "banned" {
+			return service.ErrCommunityBanned
+		}
 		if status == "joined" && m.AuthorizedInviteID <= 0 {
 			return service.ErrCommunityConflict
 		}
 		// 尚未真实入群的身份仅为临时预留；失败时撤销凭证并释放双向唯一占用。
-		if status == "left" && m.JoinedAt == nil {
+		if status == "left" && m.JoinedAt == nil && m.BoundAt == nil {
 			if _, err = tx.ExecContext(ctx, `UPDATE community_invites SET status='revoke_pending',available_at=NOW() WHERE user_id=$1 AND status='active'`, userID); err != nil {
 				return err
 			}
-			return communityChanged(tx.ExecContext(ctx, `DELETE FROM community_memberships WHERE user_id=$1 AND telegram_user_id=$2 AND group_chat_id=$3 AND joined_at IS NULL`, userID, telegramID, groupID))
+			return communityChanged(tx.ExecContext(ctx, `DELETE FROM community_memberships WHERE user_id=$1 AND telegram_user_id=$2 AND group_chat_id=$3 AND joined_at IS NULL AND bound_at IS NULL`, userID, telegramID, groupID))
 		}
 		// 状态参数同时用于列赋值和 CASE 判断，显式指定类型以避免 PostgreSQL 将其分别推断为 varchar 和 text。
-		if err = communityChanged(tx.ExecContext(ctx, `UPDATE community_memberships SET status=$2::varchar,last_event_date=$3,last_update_id=$4,joined_at=CASE WHEN $2='joined' THEN COALESCE(joined_at,NOW()) ELSE joined_at END,authorized_invite_id=CASE WHEN $2='left' THEN NULL ELSE authorized_invite_id END,updated_at=NOW() WHERE user_id=$1`, userID, status, eventDate, updateID)); err != nil {
+		if err = communityChanged(tx.ExecContext(ctx, `UPDATE community_memberships SET status=$2::varchar,last_event_date=$3,last_update_id=$4,joined_at=CASE WHEN $2='joined' THEN COALESCE(joined_at,NOW()) ELSE joined_at END,bound_at=CASE WHEN $2='joined' THEN COALESCE(bound_at,NOW()) ELSE bound_at END,authorized_invite_id=CASE WHEN $2='left' THEN NULL ELSE authorized_invite_id END,updated_at=NOW() WHERE user_id=$1`, userID, status, eventDate, updateID)); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE community_invites SET status='revoke_pending',available_at=NOW() WHERE user_id=$1 AND status='active'`, userID)
@@ -385,7 +427,7 @@ const communityMemberListBase = `WITH members AS (
 	SELECT u.id AS user_id,u.email,u.username,u.status AS user_status,
 	COALESCE(m.telegram_user_id,0) AS telegram_user_id,
 	COALESCE(m.telegram_username,'') AS telegram_username,COALESCE(m.telegram_name,'') AS telegram_name,
-	CASE WHEN m.status='joined' THEN 'joined' WHEN inv.expires_at IS NOT NULL THEN 'pending' ELSE COALESCE(m.status,'not_joined') END AS status,
+	CASE WHEN m.status='banned' OR EXISTS(SELECT 1 FROM community_bans b WHERE b.group_chat_id=$1 AND (b.user_id=u.id OR b.telegram_user_id=m.telegram_user_id)) THEN 'banned' WHEN m.status='joined' THEN 'joined' WHEN inv.expires_at IS NOT NULL THEN 'pending' ELSE COALESCE(m.status,'not_joined') END AS status,
 	m.joined_at,inv.expires_at AS invite_expires_at
 	FROM users u
 	LEFT JOIN community_memberships m ON m.user_id=u.id AND m.group_chat_id=$1
@@ -406,7 +448,7 @@ func (r *communityRepository) ListMembers(ctx context.Context, groupID, botID in
 		status = "all"
 	}
 	switch status {
-	case "all", "joined", "not_joined", "pending", "left":
+	case "all", "joined", "not_joined", "pending", "left", "banned":
 	default:
 		return nil, service.ErrCommunityInvalid
 	}
@@ -415,7 +457,7 @@ func (r *communityRepository) ListMembers(ctx context.Context, groupID, botID in
 	args := []any{groupID, botID, search, pattern}
 	page := &service.CommunityMemberPage{Items: []service.CommunityMemberItem{}, Page: filter.Page, PageSize: filter.PageSize}
 	// 统计只受搜索条件影响，切换状态筛选不会改变统计卡片。
-	err := r.db.QueryRowContext(ctx, communityMemberListBase+`SELECT COUNT(*),COUNT(*) FILTER (WHERE status='joined'),COUNT(*) FILTER (WHERE status<>'joined'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='left') FROM members`, args...).Scan(&page.Summary.Total, &page.Summary.Joined, &page.Summary.NotJoined, &page.Summary.Pending, &page.Summary.Left)
+	err := r.db.QueryRowContext(ctx, communityMemberListBase+`SELECT COUNT(*),COUNT(*) FILTER (WHERE status='joined'),COUNT(*) FILTER (WHERE status<>'joined'),COUNT(*) FILTER (WHERE status='pending'),COUNT(*) FILTER (WHERE status='left'),COUNT(*) FILTER (WHERE status='banned') FROM members`, args...).Scan(&page.Summary.Total, &page.Summary.Joined, &page.Summary.NotJoined, &page.Summary.Pending, &page.Summary.Left, &page.Summary.Banned)
 	if err != nil {
 		return nil, err
 	}
@@ -428,6 +470,8 @@ func (r *communityRepository) ListMembers(ctx context.Context, groupID, botID in
 		page.Total = page.Summary.Pending
 	case "left":
 		page.Total = page.Summary.Left
+	case "banned":
+		page.Total = page.Summary.Banned
 	default:
 		page.Total = page.Summary.Total
 	}

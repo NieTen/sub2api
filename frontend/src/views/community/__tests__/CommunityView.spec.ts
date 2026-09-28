@@ -126,6 +126,36 @@ describe('个人邀请直接入群流程', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    { ...invited, membership: { ...joined.membership!, status: 'banned' as const } },
+    { ...invited, banned: true, membership: null, challenge: claimed.challenge }
+  ])('禁入时隐藏已有邀请及核对操作，解绑后也不会恢复入口 %#', async data => {
+    vi.mocked(communityAPI.get).mockResolvedValue(data)
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.find('[data-test="banned-notice"]').text()).toContain('community.bannedHint')
+    expect(wrapper.find('[data-test="invite-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="reissue"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="get-invite"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="identity-recovery"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="binding-policy"]').text()).toContain('community.bindingPolicy')
+    expect(wrapper.find('[data-test="binding-policy"] a').attributes('href')).toBe('/tickets')
+    expect(communityAPI.invite).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('失去 VIP 资格或群组关闭仍显示禁入提示，但不泄露群资料', async () => {
+    vi.mocked(communityAPI.get).mockResolvedValue({ ...base, banned: true, require_paid_recharge: true, eligible: false, enabled: false })
+    const wrapper = render()
+    await flushPromises()
+    expect(wrapper.find('[data-test="banned-notice"]').text()).toContain('community.bannedHint')
+    expect(wrapper.find('[data-test="banned-notice"] a').attributes('href')).toBe('/tickets')
+    expect(wrapper.find('[data-test="community-group"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('用户群')
+    expect(communityAPI.invite).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('拒绝危险客服和邀请地址，并保留工单入口', async () => {
     vi.mocked(communityAPI.get).mockResolvedValue({ ...invited, contact_url: 'javascript:alert(1)', invite: { url: 'https://t.me.evil.example/+abc', expires_at: expires } })
     const wrapper = render()

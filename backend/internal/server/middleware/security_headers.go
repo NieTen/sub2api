@@ -56,6 +56,9 @@ var requiredCSPDirectiveValues = []struct {
 	// 插件配置 UI 使用同源 iframe；目标响应仍必须显式放开 X-Frame-Options，
 	// 因此这里只允许 'self' 不会使其他默认 DENY 的管理/API 页面可被嵌入。
 	{"frame-src", "'self'"},
+	// 群消息的音视频先经本站鉴权下载，再以 Blob URL 播放；旧配置也需要补齐这两个来源。
+	{"media-src", "'self'"},
+	{"media-src", "blob:"},
 	{"script-src", CloudflareInsightsDomain},
 	{"script-src", TencentCaptchaDomain},
 	{"frame-src", TencentCaptchaDomain},
@@ -164,7 +167,7 @@ func isAPIRoutePath(c *gin.Context) bool {
 }
 
 // enhanceCSPPolicy 确保 CSP 策略包含 nonce 支持和运行时组件必需域名。
-// 这样旧配置文件没有及时补域名时，验证码和支付组件仍能正常加载。
+// 这样旧配置文件没有及时补来源时，验证码、支付组件和鉴权音视频仍能正常加载。
 func enhanceCSPPolicy(policy string) string {
 	// Add nonce placeholder to script-src if not present
 	if !strings.Contains(policy, NonceTemplate) && !strings.Contains(policy, "'nonce-") {

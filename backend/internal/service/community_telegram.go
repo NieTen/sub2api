@@ -39,10 +39,24 @@ type communityTelegramMember struct {
 	CanRestrictMembers bool                  `json:"can_restrict_members"`
 }
 type communityTelegramMessage struct {
-	Chat           communityTelegramChat  `json:"chat"`
-	From           *communityTelegramUser `json:"from"`
-	Text           string                 `json:"text"`
-	ReplyToMessage json.RawMessage        `json:"reply_to_message"`
+	MessageID      int64                      `json:"message_id"`
+	Date           int64                      `json:"date"`
+	EditDate       int64                      `json:"edit_date"`
+	Chat           communityTelegramChat      `json:"chat"`
+	From           *communityTelegramUser     `json:"from"`
+	SenderChat     *communityTelegramChat     `json:"sender_chat"`
+	Text           string                     `json:"text"`
+	Caption        string                     `json:"caption"`
+	Photo          []SupportTelegramPhoto     `json:"photo"`
+	Document       *SupportTelegramDocument   `json:"document"`
+	Video          *SupportTelegramDocument   `json:"video"`
+	Audio          *SupportTelegramDocument   `json:"audio"`
+	Voice          *SupportTelegramDocument   `json:"voice"`
+	Animation      *SupportTelegramDocument   `json:"animation"`
+	Sticker        *SupportTelegramDocument   `json:"sticker"`
+	VideoNote      *SupportTelegramDocument   `json:"video_note"`
+	ReplyToMessage json.RawMessage            `json:"reply_to_message"`
+	Raw            map[string]json.RawMessage `json:"-"`
 }
 type communityTelegramJoinRequest struct {
 	Chat       communityTelegramChat    `json:"chat"`
@@ -52,6 +66,7 @@ type communityTelegramJoinRequest struct {
 }
 type communityTelegramMemberUpdate struct {
 	Chat          communityTelegramChat    `json:"chat"`
+	From          communityTelegramUser    `json:"from"`
 	Date          int64                    `json:"date"`
 	OldChatMember communityTelegramMember  `json:"old_chat_member"`
 	NewChatMember communityTelegramMember  `json:"new_chat_member"`
@@ -60,6 +75,7 @@ type communityTelegramMemberUpdate struct {
 type communityTelegramUpdate struct {
 	UpdateID        int64                          `json:"update_id"`
 	Message         *communityTelegramMessage      `json:"message"`
+	EditedMessage   *communityTelegramMessage      `json:"edited_message"`
 	ChatJoinRequest *communityTelegramJoinRequest  `json:"chat_join_request"`
 	ChatMember      *communityTelegramMemberUpdate `json:"chat_member"`
 }
@@ -94,7 +110,7 @@ func communityMemberPrivileged(m *communityTelegramMember) bool {
 	return m != nil && (m.Status == "administrator" || m.Status == "creator")
 }
 func communityPermanentError(err error) bool {
-	return errors.Is(err, ErrCommunityNotFound) || errors.Is(err, ErrCommunityConflict) || errors.Is(err, ErrCommunityInvalid) || errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrCommunityVIPRequired)
+	return errors.Is(err, ErrCommunityNotFound) || errors.Is(err, ErrCommunityConflict) || errors.Is(err, ErrCommunityInvalid) || errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrCommunityVIPRequired) || errors.Is(err, ErrCommunityBanned)
 }
 func communityTelegramBadRequest(err error) bool {
 	var api *SupportTelegramAPIError
@@ -139,6 +155,7 @@ func (s *CommunityService) HandleTelegramWebhook(ctx context.Context, secret str
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
 	relevant := communityPrivateMessage(update.Message)
+	relevant = relevant || communityGroupMessage(update.Message, groupID) || communityGroupMessage(update.EditedMessage, groupID)
 	relevant = relevant || (update.ChatJoinRequest != nil && update.ChatJoinRequest.Chat.ID == groupID) || (update.ChatMember != nil && update.ChatMember.Chat.ID == groupID)
 	if !relevant {
 		return nil
@@ -163,10 +180,15 @@ func (s *CommunityService) processWebhook(ctx context.Context, c *CommunitySetti
 	if err := json.Unmarshal(event.Payload, &update); err != nil {
 		return nil
 	}
+	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
+	for _, message := range []*communityTelegramMessage{update.Message, update.EditedMessage} {
+		if communityGroupMessage(message, groupID) {
+			return s.repo.SaveChatMessage(ctx, communityArchiveMessage(c.BotID, &update.UpdateID, message))
+		}
+	}
 	if update.Message != nil {
 		return s.processStart(ctx, c, shared, update.Message)
 	}
-	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
 	if update.ChatJoinRequest != nil && update.ChatJoinRequest.Chat.ID == groupID {
 		return s.processJoinRequest(ctx, c, shared, update.UpdateID, update.ChatJoinRequest)
 	}
@@ -214,6 +236,17 @@ func (s *CommunityService) replyCommunityHelp(ctx context.Context, c *CommunityS
 		return err
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
+	userID := int64(0)
+	if membership != nil && membership.GroupChatID == groupID {
+		userID = membership.UserID
+	}
+	admissionErr := s.checkCommunityAdmission(ctx, c, userID, message.From.ID)
+	if errors.Is(admissionErr, ErrCommunityBanned) || (membership != nil && membership.GroupChatID == groupID && membership.Status == "banned") {
+		return s.replyCommunityText(ctx, shared, message.Chat.ID, "此 Telegram 账号已被管理员移出社群，禁止重新加入。解除网站绑定不会取消禁入；如需核查，请通过网站工单联系管理员。")
+	}
+	if admissionErr != nil {
+		return admissionErr
+	}
 	if membership != nil && membership.GroupChatID == groupID {
 		switch membership.Status {
 		case "joined":
@@ -245,6 +278,16 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 	if err != nil && !communityPermanentError(err) {
 		return err
 	}
+	userID := int64(0)
+	if existing != nil {
+		userID = existing.UserID
+	}
+	if err = s.checkCommunityAdmission(ctx, c, userID, request.From.ID); err != nil {
+		if errors.Is(err, ErrCommunityBanned) {
+			return s.rejectBannedCommunityJoin(ctx, c, shared, request.From.ID)
+		}
+		return err
+	}
 	if existing != nil && existing.Status == "joined" && existing.GroupChatID == request.Chat.ID {
 		return nil
 	}
@@ -254,6 +297,9 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 	identity := CommunityTelegramIdentity{ID: request.From.ID, Username: request.From.Username, Name: strings.TrimSpace(request.From.FirstName + " " + request.From.LastName)}
 	membership, invite, err := s.repo.AuthorizeJoin(ctx, communityHash(request.InviteLink.InviteLink), identity, request.Chat.ID, request.Date, updateID, c.BotID, c.RequirePaidRecharge)
 	if err != nil {
+		if errors.Is(err, ErrCommunityBanned) {
+			return s.rejectBannedCommunityJoin(ctx, c, shared, request.From.ID)
+		}
 		if errors.Is(err, ErrCommunityVIPRequired) {
 			return s.rejectIneligibleJoin(ctx, c, shared, updateID, request, existing)
 		}
@@ -268,6 +314,9 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 	}
 	if !communityMemberPresent(current) {
 		if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
+			if errors.Is(err, ErrCommunityBanned) {
+				return s.rejectBannedCommunityJoin(ctx, c, shared, request.From.ID)
+			}
 			if communityPermanentError(err) {
 				return s.rejectIneligibleJoin(ctx, c, shared, updateID, request, membership)
 			}
@@ -293,6 +342,9 @@ func (s *CommunityService) processJoinRequest(ctx context.Context, c *CommunityS
 		return ErrCommunityBusy
 	}
 	if err = s.currentCommunityAccess(ctx, c, membership.UserID); err != nil {
+		if errors.Is(err, ErrCommunityBanned) {
+			return s.rejectBannedCommunityJoin(ctx, c, shared, request.From.ID)
+		}
 		if communityPermanentError(err) {
 			return s.rejectIneligibleJoin(ctx, c, shared, updateID, request, membership)
 		}
@@ -379,16 +431,26 @@ func (s *CommunityService) processMemberUpdate(ctx context.Context, c *Community
 		return err
 	}
 	if !communityMemberPresent(&member) {
-		if membership == nil {
-			return nil
+		// 本人退出保留原绑定；管理员移出形成永久禁入。机器人自己的资格校验短踢不能视为管理员封禁。
+		externalActor := update.From.ID > 0 && update.From.ID != id && update.From.ID != c.BotID
+		banned := externalActor && (member.Status == "kicked" || communityMemberPresent(&update.OldChatMember))
+		if err = s.repo.RecordMemberRemoval(ctx, id, update.Chat.ID, update.Date, updateID, update.From.ID, banned); err != nil {
+			return communityRemovalError(err)
 		}
-		if err = s.repo.MarkMembership(ctx, id, update.Chat.ID, "left", update.Date, updateID); err != nil {
-			if communityPermanentError(err) {
-				return nil
-			}
-			return err
+		if banned {
+			return s.enforceCommunityBan(ctx, c, shared, id)
 		}
 		return nil
+	}
+	userID := int64(0)
+	if membership != nil {
+		userID = membership.UserID
+	}
+	if err = s.checkCommunityAdmission(ctx, c, userID, id); err != nil {
+		if errors.Is(err, ErrCommunityBanned) {
+			return s.enforceCommunityBan(ctx, c, shared, id)
+		}
+		return err
 	}
 	// 管理员先批准、或申请事件丢失时，仍须通过原专属邀请事务核验唯一归属和当前资格。
 	var authorizedInvite *CommunityInvite
@@ -424,6 +486,9 @@ func (s *CommunityService) processMemberUpdate(ctx context.Context, c *Community
 			}
 		}
 		activeErr := s.currentCommunityAccess(ctx, c, membership.UserID)
+		if errors.Is(activeErr, ErrCommunityBanned) {
+			return s.enforceCommunityBan(ctx, c, shared, id)
+		}
 		if activeErr != nil && !communityPermanentError(activeErr) {
 			return activeErr
 		}

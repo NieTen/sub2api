@@ -261,6 +261,9 @@ func (s *CommunityService) requireCommunityAccess(ctx context.Context, c *Commun
 	if err := s.repo.EnsureActiveUser(ctx, userID); err != nil {
 		return err
 	}
+	if err := s.checkCommunityAdmission(ctx, c, userID, 0); err != nil {
+		return err
+	}
 	return s.requireCommunityEligibility(ctx, c, userID)
 }
 
@@ -284,9 +287,13 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 	if err != nil {
 		return nil, err
 	}
+	admissionErr := s.checkCommunityAdmission(ctx, c, userID, 0)
+	if admissionErr != nil && !errors.Is(admissionErr, ErrCommunityBanned) {
+		return nil, admissionErr
+	}
 	if err = s.requireCommunityEligibility(ctx, c, userID); err != nil {
 		if errors.Is(err, ErrCommunityVIPRequired) {
-			return &CommunityState{ContactURL: c.ContactURL, RequirePaidRecharge: true}, nil
+			return &CommunityState{ContactURL: c.ContactURL, RequirePaidRecharge: true, Banned: errors.Is(admissionErr, ErrCommunityBanned)}, nil
 		}
 		return nil, err
 	}
@@ -294,7 +301,7 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 	if err != nil {
 		return nil, err
 	}
-	state := &CommunityState{ContactURL: c.ContactURL, Enabled: c.Enabled, RequirePaidRecharge: c.RequirePaidRecharge, Eligible: true, GroupName: c.GroupName, BotUsername: c.BotUsername, Membership: membership, Challenge: challenge, Invite: invite}
+	state := &CommunityState{ContactURL: c.ContactURL, Enabled: c.Enabled, Banned: errors.Is(admissionErr, ErrCommunityBanned), RequirePaidRecharge: c.RequirePaidRecharge, Eligible: true, GroupName: c.GroupName, BotUsername: c.BotUsername, Membership: membership, Challenge: challenge, Invite: invite}
 	if state.Enabled {
 		shared, err := s.delivery.loadSettings(ctx)
 		if err != nil {
@@ -308,7 +315,7 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 		s.mu.Unlock()
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
-	pendingMember := state.Enabled && membership != nil && membership.UserID == userID && membership.GroupChatID == groupID && membership.Status == "pending" && membership.AuthorizedInviteID > 0
+	pendingMember := state.Enabled && !state.Banned && membership != nil && membership.UserID == userID && membership.GroupChatID == groupID && membership.Status == "pending" && membership.AuthorizedInviteID > 0
 	if pendingMember && invite != nil && invite.ID == membership.AuthorizedInviteID && invite.UserID == userID &&
 		invite.TelegramUserID == membership.TelegramUserID && invite.GroupChatID == groupID && invite.BotID == c.BotID &&
 		invite.Status == "active" && invite.ExpiresAt.After(time.Now()) {
@@ -340,11 +347,14 @@ func (s *CommunityService) Get(ctx context.Context, userID int64) (*CommunitySta
 		copy.JoinedAt = nil
 		state.Membership = &copy
 	}
-	if !state.Enabled {
+	if membership != nil && membership.GroupChatID == groupID && membership.Status == "banned" {
+		state.Banned = true
+	}
+	if !state.Enabled || state.Banned {
 		state.Invite = nil
 		state.Challenge = nil
 	}
-	state.ShowJoinPrompt = state.Enabled && c.RequirePaidRecharge && c.LoginPromptEnabled && (state.Membership == nil || state.Membership.Status != "joined")
+	state.ShowJoinPrompt = state.Enabled && !state.Banned && c.RequirePaidRecharge && c.LoginPromptEnabled && (state.Membership == nil || state.Membership.Status != "joined")
 	if state.ShowJoinPrompt {
 		state.PromptKey = communityHash(strconv.FormatInt(c.BotID, 10) + ":" + c.GroupChatID)
 	}
@@ -386,14 +396,14 @@ func (s *CommunityService) StartVerification(ctx context.Context, userID int64) 
 	if err != nil {
 		return nil, err
 	}
-	if err = s.requireCommunityEligibility(ctx, c, userID); err != nil {
+	if err = s.requireCommunityAccess(ctx, c, userID); err != nil {
 		return nil, err
 	}
 	c, _, err = s.checkedConfiguration(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err = s.requireCommunityEligibility(ctx, c, userID); err != nil {
+	if err = s.requireCommunityAccess(ctx, c, userID); err != nil {
 		return nil, err
 	}
 	membership, _, _, err := s.repo.GetState(ctx, userID)
@@ -438,14 +448,14 @@ func (s *CommunityService) CreateInvite(ctx context.Context, userID int64, input
 	if err != nil {
 		return nil, err
 	}
-	if err = s.requireCommunityEligibility(ctx, c, userID); err != nil {
+	if err = s.requireCommunityAccess(ctx, c, userID); err != nil {
 		return nil, err
 	}
 	c, shared, err := s.checkedConfiguration(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err = s.requireCommunityEligibility(ctx, c, userID); err != nil {
+	if err = s.requireCommunityAccess(ctx, c, userID); err != nil {
 		return nil, err
 	}
 	groupID, _ := strconv.ParseInt(c.GroupChatID, 10, 64)
@@ -478,7 +488,7 @@ func (s *CommunityService) CreateInvite(ctx context.Context, userID int64, input
 		invite = nil
 	}
 	// 兼容旧验证流程：从未真实加入、也没有在途批准的过期预留不应永久锁住账号。
-	if input.ChallengeID == "" && membership != nil && membership.JoinedAt == nil && membership.AuthorizedInviteID == 0 && membership.Status != "joined" && (invite == nil || invite.Status != "active" || !invite.ExpiresAt.After(time.Now()) || invite.BotID != c.BotID || invite.GroupChatID != groupID) {
+	if input.ChallengeID == "" && membership != nil && membership.BoundAt == nil && membership.JoinedAt == nil && membership.AuthorizedInviteID == 0 && membership.Status != "joined" && (invite == nil || invite.Status != "active" || !invite.ExpiresAt.After(time.Now()) || invite.BotID != c.BotID || invite.GroupChatID != groupID) {
 		if err = s.repo.MarkMembership(ctx, membership.TelegramUserID, membership.GroupChatID, "left", time.Now().Unix(), 0); err != nil {
 			return nil, err
 		}
@@ -620,7 +630,7 @@ func (s *CommunityService) ListMembers(ctx context.Context, filter CommunityMemb
 		filter.Status = "all"
 	}
 	switch filter.Status {
-	case "all", "joined", "not_joined", "pending", "left":
+	case "all", "joined", "not_joined", "pending", "left", "banned":
 	default:
 		return nil, ErrCommunityInvalid
 	}
