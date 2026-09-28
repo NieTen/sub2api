@@ -1,0 +1,32 @@
+export default {
+  modelDetection: {
+    title: 'Model quality checks', description: 'Check model fingerprints and capability changes per account, with answers and evidence for every run.',
+    explanation: 'Fingerprints compare only models in the reference library and do not prove reduced capability. Capability scores are compared with this plan’s baseline; confirm suspected changes across several runs.',
+    costHint: 'A typical run makes {count} model requests and uses the selected account’s allowance. New schedules are paused by default.',
+    account: 'Account', allAccounts: 'All accounts', searchAccount: 'Search account name', search: 'Search', chooseAccount: 'Select an account',
+    model: 'Model', modelHint: 'Choose an available model or enter a model ID.', modelsUnavailable: 'Model list unavailable. You can enter a model ID directly.',
+    createPlan: 'New plan', editPlan: 'Edit plan', plans: 'Check plans', noPlans: 'No check plans yet. Run a manual check or create a schedule.',
+    enabled: 'Enable scheduled checks', paused: 'Paused', scheduled: 'Scheduled', enable: 'Enable', pause: 'Pause', edit: 'Edit',
+    run: 'Run now', running: 'Submitting…', queued: 'Check queued', manualTitle: 'Run a model check', manualHint: 'Runs once without enabling a schedule.',
+    schedule: 'Frequency', interval: 'At an interval', daily: 'Daily', minutes: 'Interval (minutes)', dailyTime: 'Run at', timezone: 'Time zone',
+    intervalSummary: 'Every {minutes} minutes', dailySummary: 'Daily at {time} · {timezone}', nextRun: 'Next run',
+    reference: 'Fingerprint reference', noReference: 'No reference selected', referenceHint: 'Fingerprints are compared only when a reference is available. Uncovered models cannot be identified.',
+    automaticReference: 'Match by model name; capability only if not listed', catalogUnavailable: 'Reference list unavailable. You can still run a capability check.',
+    threshold: 'Suspected drop threshold (points)', thresholdHint: 'Flag a suspected drop when the score falls by at least this many points from baseline. This is not a percentage.',
+    retention: 'Results to retain', baseline: 'Baseline', resetBaseline: 'Reset baseline', resetHint: 'The next successful check establishes a new baseline. Historical results are kept.',
+    saved: 'Check plan saved', baselineReset: 'Baseline reset', invalidForm: 'Check the account, model, frequency, time zone and threshold.',
+    active: 'Running and queued', noActive: 'No checks are currently running or queued.', recent: 'Last ten checks', recentHint: 'Statistics cover only the last ten finished checks shown below.',
+    total: 'Finished', normal: 'Normal', suspectedDrop: 'Suspected drop', errors: 'Errors', average: 'Average capability score',
+    history: 'Account check history', chooseHistory: 'Select an account to view its full history and check plans.', more: 'Load older records', noHistory: 'No check history yet.',
+    result: 'Result', score: 'Capability score', difference: 'Drop from baseline', time: 'Time', progress: 'Progress', detail: 'View details', details: 'Check details',
+    fingerprint: 'Model fingerprint', fingerprintHint: 'Fingerprint similarity and capability score are separate measures. Unknown models cannot be identified by fingerprint.',
+    fingerprintResult: 'Fingerprint result', closestModel: 'Closest reference model', candidateProbability: 'Probability within reference set', fingerprintEvidence: 'Raw fingerprint analysis',
+    fingerprintStatus: { match: 'Possible match', mismatch: 'Possible mismatch', inconclusive: 'Inconclusive', unsupported: 'No reference selected', invalid: 'Invalid fingerprint response' },
+    prompt: 'Prompt', response: 'Actual answer', evaluation: 'Score details', quality: 'Capability task', fingerprintProbe: 'Fingerprint probe', suite: 'Suite version',
+    noResponse: 'No answer received', noEvidence: 'No check evidence is available.', refresh: 'Refresh', refreshing: 'Refreshing…', autoRefresh: 'Status refreshes every 10 seconds',
+    failed: 'Could not load data. Try again.', actionFailed: 'Action failed. Try again.', column: 'Model checks', notTested: 'Not checked', summaryFailed: 'Status unavailable',
+    activeCount: '{count} running / queued', planCount: '{count} plans', confirm: 'Reset baseline', cancel: 'Cancel', save: 'Save plan',
+    status: { queued: 'Queued', running: 'Running', completed: 'Completed', error: 'Failed', inconclusive: 'Inconclusive' },
+    verdict: { baseline: 'Baseline established', normal: 'Normal', suspected_drop: 'Suspected capability drop' }
+  }
+}

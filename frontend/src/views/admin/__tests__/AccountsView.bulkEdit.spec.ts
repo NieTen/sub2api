@@ -29,6 +29,10 @@ const {
   showSuccess: vi.fn()
 }))
 
+vi.mock('@/api/admin/modelDetection', async original => ({
+  ...await original<typeof import('@/api/admin/modelDetection')>(),
+  modelDetectionAPI: { summaries: vi.fn().mockResolvedValue([]) }
+}))
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {

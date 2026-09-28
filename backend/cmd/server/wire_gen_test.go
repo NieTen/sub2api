@@ -103,6 +103,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // 工单通知
 		nil, // 批量邮件
 		nil, // 社群审批
+		nil, // 模型检测
 	)
 
 	require.NotPanics(t, func() {

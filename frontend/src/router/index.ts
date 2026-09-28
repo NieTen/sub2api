@@ -539,6 +539,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/model-detection',
+    name: 'AdminModelDetection',
+    component: () => import('@/views/admin/ModelDetectionView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Model quality checks', titleKey: 'modelDetection.title', descriptionKey: 'modelDetection.description' }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

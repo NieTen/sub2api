@@ -133,8 +133,10 @@ func provideCleanup(
 	supportDelivery *service.SupportDeliveryService,
 	bulkEmail *service.BulkEmailService,
 	community *service.CommunityService,
+	modelDetection *service.ModelDetectionService,
 ) func() {
 	return func() {
+		modelDetection.Stop()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

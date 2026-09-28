@@ -7,6 +7,7 @@ import admin from './admin'
 import misc from './misc'
 import support from './support'
 import community from './community'
+import modelDetection from './modelDetection'
 
 export default {
   ...landing,
@@ -18,4 +19,5 @@ export default {
   ...misc,
   ...support,
   ...community,
+  ...modelDetection,
 }

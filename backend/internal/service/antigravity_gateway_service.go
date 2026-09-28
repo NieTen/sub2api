@@ -378,9 +378,9 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	// 构建请求体
 	var requestBody []byte
 	if strings.HasPrefix(modelID, "gemini-") {
-		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel)
+		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel, accountModelDetectionPrompt(ctx))
 	} else {
-		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel)
+		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel, accountModelDetectionPrompt(ctx))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("构建请求失败: %w", err)
@@ -410,7 +410,25 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		handleError:    testConnectionHandleError,
 	}
 
-	result, err := s.antigravityRetryLoop(p)
+	var result *antigravityRetryLoopResult
+	if accountModelDetectionPrompt(ctx) != "" {
+		// 检测只发送一次，复用鉴权和代理，但不重试或修改账号的生产调度状态。
+		baseURL := resolveAntigravityForwardBaseURL(account)
+		if baseURL == "" {
+			return nil, errors.New("未配置 Antigravity 转发地址")
+		}
+		request, buildErr := antigravity.NewAPIRequestWithURL(ctx, baseURL, p.action, accessToken, requestBody)
+		if buildErr != nil {
+			return nil, buildErr
+		}
+		resp, requestErr := s.httpUpstream.Do(request, proxyURL, account.ID, account.Concurrency)
+		if requestErr != nil {
+			return nil, requestErr
+		}
+		result = &antigravityRetryLoopResult{resp: resp}
+	} else {
+		result, err = s.antigravityRetryLoop(p)
+	}
 	if err != nil {
 		// AccountSwitchError → 测试时不切换账号，返回友好提示
 		var switchErr *AntigravityAccountSwitchError
@@ -434,7 +452,10 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 		return nil, fmt.Errorf("API 返回 %d: %s", result.resp.StatusCode, string(respBody))
 	}
 
-	text := extractTextFromSSEResponse(respBody)
+	if accountModelDetectionPrompt(ctx) != "" && !modelDetectionGeminiComplete(respBody) {
+		return nil, errors.New("模型检测响应未正常结束，本次不计入能力评分")
+	}
+	text := extractTextFromSSEResponse(respBody, accountModelDetectionPrompt(ctx) != "")
 	return &TestConnectionResult{Text: text, MappedModel: mappedModel}, nil
 }
 
@@ -453,7 +474,7 @@ func testConnectionHandleError(
 
 // buildGeminiTestRequest 构建 Gemini 格式测试请求
 // 使用最小 token 消耗：输入 "." + maxOutputTokens: 1
-func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string) ([]byte, error) {
+func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string, detectionPrompt ...string) ([]byte, error) {
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
@@ -473,13 +494,17 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model stri
 			"maxOutputTokens": 1,
 		},
 	}
+	if len(detectionPrompt) > 0 && detectionPrompt[0] != "" {
+		ctx := context.WithValue(context.Background(), accountModelDetectionContextKey{}, detectionPrompt[0])
+		applyAccountModelDetectionPrompt(ctx, payload, "gemini")
+	}
 	payloadBytes, _ := json.Marshal(payload)
 	return s.wrapV1InternalRequest(projectID, model, payloadBytes)
 }
 
 // buildClaudeTestRequest 构建 Claude 格式测试请求并转换为 Gemini 格式
 // 使用最小 token 消耗：输入 "." + MaxTokens: 1
-func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel string) ([]byte, error) {
+func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedModel string, detectionPrompt ...string) ([]byte, error) {
 	claudeReq := &antigravity.ClaudeRequest{
 		Model: mappedModel,
 		Messages: []antigravity.ClaudeMessage{
@@ -490,6 +515,11 @@ func (s *AntigravityGatewayService) buildClaudeTestRequest(projectID, mappedMode
 		},
 		MaxTokens: 1,
 		Stream:    false,
+	}
+	if len(detectionPrompt) > 0 && detectionPrompt[0] != "" {
+		content, _ := json.Marshal(detectionPrompt[0])
+		claudeReq.Messages[0].Content = content
+		claudeReq.MaxTokens = 4096
 	}
 	return antigravity.TransformClaudeToGemini(claudeReq, projectID, mappedModel)
 }
@@ -505,7 +535,7 @@ func (s *AntigravityGatewayService) getClaudeTransformOptions(ctx context.Contex
 }
 
 // extractTextFromSSEResponse 从 SSE 流式响应中提取文本
-func extractTextFromSSEResponse(respBody []byte) string {
+func extractTextFromSSEResponse(respBody []byte, excludeThoughts ...bool) string {
 	var texts []string
 	lines := bytes.Split(respBody, []byte("\n"))
 
@@ -561,6 +591,10 @@ func extractTextFromSSEResponse(respBody []byte) string {
 
 		for _, part := range parts {
 			if partMap, ok := part.(map[string]any); ok {
+				// 能力题只评估最终答案，保留普通连通性测试原有文本展示。
+				if thought, _ := partMap["thought"].(bool); thought && len(excludeThoughts) > 0 && excludeThoughts[0] {
+					continue
+				}
 				if text, ok := partMap["text"].(string); ok && text != "" {
 					texts = append(texts, text)
 				}

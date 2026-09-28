@@ -415,6 +415,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
+			if accountModelDetectionPrompt(ctx) != "" {
+				// 质量检测只请求一个协议，避免把多端点连通性输出混成同一道题的答案。
+				return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+			}
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
@@ -576,6 +580,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountModelDetectionPrompt(ctx, payload, "anthropic")
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -626,7 +631,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
 
 		// 403 表示账号被上游封禁，标记为 error 状态
-		if resp.StatusCode == http.StatusForbidden {
+		if resp.StatusCode == http.StatusForbidden && accountModelDetectionPrompt(ctx) == "" {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 
@@ -654,6 +659,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountModelDetectionPrompt(ctx, payload, "anthropic")
 	payloadBytes, _ := json.Marshal(payload)
 	vertexBody, err := buildVertexAnthropicRequestBody(payloadBytes)
 	if err != nil {
@@ -696,7 +702,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
-		if resp.StatusCode == http.StatusForbidden {
+		if resp.StatusCode == http.StatusForbidden && accountModelDetectionPrompt(ctx) == "" {
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
@@ -738,6 +744,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		"max_tokens":  256,
 		"temperature": 1,
 	}
+	applyAccountModelDetectionPrompt(ctx, bedrockPayload, "anthropic")
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
@@ -787,12 +794,16 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 
 	// Bedrock non-streaming response is standard Claude JSON, extract the text
 	var result struct {
-		Content []struct {
+		StopReason string `json:"stop_reason"`
+		Content    []struct {
 			Text string `json:"text"`
 		} `json:"content"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse response: %s", err.Error()))
+	}
+	if accountModelDetectionPrompt(ctx) != "" && result.StopReason != "end_turn" && result.StopReason != "stop_sequence" {
+		return s.sendErrorAndEnd(c, "模型检测响应未正常结束")
 	}
 
 	text := ""
@@ -903,6 +914,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	if isOAuth {
+		applyAccountModelDetectionPrompt(ctx, payload, "responses_oauth")
+	} else {
+		applyAccountModelDetectionPrompt(ctx, payload, "responses")
+	}
 	payloadBytes, _ := json.Marshal(payload)
 	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
 
@@ -988,13 +1004,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			c.Request = c.Request.WithContext(markAgentIdentityTaskRecoveryTried(ctx))
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests && accountModelDetectionPrompt(ctx) == "" {
 			if !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
 				s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 			}
 		}
 		// 401 Unauthorized: 标记账号为永久错误
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && accountModelDetectionPrompt(ctx) == "" {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -1173,7 +1189,7 @@ func (s *AccountTestService) applyGrokTestRequestHeaders(req *http.Request, acco
 }
 
 func (s *AccountTestService) observeGrokTestResponse(ctx context.Context, account *Account, resp *http.Response) {
-	if resp == nil {
+	if resp == nil || accountModelDetectionPrompt(ctx) != "" {
 		return
 	}
 	now := time.Now()
@@ -1276,6 +1292,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
 	}
+	payloadBytes = modelDetectionPayloadBytes(ctx, payloadBytes, "responses")
 
 	if !agentIdentityTaskRecoveryWasTried(ctx) {
 		s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2152,6 +2169,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	applyAccountModelDetectionPrompt(ctx, payload, "chat")
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2189,7 +2207,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		if resp.StatusCode == http.StatusTooManyRequests {
 			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && accountModelDetectionPrompt(ctx) == "" {
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2350,7 +2368,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil && accountModelDetectionPrompt(ctx) == "" {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
 			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
 		}
@@ -2367,7 +2385,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 }
 
 func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, account *Account, headers http.Header, body []byte) {
-	if s == nil || s.accountRepo == nil || account == nil {
+	if s == nil || s.accountRepo == nil || account == nil || accountModelDetectionPrompt(ctx) != "" {
 		return
 	}
 
@@ -2430,6 +2448,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 	// Create test payload (Gemini format)
 	payload := createGeminiTestPayload(testModelID, prompt)
+	payload = modelDetectionPayloadBytes(ctx, payload, "gemini")
 
 	// Build request based on account type
 	var req *http.Request
@@ -2717,6 +2736,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if isAccountModelDetection(c) {
+					return s.sendErrorAndEnd(c, "模型检测响应在完成前中断")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -2730,6 +2752,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 		jsonStr := strings.TrimPrefix(line, "data: ")
 		if jsonStr == "[DONE]" {
+			if isAccountModelDetection(c) {
+				return s.sendErrorAndEnd(c, "模型检测响应缺少正常结束状态")
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		}
@@ -2752,6 +2777,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 					if parts, ok := content["parts"].([]any); ok {
 						for _, part := range parts {
 							if partMap, ok := part.(map[string]any); ok {
+								if thought, _ := partMap["thought"].(bool); thought && isAccountModelDetection(c) {
+									continue
+								}
 								if text, ok := partMap["text"].(string); ok && text != "" {
 									s.sendEvent(c, TestEvent{Type: "content", Text: text})
 								}
@@ -2773,6 +2801,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 
 				// Check for completion after extracting content
 				if finishReason, ok := candidate["finishReason"].(string); ok && finishReason != "" {
+					if isAccountModelDetection(c) && finishReason != "STOP" {
+						return s.sendErrorAndEnd(c, "模型检测输出被截断或拦截")
+					}
 					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 					return nil
 				}
@@ -2841,11 +2872,15 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 // processClaudeStream processes the SSE stream from Claude API
 func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	seenNormalStop := false
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if isAccountModelDetection(c) {
+					return s.sendErrorAndEnd(c, "模型检测响应在完成前中断")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -2859,6 +2894,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
+			if isAccountModelDetection(c) && !seenNormalStop {
+				return s.sendErrorAndEnd(c, "模型检测响应缺少正常结束原因")
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		}
@@ -2871,6 +2909,16 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		eventType, _ := data["type"].(string)
 
 		switch eventType {
+		case "message_delta":
+			if isAccountModelDetection(c) {
+				if delta, ok := data["delta"].(map[string]any); ok {
+					reason, _ := delta["stop_reason"].(string)
+					if reason != "" && reason != "end_turn" && reason != "stop_sequence" {
+						return s.sendErrorAndEnd(c, "模型检测输出被截断或拦截")
+					}
+					seenNormalStop = seenNormalStop || reason == "end_turn" || reason == "stop_sequence"
+				}
+			}
 		case "content_block_delta":
 			if delta, ok := data["delta"].(map[string]any); ok {
 				if text, ok := delta["text"].(string); ok {
@@ -2878,6 +2926,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 				}
 			}
 		case "message_stop":
+			if isAccountModelDetection(c) && !seenNormalStop {
+				return s.sendErrorAndEnd(c, "模型检测响应缺少正常结束原因")
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "error":
@@ -2923,6 +2974,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
 		if jsonStr == "[DONE]" {
+			if isAccountModelDetection(c) && !seenFinish {
+				return s.sendErrorAndEnd(c, "模型检测响应缺少正常结束状态")
+			}
 			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
@@ -2962,6 +3016,9 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 			}
 			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
+				if isAccountModelDetection(c) && finishReason != "stop" {
+					return s.sendErrorAndEnd(c, "模型检测输出被截断或拦截")
+				}
 				seenFinish = true
 			}
 		}
@@ -3014,6 +3071,13 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if isAccountModelDetection(c) {
+				if response, ok := data["response"].(map[string]any); ok {
+					if status, _ := response["status"].(string); status != "" && status != "completed" {
+						return s.sendErrorAndEnd(c, "模型检测响应未正常完成")
+					}
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
 		case "response.failed":
@@ -3304,6 +3368,9 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
+	if c.Request != nil && isAccountModelDetection(c) {
+		errorMsg = safeModelDetectionRequestError(errors.New(errorMsg)).Error()
+	}
 	log.Printf("Account test error: %s", errorMsg)
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)

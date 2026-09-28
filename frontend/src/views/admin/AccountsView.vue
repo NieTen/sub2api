@@ -257,6 +257,17 @@
             <span v-if="value" :title="value" class="block max-w-xs truncate text-sm text-gray-600 dark:text-gray-300">{{ value }}</span>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
+          <template #cell-model_detection="{ row }">
+            <div class="flex min-w-36 max-w-52 flex-col items-start gap-1 text-xs">
+              <router-link :to="{ path: '/admin/model-detection', query: { account_id: row.id } }" class="text-primary-600 hover:underline dark:text-primary-400">
+                <span v-if="modelDetectionSummaries[row.id]?.latest_run" :class="modelDetectionSummaries[row.id].latest_run?.verdict === 'suspected_drop' ? 'text-red-600 dark:text-red-400' : ''">{{ t(detectionResultKey(modelDetectionSummaries[row.id].latest_run!)) }} · {{ detectionScore(modelDetectionSummaries[row.id].latest_run?.score) }}</span>
+                <span v-else>{{ t(modelDetectionSummaryError ? 'modelDetection.summaryFailed' : 'modelDetection.notTested') }}</span>
+              </router-link>
+              <span v-if="modelDetectionSummaries[row.id]?.latest_run" class="block max-w-full truncate font-mono text-gray-500" :title="modelDetectionSummaries[row.id].latest_run?.model_id">{{ modelDetectionSummaries[row.id].latest_run?.model_id }}</span>
+              <span v-if="modelDetectionSummaries[row.id]?.running_count" class="text-gray-500">{{ t('modelDetection.activeCount', { count: modelDetectionSummaries[row.id].running_count }) }}</span>
+              <div class="mt-1 flex gap-3"><button class="font-medium text-primary-600 hover:underline dark:text-primary-400" @click="manualDetectionAccount = { id: row.id, name: row.name }">{{ t('modelDetection.run') }}</button><router-link :to="{ path: '/admin/model-detection', query: { account_id: row.id } }" class="text-gray-500 hover:underline">{{ t('modelDetection.history') }}</router-link></div>
+            </div>
+          </template>
           <template #cell-platform_type="{ row }">
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
@@ -459,6 +470,7 @@
     <BatchAccountTestModal :show="showBatchTest" :account-ids="batchTestAccountIds" @close="closeBatchTestConnections" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <ManualModelDetectionDialog :show="!!manualDetectionAccount" :account="manualDetectionAccount" @close="manualDetectionAccount = null" @queued="onManualDetectionQueued" />
     <BatchScheduledTestModal :show="showBatchSchedule" :account-ids="batchScheduleAccountIds" :model-options="batchScheduleModelOptions" @close="closeBatchScheduledTests" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
@@ -493,9 +505,11 @@
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { RouterLink } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { modelDetectionAPI, detectionResultKey, detectionScore, type ModelDetectionSummary } from '@/api/admin/modelDetection'
 import { useTableLoader } from '@/composables/useTableLoader'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -518,6 +532,7 @@ import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import BatchAccountTestModal from '@/components/admin/account/BatchAccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+import ManualModelDetectionDialog from '@/components/admin/account/ManualModelDetectionDialog.vue'
 import BatchScheduledTestModal from '@/components/admin/account/BatchScheduledTestModal.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
@@ -619,6 +634,10 @@ const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
 const batchTestAccountIds = ref<number[]>([])
 const showSchedulePanel = ref(false)
+const manualDetectionAccount = ref<{ id: number; name: string } | null>(null)
+const modelDetectionSummaries = ref<Record<number, ModelDetectionSummary>>({})
+const modelDetectionSummaryError = ref(false)
+let modelDetectionAbortController: AbortController | null = null
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const showBatchSchedule = ref(false)
@@ -1353,6 +1372,29 @@ watch(loading, (isLoading, wasLoading) => {
   }
 })
 
+// 当前页统一批量获取检测摘要，翻页时取消旧请求，避免每行单独请求。
+const refreshModelDetectionSummaries = async () => {
+  modelDetectionAbortController?.abort()
+  const ids = accounts.value.map(account => account.id)
+  if (hiddenColumns.has('model_detection') || !ids.length) { modelDetectionSummaries.value = {}; return }
+  const controller = new AbortController()
+  modelDetectionAbortController = controller
+  try {
+    const data = await modelDetectionAPI.summaries(ids, controller.signal)
+    if (controller.signal.aborted) return
+    modelDetectionSummaries.value = Object.fromEntries(data.map(summary => [summary.account_id, summary]))
+    modelDetectionSummaryError.value = false
+  } catch {
+    if (!controller.signal.aborted) { modelDetectionSummaries.value = {}; modelDetectionSummaryError.value = true }
+  } finally { if (modelDetectionAbortController === controller) modelDetectionAbortController = null }
+}
+watch(() => [accounts.value.map(account => account.id).join(','), hiddenColumns.has('model_detection')], () => { void refreshModelDetectionSummaries() })
+useIntervalFn(() => { if (!document.hidden && !loading.value) void refreshModelDetectionSummaries() }, 10_000)
+const onManualDetectionQueued = () => {
+  appStore.showSuccess(t('modelDetection.queued'))
+  void refreshModelDetectionSummaries()
+}
+
 watch(accounts, (rows) => {
   const visibleIDs = new Set(rows.map((row) => String(row.id)))
   usageBatchByAccountId.value = Object.fromEntries(
@@ -1383,6 +1425,7 @@ const isAnyModalOpen = computed(() => {
     showTest.value ||
     showStats.value ||
     showSchedulePanel.value ||
+    !!manualDetectionAccount.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
   )
@@ -1802,6 +1845,7 @@ const allColumns = computed(() => {
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
+    { key: 'model_detection', label: t('modelDetection.column'), sortable: false },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
   ]
@@ -2644,6 +2688,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  modelDetectionAbortController?.abort()
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)
