@@ -50,7 +50,8 @@ type PluginManager struct {
 	kvStore PluginKVStore
 	// accountDirectory 为声明了对应能力的插件提供账号目录与出站身份解析（敏感能力）；
 	// 通过 SetAccountDirectory 在启动装配阶段注入，为 nil 时插件拿不到该能力。
-	accountDirectory PluginAccountDirectory
+	accountDirectory  PluginAccountDirectory
+	resourceDirectory PluginResourceDirectory
 
 	operationMu        sync.Mutex
 	mu                 sync.Mutex
@@ -311,7 +312,8 @@ func (m *PluginManager) reconcileOnce(ctx context.Context) error {
 	if current != nil && current.pluginID == enabled.ID && current.runtime != nil &&
 		!current.runtime.client.Exited() && current.rolloutPercent == rollout &&
 		current.runtime.installation.BinarySHA256 == enabled.BinarySHA256 &&
-		current.runtime.installation.ConfigEncrypted == enabled.ConfigEncrypted {
+		current.runtime.installation.ConfigEncrypted == enabled.ConfigEncrypted &&
+		current.runtime.installation.HostAdaptationEnabled == enabled.HostAdaptationEnabled {
 		healthCtx, cancel := context.WithTimeout(ctx, pluginHealthTimeout)
 		healthErr := current.runtime.checkHealth(healthCtx)
 		cancel()
@@ -351,7 +353,8 @@ func (m *PluginManager) reconcileOnce(ctx context.Context) error {
 		return err
 	}
 	if !hasEnabledOpenAIBinding(latest.Bindings) || latest.BinarySHA256 != enabled.BinarySHA256 ||
-		latest.ConfigEncrypted != enabled.ConfigEncrypted || bindingRollout(latest.Bindings) != rollout {
+		latest.ConfigEncrypted != enabled.ConfigEncrypted || bindingRollout(latest.Bindings) != rollout ||
+		latest.HostAdaptationEnabled != enabled.HostAdaptationEnabled {
 		runtime.kill()
 		return nil
 	}
@@ -1070,7 +1073,20 @@ func (m *PluginManager) buildHostServices(installation *PluginInstallation) plug
 		directory = m.accountDirectory
 		m.mu.Unlock()
 	}
-	return newPluginHostServiceServer(installation.PluginKey, m.kvStore, directory, scope)
+	server := newPluginHostServiceServer(installation.PluginKey, m.kvStore, directory, scope)
+	m.mu.Lock()
+	server.resourceDirectory = m.resourceDirectory
+	m.mu.Unlock()
+	// 每次扩展调用都读取持久开关，关闭或换包后旧进程立即失去扩展权限。
+	server.adaptationAllowed = func(ctx context.Context) bool {
+		if !installation.HostAdaptationEnabled {
+			return false
+		}
+		current, err := m.repo.GetByID(ctx, installation.ID)
+		return err == nil && current != nil && current.BinarySHA256 == installation.BinarySHA256 &&
+			current.PluginKey == installation.PluginKey && pluginHostAdaptationAllowed(current)
+	}
+	return server
 }
 
 // pluginCapabilityAccountScopeGrants 把「能力 id」映射到它授予的账号范围条目。这是

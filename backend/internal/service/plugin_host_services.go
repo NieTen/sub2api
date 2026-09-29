@@ -140,9 +140,11 @@ type PluginAccountDirectory interface {
 // 自己的实例；所有键值操作都被强制限定在该插件的命名空间内。
 type pluginHostServiceServer struct {
 	pluginv1.UnimplementedHostServiceServer
-	pluginKey string
-	store     PluginKVStore
-	directory PluginAccountDirectory
+	pluginKey         string
+	store             PluginKVStore
+	directory         PluginAccountDirectory
+	resourceDirectory PluginResourceDirectory
+	adaptationAllowed func(context.Context) bool
 	// scope 是宿主授予本插件的账号可见范围。账号目录的两个 RPC 都以它为权限边界。
 	scope PluginAccountScope
 }

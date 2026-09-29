@@ -224,6 +224,26 @@ func (r *pluginRepository) UpdateConfig(ctx context.Context, id int64, encrypted
 	return nil
 }
 
+// UpdateHostAdaptation 以包哈希和原开关值进行并发校验，不能覆盖其他管理员刚保存的结果。
+func (r *pluginRepository) UpdateHostAdaptation(ctx context.Context, id int64, enabled bool, expectedBinarySHA256 string, expectedEnabled bool) error {
+	result, err := r.db.ExecContext(ctx, `
+		UPDATE sub2api_plugin_installations
+		SET host_adaptation_enabled = $2, updated_at = NOW()
+		WHERE id = $1 AND binary_sha256 = $3 AND host_adaptation_enabled = $4
+	`, id, enabled, expectedBinarySHA256, expectedEnabled)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return service.ErrPluginStateChanged
+	}
+	return nil
+}
+
 func (r *pluginRepository) UpdateBindingsAndState(
 	ctx context.Context,
 	pluginID int64,
@@ -284,7 +304,7 @@ const pluginSelectSQL = `
 	SELECT id, plugin_key, name, version, description, author, manifest,
 	       artifact_path, install_path, binary_path, binary_sha256,
 	       signature_status, state, config_encrypted, last_error,
-	       installed_by, installed_at, enabled_at, updated_at
+	       installed_by, installed_at, enabled_at, updated_at, host_adaptation_enabled
 	FROM sub2api_plugin_installations`
 
 type pluginScanner interface {
@@ -299,7 +319,7 @@ func scanPlugin(scanner pluginScanner) (*service.PluginInstallation, error) {
 		&plugin.Author, &manifestJSON, &plugin.ArtifactPath, &plugin.InstallPath,
 		&plugin.BinaryPath, &plugin.BinarySHA256, &plugin.SignatureStatus, &plugin.State,
 		&plugin.ConfigEncrypted, &plugin.LastError, &plugin.InstalledBy, &plugin.InstalledAt,
-		&plugin.EnabledAt, &plugin.UpdatedAt,
+		&plugin.EnabledAt, &plugin.UpdatedAt, &plugin.HostAdaptationEnabled,
 	); err != nil {
 		return nil, err
 	}

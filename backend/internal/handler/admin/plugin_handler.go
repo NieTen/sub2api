@@ -199,6 +199,66 @@ func (h *PluginHandler) Status(c *gin.Context) {
 	response.Success(c, result)
 }
 
+type pluginHostAdaptationRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+func (h *PluginHandler) SetHostAdaptation(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	var request pluginHostAdaptationRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil || request.Enabled == nil {
+		response.BadRequest(c, "宿主适配 enabled 必须为布尔值")
+		return
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		response.BadRequest(c, "宿主适配设置只能包含一个 JSON 对象")
+		return
+	}
+	installation, err := h.manager.SetHostAdaptation(c.Request.Context(), id, *request.Enabled)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, installation)
+}
+
+func (h *PluginHandler) Resources(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	resources, err := h.manager.ListResources(c.Request.Context(), id)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, resources)
+}
+
+func (h *PluginHandler) RunAction(c *gin.Context) {
+	id, ok := pluginIDParam(c)
+	if !ok {
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, service.PluginActionMaxBytes))
+	if err != nil {
+		response.BadRequest(c, "插件动作参数无法读取或超过大小限制")
+		return
+	}
+	// 动作结构、关联 ID、适配开关与运行状态统一由服务层校验。
+	result, err := h.manager.RunAction(c.Request.Context(), id, json.RawMessage(raw))
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	response.Success(c, result)
+}
+
 func (h *PluginHandler) CreateUISession(c *gin.Context) {
 	id, ok := pluginIDParam(c)
 	if !ok {
@@ -251,7 +311,18 @@ func (h *PluginHandler) ServeUIAsset(c *gin.Context) {
 	// sandbox iframe 没有 allow-same-origin，会以不透明来源加载自己的 CSS/JS。
 	// 资源 URL 由短时随机能力 Token 保护，Bridge Token 只存在于 fragment 中。
 	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
-	c.Header("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; navigate-to 'none'")
+	policy := "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; navigate-to 'none'"
+	adapted, err := h.manager.HostAdaptationEnabled(c.Request.Context(), pluginID)
+	if err != nil {
+		// 不能确认当前开关时不发送页面，避免沿用旧会话的预览权限。
+		c.Header("Content-Security-Policy", policy)
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
+	if adapted {
+		policy += "; frame-src 'self' about:"
+	}
+	c.Header("Content-Security-Policy", policy)
 	c.Data(http.StatusOK, contentType, data)
 }
 

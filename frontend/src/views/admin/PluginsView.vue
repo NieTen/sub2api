@@ -211,6 +211,36 @@
               </p>
             </div>
 
+            <div
+              v-if="supportsHostAdaptation(plugin)"
+              class="rounded-lg border border-gray-200 px-3 py-3 dark:border-dark-600 md:col-span-2"
+            >
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-sm font-medium text-gray-800 dark:text-gray-200">
+                  {{ t("admin.plugins.hostAdaptation") }}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  :aria-checked="plugin.host_adaptation_enabled === true"
+                  :aria-label="t('admin.plugins.hostAdaptation')"
+                  :aria-describedby="`host-adaptation-hint-${plugin.id}`"
+                  :disabled="busyID === plugin.id || plugin.state === 'starting'"
+                  class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-600 disabled:cursor-wait disabled:opacity-50"
+                  :class="plugin.host_adaptation_enabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-500'"
+                  @click="toggleHostAdaptation(plugin)"
+                >
+                  <span
+                    class="inline-block h-4 w-4 rounded-full bg-white transition-transform"
+                    :class="plugin.host_adaptation_enabled ? 'translate-x-6' : 'translate-x-1'"
+                  />
+                </button>
+              </div>
+              <p :id="`host-adaptation-hint-${plugin.id}`" class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ t("admin.plugins.hostAdaptationHint") }}
+              </p>
+            </div>
+
             <div class="md:col-span-2">
               <label
                 class="flex items-center justify-between gap-4 text-xs font-medium text-gray-600 dark:text-gray-300"
@@ -314,6 +344,7 @@
           </div>
           <iframe
             v-if="uiSession"
+            :key="uiSession.url"
             ref="pluginFrame"
             :src="uiSession.url"
             sandbox="allow-scripts"
@@ -358,9 +389,24 @@ interface PluginBridgeMessage {
   type?: string;
   request_id?: string;
   config?: unknown;
+  action?: unknown;
   height?: unknown;
   level?: unknown;
   message?: unknown;
+}
+
+interface PluginBridgeContext {
+  pluginID: number;
+  generation: number;
+  session: PluginUISession;
+  frame: Window;
+}
+
+interface PluginBridgeRequest {
+  context: PluginBridgeContext;
+  message: PluginBridgeMessage;
+  requestID: string;
+  timeout: number;
 }
 
 const { t } = useI18n();
@@ -379,7 +425,9 @@ const uiLoading = ref(false);
 const uiError = ref("");
 const iframeHeight = ref(640);
 const pluginFrameLoaded = ref(false);
-const pendingBridgeRequests = new Map<string, number>();
+const pendingBridgeRequests = new Map<string, PluginBridgeRequest>();
+const completedBridgeRequests = new Map<string, { type: string; payload: Record<string, unknown> }>();
+let configurationGeneration = 0;
 
 function errorMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
@@ -407,6 +455,11 @@ async function loadPlugins(): Promise<void> {
   loading.value = true;
   try {
     plugins.value = await adminAPI.plugins.list();
+    if (configPlugin.value) {
+      const refreshed = plugins.value.find((plugin) => plugin.id === configPlugin.value?.id);
+      if (!refreshed || refreshed.host_adaptation_enabled !== configPlugin.value.host_adaptation_enabled) closeConfiguration();
+      else configPlugin.value = refreshed;
+    }
     for (const plugin of plugins.value) {
       rolloutValues.value[plugin.id] = currentRollout(plugin);
     }
@@ -447,6 +500,36 @@ function currentRollout(plugin: PluginInstallation): number {
 
 function hasEnabledBinding(plugin: PluginInstallation): boolean {
   return plugin.bindings.some((binding) => binding.enabled);
+}
+
+function supportsHostAdaptation(plugin: PluginInstallation): boolean {
+  return plugin.manifest.capabilities.some(
+    (capability) => capability.id === "openai.oauth.outbound_transport.v1",
+  );
+}
+
+async function toggleHostAdaptation(plugin: PluginInstallation): Promise<void> {
+  if (busyID.value === plugin.id) return;
+  busyID.value = plugin.id;
+  try {
+    const updated = await pluginStepUp.run(() =>
+      adminAPI.plugins.setHostAdaptation(plugin.id, !plugin.host_adaptation_enabled),
+    );
+    plugins.value = plugins.value.map((item) => item.id === updated.id ? updated : item);
+    // 适配切换会重建运行上下文；已打开的配置页必须重新获取相应的沙箱权限。
+    if (configPlugin.value?.id === plugin.id) closeConfiguration();
+    if (hasEnabledBinding(updated) && !updated.runtime_healthy && updated.runtime_message) {
+      appStore.showError(updated.runtime_message);
+    } else {
+      appStore.showSuccess(t(updated.host_adaptation_enabled
+        ? "admin.plugins.hostAdaptationEnabled"
+        : "admin.plugins.hostAdaptationDisabled"));
+    }
+  } catch (error: unknown) {
+    reportSensitiveActionError(error);
+  } finally {
+    busyID.value = null;
+  }
 }
 
 function setRollout(id: number, event: Event): void {
@@ -523,23 +606,26 @@ async function testPlugin(plugin: PluginInstallation): Promise<void> {
 }
 
 async function openConfiguration(plugin: PluginInstallation): Promise<void> {
+  invalidateBridgeSession();
+  const generation = configurationGeneration;
   configPlugin.value = plugin;
   uiSession.value = null;
   pluginFrameLoaded.value = false;
-  clearPendingBridgeRequests();
   uiLoading.value = true;
   uiError.value = "";
   iframeHeight.value = 640;
   try {
-    uiSession.value = await adminAPI.plugins.createUISession(plugin.id);
+    const session = await adminAPI.plugins.createUISession(plugin.id);
+    if (generation === configurationGeneration) uiSession.value = session;
   } catch (error: unknown) {
+    if (generation !== configurationGeneration) return;
     uiLoading.value = false;
     uiError.value = errorMessage(error);
   }
 }
 
 function closeConfiguration(): void {
-  clearPendingBridgeRequests();
+  invalidateBridgeSession();
   pluginFrameLoaded.value = false;
   configPlugin.value = null;
   uiSession.value = null;
@@ -547,48 +633,78 @@ function closeConfiguration(): void {
   uiError.value = "";
 }
 
-function clearPendingBridgeRequests(): void {
-  for (const timeout of pendingBridgeRequests.values()) window.clearTimeout(timeout);
+function invalidateBridgeSession(): void {
+  configurationGeneration += 1;
+  for (const request of pendingBridgeRequests.values()) window.clearTimeout(request.timeout);
   pendingBridgeRequests.clear();
+  completedBridgeRequests.clear();
 }
 
-function handlePluginFrameLoad(): void {
-  // A load can also be caused by a plugin navigating its iframe. Drop all
-  // outstanding responses so a late config response is never sent to the new document.
-  if (pluginFrameLoaded.value) clearPendingBridgeRequests();
+function handlePluginFrameLoad(event: Event): void {
+  if (event.target !== pluginFrame.value) return;
+  // 插件自行导航也会触发加载；使旧文档的请求失效，避免迟到响应和二次验证重试穿透。
+  if (pluginFrameLoaded.value) invalidateBridgeSession();
   pluginFrameLoaded.value = true;
   uiLoading.value = false;
 }
 
-function registerBridgeRequest(requestID: string): void {
-  const timeout = window.setTimeout(() => {
-    pendingBridgeRequests.delete(requestID);
-  }, 30_000);
-  pendingBridgeRequests.set(requestID, timeout);
+function isCurrentBridge(context: PluginBridgeContext): boolean {
+  return context.generation === configurationGeneration &&
+    context.pluginID === configPlugin.value?.id &&
+    context.session === uiSession.value &&
+    context.frame === pluginFrame.value?.contentWindow;
 }
 
-function postBridgeResult(
-  request: PluginBridgeMessage,
+function requireCurrentBridge(context: PluginBridgeContext, adaptation = false): void {
+  if (!isCurrentBridge(context)) throw new Error(t("admin.plugins.bridgeRejected"));
+  if (adaptation && (!configPlugin.value?.host_adaptation_enabled || !supportsHostAdaptation(configPlugin.value))) {
+    throw new Error(t("admin.plugins.hostAdaptationRequired"));
+  }
+}
+
+function isBridgeObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" &&
+    Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function requirePendingBridge(request: PluginBridgeRequest, adaptation = false): void {
+  requireCurrentBridge(request.context, adaptation);
+  if (pendingBridgeRequests.get(request.requestID) !== request) {
+    throw new Error(t("admin.plugins.bridgeExpired"));
+  }
+}
+
+function sendBridgePayload(
+  context: PluginBridgeContext,
+  type: string,
+  requestID: string,
   payload: Record<string, unknown>,
 ): void {
-  if (!pluginFrame.value?.contentWindow || !uiSession.value) return;
-  const requestID = typeof request.request_id === "string" ? request.request_id.trim() : "";
-  const timeout = pendingBridgeRequests.get(requestID);
-  if (!requestID || timeout === undefined) return;
-  window.clearTimeout(timeout);
-  pendingBridgeRequests.delete(requestID);
-  pluginFrame.value.contentWindow.postMessage(
+  if (!isCurrentBridge(context)) return;
+  context.frame.postMessage(
     {
       source: "sub2api-plugin-host",
-      bridge_token: uiSession.value.bridge_token,
-      type: `${request.type}.result`,
+      bridge_token: context.session.bridge_token,
+      type: `${type}.result`,
       request_id: requestID,
       ...payload,
     },
-    // The sandboxed iframe has an opaque origin, so no fixed target origin exists.
-    // Pending request tracking plus load invalidation prevents cross-navigation leaks.
+    // 沙箱具有不透明来源，只能用星号；窗口、令牌和会话代次共同限定接收文档。
     "*",
   );
+}
+
+function postBridgeResult(request: PluginBridgeRequest, payload: Record<string, unknown>): boolean {
+  if (!isCurrentBridge(request.context) || pendingBridgeRequests.get(request.requestID) !== request) return false;
+  window.clearTimeout(request.timeout);
+  pendingBridgeRequests.delete(request.requestID);
+  completedBridgeRequests.set(request.requestID, { type: request.message.type!, payload });
+  // 缓存近期响应供重复消息重放，避免再次执行动作，同时限制长期打开页面的内存占用。
+  if (completedBridgeRequests.size > 256) {
+    completedBridgeRequests.delete(completedBridgeRequests.keys().next().value!);
+  }
+  sendBridgePayload(request.context, request.message.type!, request.requestID, payload);
+  return true;
 }
 
 async function handleBridgeMessage(event: MessageEvent): Promise<void> {
@@ -601,21 +717,41 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
     return;
   const message = event.data as PluginBridgeMessage;
   if (
-    !message ||
+    !isBridgeObject(message) ||
     message.source !== "sub2api-plugin-ui" ||
     message.bridge_token !== uiSession.value.bridge_token
   )
     return;
+
+  const context: PluginBridgeContext = {
+    pluginID: configPlugin.value.id,
+    generation: configurationGeneration,
+    session: uiSession.value,
+    frame: pluginFrame.value!.contentWindow!,
+  };
 
   const requestID = typeof message.request_id === "string" ? message.request_id.trim() : "";
   const expectsResponse =
     message.type === "config.load" ||
     message.type === "config.save" ||
     message.type === "config.test" ||
-    message.type === "plugin.status";
+    message.type === "plugin.status" ||
+    message.type === "plugin.action" ||
+    message.type === "plugin.resources";
+  let request: PluginBridgeRequest | undefined;
   if (expectsResponse) {
-    if (!requestID || pendingBridgeRequests.has(requestID)) return;
-    registerBridgeRequest(requestID);
+    if (!requestID || requestID.length > 128 || pendingBridgeRequests.has(requestID)) return;
+    const completed = completedBridgeRequests.get(requestID);
+    if (completed) {
+      if (completed.type === message.type) sendBridgePayload(context, completed.type, requestID, completed.payload);
+      return;
+    }
+    request = { context, message, requestID, timeout: 0 };
+    const pending = request;
+    request.timeout = window.setTimeout(() => {
+      postBridgeResult(pending, { ok: false, error: t("admin.plugins.bridgeExpired") });
+    }, 30_000);
+    pendingBridgeRequests.set(requestID, request);
   }
 
   try {
@@ -624,49 +760,54 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
         uiLoading.value = false;
         break;
       case "config.load": {
-        const config = await adminAPI.plugins.getConfig(configPlugin.value.id);
-        postBridgeResult(message, { ok: true, config });
+        const config = await adminAPI.plugins.getConfig(context.pluginID);
+        postBridgeResult(request!, { ok: true, config });
         break;
       }
       case "config.save": {
-        if (
-          !message.config ||
-          typeof message.config !== "object" ||
-          Array.isArray(message.config)
-        ) {
+        if (!isBridgeObject(message.config)) {
           throw new Error(t("admin.plugins.bridgeRejected"));
         }
-        const config = await pluginStepUp.run(() =>
-          adminAPI.plugins.saveConfig(
-            configPlugin.value!.id,
-            message.config as Record<string, unknown>,
-          ),
-        );
-        postBridgeResult(message, { ok: true, config });
-        appStore.showSuccess(t("common.saved"));
+        const input = message.config;
+        const config = await pluginStepUp.run(() => {
+          requirePendingBridge(request!);
+          return adminAPI.plugins.saveConfig(context.pluginID, input);
+        });
+        if (postBridgeResult(request!, { ok: true, config })) appStore.showSuccess(t("common.saved"));
         break;
       }
       case "config.test": {
-        const result = await pluginStepUp.run(() =>
-          adminAPI.plugins.test(configPlugin.value!.id),
-        );
-        postBridgeResult(message, { ok: result.success, result });
-        // A successful result is delivered back to the plugin UI, which owns how it
-        // presents it (inline status, or an explicit ui.notify). Only force a host
-        // toast on failure so genuine errors are never silently dropped — plugins
-        // may call config.test for lightweight status polling, not just as an
-        // explicit "test" action, and those must not spam a success toast.
-        if (!result.success)
+        const result = await pluginStepUp.run(() => {
+          requirePendingBridge(request!);
+          return adminAPI.plugins.test(context.pluginID);
+        });
+        // 成功结果交由插件展示，仅在当前会话测试失败时显示宿主提示。
+        if (postBridgeResult(request!, { ok: result.success, result }) && !result.success)
           appStore.showError(result.message || t("common.error"));
         break;
       }
+      case "plugin.resources": {
+        requireCurrentBridge(context, true);
+        const resources = await adminAPI.plugins.resources(context.pluginID);
+        postBridgeResult(request!, { ok: true, resources });
+        break;
+      }
+      case "plugin.action": {
+        requireCurrentBridge(context, true);
+        if (!isBridgeObject(message.action)) throw new Error(t("admin.plugins.bridgeRejected"));
+        // 动作 ID 取自已验证的 Bridge 信封，插件正文不能覆盖它。
+        const action = { ...message.action, request_id: requestID };
+        const result = await pluginStepUp.run(() => {
+          requirePendingBridge(request!, true);
+          return adminAPI.plugins.action(context.pluginID, action);
+        });
+        postBridgeResult(request!, { ok: result.accepted, result });
+        break;
+      }
       case "plugin.status": {
-        // Read-only runtime status (the plugin's Health snapshot). It has no side
-        // effects, so it is intentionally NOT step-up gated and never raises a host
-        // toast — the plugin UI renders it however it likes. This is the generic
-        // channel for any plugin to surface live state without abusing config.test.
-        const result = await adminAPI.plugins.status(configPlugin.value!.id);
-        postBridgeResult(message, { ok: true, result });
+        // 状态查询没有副作用，无需二次验证，结果由插件界面自行呈现。
+        const result = await adminAPI.plugins.status(context.pluginID);
+        postBridgeResult(request!, { ok: true, result });
         break;
       }
       case "ui.resize": {
@@ -688,8 +829,9 @@ async function handleBridgeMessage(event: MessageEvent): Promise<void> {
       }
     }
   } catch (error: unknown) {
+    if (!isCurrentBridge(context)) return;
     if (isStepUpBlocked(error)) reportSensitiveActionError(error);
-    postBridgeResult(message, {
+    if (request) postBridgeResult(request, {
       ok: false,
       error: isStepUpCancelled(error) ? t("common.cancel") : errorMessage(error),
     });
@@ -723,6 +865,6 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("message", handleBridgeMessage);
-  clearPendingBridgeRequests();
+  invalidateBridgeSession();
 });
 </script>

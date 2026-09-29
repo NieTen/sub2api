@@ -104,14 +104,17 @@ func startPluginRuntime(ctx context.Context, installation *PluginInstallation, s
 	}
 	// 可选地把宿主服务（HostService）反向暴露给插件。这是叠加在传输契约之上的能力：
 	// 老插件不实现 InitHostServices（返回 Unimplemented），此处静默跳过，绝不阻断启动。
-	offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout)
+	if err := offerPluginHostServices(ctx, installation, api, transportClient.Broker, hostServices, startTimeout); err != nil {
+		runtime.kill()
+		return nil, err
+	}
 	return runtime, nil
 }
 
 // offerPluginHostServices 在 go-plugin broker 上启动一个宿主服务实例，并通过
 // InitHostServices 把 broker 流 id 交给插件。服务生命周期与插件进程绑定：client.Kill()
-// 会关闭 broker，AcceptAndServe 随之 GracefulStop，无需手动清理。整个过程尽力而为，
-// 任何失败都只记录日志、不影响插件转发能力。
+// 会关闭 broker，AcceptAndServe 随之 GracefulStop，无需手动清理。普通插件保留可选协商；
+// 已开启适配的 STATE Kit 必须确认就绪，失败交由现有运行时协调流程重试。
 func offerPluginHostServices(
 	ctx context.Context,
 	installation *PluginInstallation,
@@ -119,9 +122,13 @@ func offerPluginHostServices(
 	broker *hcplugin.GRPCBroker,
 	hostServices pluginv1.HostServiceServer,
 	startTimeout time.Duration,
-) {
+) error {
+	required := installation != nil && installation.HostAdaptationEnabled && installation.PluginKey == stateKitPluginKey
 	if broker == nil || hostServices == nil || api == nil {
-		return
+		if required {
+			return errors.New("STATE Kit 宿主适配服务未就绪")
+		}
+		return nil
 	}
 	brokerID := broker.NextId()
 	go broker.AcceptAndServe(brokerID, func(opts []grpc.ServerOption) *grpc.Server {
@@ -133,23 +140,30 @@ func offerPluginHostServices(
 	defer cancel()
 	resp, err := api.InitHostServices(initCtx, &pluginv1.InitHostServicesRequest{
 		HostServiceId:         brokerID,
-		HostServiceApiVersion: pluginv1.HostServiceAPIVersion,
+		HostServiceApiVersion: pluginHostServiceVersion(installation),
 	})
 	pluginKey := ""
 	if installation != nil {
 		pluginKey = installation.PluginKey
 	}
 	if err != nil {
+		if required {
+			return errors.New("STATE Kit 宿主适配握手失败")
+		}
 		if status.Code(err) == codes.Unimplemented {
 			slog.Debug("plugin_host_services_unimplemented", "plugin", pluginKey)
 		} else {
 			slog.Warn("plugin_host_services_init_failed", "plugin", pluginKey, "error", err)
 		}
-		return
+		return nil
+	}
+	if required && (resp == nil || !resp.Ready) {
+		return errors.New("STATE Kit 尚未接受宿主适配服务")
 	}
 	if resp != nil && !resp.Ready {
 		slog.Debug("plugin_host_services_declined", "plugin", pluginKey, "message", resp.Message)
 	}
+	return nil
 }
 
 func (r *pluginRuntime) validateAndApplyConfig(ctx context.Context, configJSON []byte) error {

@@ -14,6 +14,11 @@ export default {
     test: 'Test',
     uninstall: 'Uninstall',
     rollout: 'OAuth traffic percentage',
+    hostAdaptation: 'Host adaptation',
+    hostAdaptationHint: 'Provides account and group directories, proxy selection, manual actions, and HTML previews. Changing this safely reloads running plugins and preserves their enabled state, traffic percentage, and configuration.',
+    hostAdaptationEnabled: 'Host adaptation enabled',
+    hostAdaptationDisabled: 'Host adaptation disabled',
+    hostAdaptationRequired: 'Enable host adaptation on this plugin card first',
     compatibility: 'Version compatibility',
     currentVersion: 'Current Sub2API',
     requiredVersion: 'Required range',
@@ -44,6 +49,7 @@ export default {
     confirmUntested: 'This plugin is compatible but has not declared the current Sub2API version as tested. Enable it anyway?',
     fileRequired: 'Select a .s2plugin file',
     bridgeRejected: 'Plugin UI message validation failed',
+    bridgeExpired: 'The plugin request timed out. Please try again.',
     onlyOpenAI: 'Initial capability: OpenAI OAuth outbound transport only',
     noAccountCoupling: 'The scope is platform and account type. Account records are not changed and no per-account toggle is required.'
   }

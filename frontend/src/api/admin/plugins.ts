@@ -69,6 +69,7 @@ export interface PluginInstallation {
   compatibility: PluginCompatibility
   runtime_healthy: boolean
   runtime_message: string
+  host_adaptation_enabled: boolean
 }
 
 export interface PluginTestResult {
@@ -89,6 +90,17 @@ export interface PluginUISession {
   bridge_token: string
   ui_bridge_version: number
   expires_at: string
+}
+
+export interface PluginResources {
+  accounts: Array<{ id: number; name: string; group_ids: number[] }>
+  groups: Array<{ id: number; name: string }>
+  proxies: Array<{ id: number; name: string; protocol: string; host: string; port: number }>
+}
+
+export interface PluginActionResult {
+  accepted: boolean
+  message: string
 }
 
 export async function list(): Promise<PluginInstallation[]> {
@@ -155,6 +167,21 @@ export async function createUISession(id: number): Promise<PluginUISession> {
   return data
 }
 
+export async function setHostAdaptation(id: number, enabled: boolean): Promise<PluginInstallation> {
+  const { data } = await apiClient.put<PluginInstallation>(`/admin/plugins/${id}/host-adaptation`, { enabled })
+  return data
+}
+
+export async function resources(id: number): Promise<PluginResources> {
+  const { data } = await apiClient.get<PluginResources>(`/admin/plugins/${id}/resources`)
+  return data
+}
+
+export async function action(id: number, action: Record<string, unknown>): Promise<PluginActionResult> {
+  const { data } = await apiClient.post<PluginActionResult>(`/admin/plugins/${id}/actions`, action)
+  return data
+}
+
 export default {
   list,
   upload,
@@ -165,5 +192,8 @@ export default {
   saveConfig,
   test,
   status,
-  createUISession
+  createUISession,
+  setHostAdaptation,
+  resources,
+  action
 }
