@@ -248,7 +248,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	paymentConfigService := service.ProvidePaymentConfigService(client, settingRepository, encryptionKey)
 	registry := payment.ProvideRegistry()
 	defaultLoadBalancer := payment.ProvideDefaultLoadBalancer(client, encryptionKey)
-	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService)
+	paymentTRC20Repository := repository.NewPaymentTRC20Repository(db)
+	paymentTRC20Service := service.NewPaymentTRC20Service(paymentTRC20Repository)
+	paymentExchangeRateRepository := repository.NewPaymentExchangeRateRepository(db)
+	paymentExchangeRateService := service.ProvidePaymentExchangeRateService(paymentExchangeRateRepository, paymentConfigService, leaderLockCache, db)
+	paymentService := service.ProvidePaymentService(client, registry, defaultLoadBalancer, redeemService, subscriptionService, paymentConfigService, userRepository, groupRepository, affiliateService, notificationEmailService, paymentTRC20Service, paymentExchangeRateService)
 	settingHandler := handler.ProvideAdminSettingHandler(settingService, emailService, turnstileService, aliyunCaptchaService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService, totpService, userService)
 	opsHandler := admin.NewOpsHandler(opsService)
 	updateCache := repository.NewUpdateCache(redisClient)
@@ -366,7 +370,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService, channelMonitorQuotaFetcher)
 	channelMonitorV2Aggregator := service.ProvideChannelMonitorV2Aggregator(channelMonitorV2Repository, db, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager, supportDeliveryService, bulkEmailService, communityService, modelDetectionService)
+	v := provideCleanup(client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager, supportDeliveryService, bulkEmailService, communityService, modelDetectionService, paymentExchangeRateService)
 	application := &Application{
 		Server:        httpServer,
 		PromptAudit:   promptService,
@@ -456,6 +460,7 @@ func provideCleanup(
 	bulkEmail *service.BulkEmailService,
 	community *service.CommunityService,
 	modelDetection *service.ModelDetectionService,
+	paymentExchangeRate *service.PaymentExchangeRateService,
 ) func() {
 	return func() {
 		modelDetection.Stop()
@@ -468,6 +473,12 @@ func provideCleanup(
 		}
 
 		parallelSteps := []cleanupStep{
+			{"PaymentExchangeRate", func() error {
+				if paymentExchangeRate != nil {
+					paymentExchangeRate.Stop()
+				}
+				return nil
+			}},
 			{"Community", func() error {
 				if community != nil {
 					community.Stop()

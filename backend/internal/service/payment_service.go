@@ -71,6 +71,7 @@ func generateRandomString(n int) string {
 }
 
 type CreateOrderRequest struct {
+	usdtExchange    *PaymentOrderExchangeDetails
 	UserID          int64
 	Amount          float64
 	PaymentType     string
@@ -88,6 +89,8 @@ type CreateOrderRequest struct {
 }
 
 type CreateOrderResponse struct {
+	USDTExchange *PaymentOrderExchangeDetails `json:"usdt_exchange,omitempty"`
+	PaymentTransferDetails
 	OrderID                       int64                           `json:"order_id"`
 	Amount                        float64                         `json:"amount"`
 	PayAmount                     float64                         `json:"pay_amount"`
@@ -185,6 +188,7 @@ type TopUsersByCurrency map[string][]TopUserStat
 // --- Service ---
 
 type PaymentService struct {
+	exchangeRateSvc          PaymentExchangeRateReader
 	providerMu               sync.Mutex
 	providersLoaded          bool
 	entClient                *dbent.Client
@@ -198,6 +202,7 @@ type PaymentService struct {
 	resumeService            *PaymentResumeService
 	affiliateService         *AffiliateService
 	notificationEmailService *NotificationEmailService
+	trc20Svc                 *PaymentTRC20Service
 }
 
 func NewPaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService) *PaymentService {

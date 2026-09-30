@@ -5,7 +5,8 @@
     width="normal"
     @close="emit('cancel')"
   >
-    <form id="refund-form" @submit.prevent="handleSubmit" class="space-y-4">
+    <p v-if="order?.refund_supported === false" class="text-sm text-gray-600 dark:text-gray-300">{{ t('payment.crypto.refundUnsupported') }}</p>
+    <form v-else id="refund-form" @submit.prevent="handleSubmit" class="space-y-4">
       <!-- Refund Request Info -->
       <div
         v-if="order?.refund_requested_at || order?.refund_request_reason"
@@ -39,7 +40,7 @@
         </div>
         <div class="mt-1 flex justify-between text-sm">
           <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-          <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol }}{{ order?.pay_amount?.toFixed(2) }}</span>
+          <span class="font-medium text-gray-900 dark:text-white">{{ order ? formatOrderPaymentAmount(order) : '—' }}</span>
         </div>
         <div v-if="actuallyRefunded > 0" class="mt-1 flex justify-between text-sm">
           <span class="text-gray-500 dark:text-gray-400">{{ t('payment.admin.alreadyRefunded') }}</span>
@@ -151,6 +152,7 @@
           {{ t('common.cancel') }}
         </button>
         <button
+          v-if="order?.refund_supported !== false"
           type="submit"
           form="refund-form"
           :disabled="submitting || form.amount <= 0 || (requireForce && !form.force)"
@@ -169,7 +171,7 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import type { PaymentOrder } from '@/types/payment'
 import { formatOrderDateTime } from '@/components/payment/orderUtils'
-import { currencySymbol } from '@/components/payment/currency'
+import { currencySymbol, formatOrderPaymentAmount } from '@/components/payment/currency'
 
 const { t } = useI18n()
 
@@ -188,8 +190,6 @@ const emit = defineEmits<{
 }>()
 
 const creditedAmountSymbol = currencySymbol('USD')
-
-const paymentAmountSymbol = computed(() => currencySymbol(props.order?.currency))
 
 const form = reactive({
   amount: 0,
@@ -236,6 +236,7 @@ function formatDateTime(dateStr: string): string {
 }
 
 function handleSubmit() {
+  if (props.order?.refund_supported === false) return
   if (form.amount <= 0 || form.amount > maxRefundable.value) return
   if (props.requireForce && !form.force) return
   emit('confirm', { ...form })

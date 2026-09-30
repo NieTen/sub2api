@@ -72,8 +72,9 @@ func wxpayJSAPIAppIDFromContext(ctx context.Context) string {
 
 // instanceCandidate pairs an instance with its pre-fetched daily usage.
 type instanceCandidate struct {
-	inst      *dbent.PaymentProviderInstance
-	dailyUsed float64 // includes PENDING orders
+	inst                  *dbent.PaymentProviderInstance
+	dailyUsed             float64 // includes PENDING orders
+	dailyUsageUnavailable bool    // 日用量查询失败时，原生 USDT 不能按零用量放行。
 }
 
 // SelectInstance picks an enabled instance for the given provider key and payment type.
@@ -83,7 +84,7 @@ type instanceCandidate struct {
 //  2. Batch-query daily usage (PENDING + PAID + COMPLETED + RECHARGING) for all candidates
 //  3. Filter out instances where: single-min/max violated OR daily remaining < orderAmount
 //  4. Pick from survivors using the configured strategy (round-robin / least-amount)
-//  5. If all filtered out, fall back to full list (let the provider itself reject)
+//  5. 全部超限时仅允许其他服务商沿用既有回退策略，原生 USDT 返回无可用实例。
 func (lb *DefaultLoadBalancer) SelectInstance(
 	ctx context.Context,
 	providerKey string,
@@ -103,10 +104,19 @@ func (lb *DefaultLoadBalancer) SelectInstance(
 	// Step 3: filter by limits.
 	available := filterByLimits(candidates, paymentType, orderAmount)
 	if len(available) == 0 {
-		slog.Warn("all instances exceeded limits, using full candidate list",
+		// 原生 USDT 的本地限额必须生效；仅保留其他渠道已有的超限回退行为。
+		// 按服务商标识判断，不能误伤易支付提供的同名自定义付款方式。
+		for _, candidate := range candidates {
+			if !isNativeUSDTPaymentProvider(candidate.inst.ProviderKey) {
+				available = append(available, candidate)
+			}
+		}
+		if len(available) == 0 {
+			return nil, nil
+		}
+		slog.Warn("候选支付实例均超限，沿用其他渠道的既有回退策略",
 			"provider", providerKey, "payment_type", paymentType,
-			"order_amount", orderAmount, "count", len(candidates))
-		available = candidates
+			"order_amount", orderAmount, "count", len(available))
 	}
 
 	// Step 4: pick by strategy.
@@ -197,7 +207,7 @@ func (lb *DefaultLoadBalancer) attachDailyUsage(
 		Aggregate(dbent.Sum(paymentorder.FieldPayAmount)).
 		Scan(ctx, &rows)
 	if err != nil {
-		slog.Warn("batch daily usage query failed, treating all as zero", "error", err)
+		slog.Warn("批量查询渠道日用量失败，限制原生 USDT 有日额度的渠道下单", "error", err)
 	}
 
 	usageMap := make(map[string]float64, len(rows))
@@ -208,8 +218,9 @@ func (lb *DefaultLoadBalancer) attachDailyUsage(
 	candidates := make([]instanceCandidate, len(instances))
 	for i, inst := range instances {
 		candidates[i] = instanceCandidate{
-			inst:      inst,
-			dailyUsed: usageMap[fmt.Sprintf("%d", inst.ID)],
+			inst:                  inst,
+			dailyUsed:             usageMap[fmt.Sprintf("%d", inst.ID)],
+			dailyUsageUnavailable: err != nil,
 		}
 	}
 	return candidates
@@ -222,6 +233,9 @@ func filterByLimits(candidates []instanceCandidate, paymentType PaymentType, ord
 	var result []instanceCandidate
 	for _, c := range candidates {
 		cl := getInstanceChannelLimits(c.inst, paymentType)
+		if c.dailyUsageUnavailable && cl.DailyLimit > 0 && isNativeUSDTPaymentProvider(c.inst.ProviderKey) {
+			continue
+		}
 
 		if cl.SingleMin > 0 && orderAmount < cl.SingleMin {
 			slog.Info("order below instance single min, skipping",
@@ -243,6 +257,11 @@ func filterByLimits(candidates []instanceCandidate, paymentType PaymentType, ord
 		result = append(result, c)
 	}
 	return result
+}
+
+func isNativeUSDTPaymentProvider(providerKey string) bool {
+	key := strings.TrimSpace(providerKey)
+	return key == TypeOKPay || key == TypeUSDTTRC20
 }
 
 // getInstanceChannelLimits returns the channel limits for a specific payment type.

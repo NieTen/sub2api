@@ -35,6 +35,7 @@
         <!-- Order Info -->
         <div v-if="order" class="rounded-xl bg-white p-5 shadow-sm dark:bg-dark-800">
           <div class="space-y-3 text-sm">
+            <UsdtExchangeDetails v-if="hasAmountFields(order)" :exchange="order.usdt_exchange" :currency="order.currency" />
             <div v-if="hasOrderId(order)" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderId') }}</span>
               <span class="font-medium text-gray-900 dark:text-white">#{{ order.id }}</span>
@@ -43,17 +44,17 @@
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.orderNo') }}</span>
               <span class="font-medium text-gray-900 dark:text-white">{{ order.out_trade_no }}</span>
             </div>
-            <div v-if="hasAmountFields(order)" class="flex justify-between">
+            <div v-if="hasAmountFields(order) && !order.usdt_exchange" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.baseAmount') }}</span>
               <span class="font-medium text-gray-900 dark:text-white">{{ formatGatewayAmount(baseAmount) }}</span>
             </div>
-            <div v-if="hasAmountFields(order) && order.fee_rate > 0" class="flex justify-between">
+            <div v-if="hasAmountFields(order) && order.fee_rate > 0 && !order.usdt_exchange" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.fee') }} ({{ order.fee_rate }}%)</span>
               <span class="font-medium text-gray-900 dark:text-white">{{ formatGatewayAmount(feeAmount) }}</span>
             </div>
             <div v-if="hasAmountFields(order)" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-              <span class="font-bold text-primary-600 dark:text-primary-400">{{ formatGatewayAmount(order.pay_amount) }}</span>
+              <span class="font-bold text-primary-600 dark:text-primary-400">{{ formatOrderPaymentAmount(order, localeCode) }}</span>
             </div>
             <div v-if="hasAmountFields(order) && order.amount !== order.pay_amount" class="flex justify-between">
               <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.creditedAmount') }}</span>
@@ -101,6 +102,7 @@ import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
+import UsdtExchangeDetails from '@/components/payment/UsdtExchangeDetails.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   clearPaymentRecoverySnapshot,
@@ -111,7 +113,7 @@ import { useAuthStore } from '@/stores/auth'
 import { paymentAPI } from '@/api/payment'
 import type { PublicOrderVerifyResult } from '@/api/payment'
 import type { OrderStatus, PaymentOrder } from '@/types/payment'
-import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import { formatOrderPaymentAmount, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
 import { normalizePaymentMethodForDisplay, paymentMethodI18nKey } from './paymentUx'
 
 const i18n = useI18n()

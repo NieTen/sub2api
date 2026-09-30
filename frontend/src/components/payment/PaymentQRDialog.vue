@@ -3,7 +3,7 @@
     <!-- QR Code + Polling State -->
     <div v-if="!success" class="flex flex-col items-center space-y-4">
       <!-- QR Code mode -->
-      <template v-if="qrUrl">
+      <template v-if="qrUrl && !expired">
         <div class="rounded-2xl bg-white p-4 shadow-sm dark:bg-dark-800">
           <canvas ref="qrCanvas" class="mx-auto"></canvas>
         </div>
@@ -12,7 +12,7 @@
         </p>
       </template>
       <!-- Popup window waiting mode (no QR code) -->
-      <template v-else>
+      <template v-else-if="!expired">
         <div class="flex flex-col items-center py-4">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
           <p class="mt-4 text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.payInNewWindowHint') }}</p>
@@ -49,7 +49,7 @@
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-            <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol(paidOrder) }}{{ paidOrder.pay_amount.toFixed(2) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPaymentAmount(paidOrder) }}</span>
           </div>
         </div>
       </div>
@@ -81,7 +81,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
 import type { PaymentOrder } from '@/types/payment'
-import { currencySymbol } from '@/components/payment/currency'
+import { currencySymbol, formatOrderPaymentAmount } from '@/components/payment/currency'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
 import wxpayIcon from '@/assets/icons/wxpay.svg'
@@ -138,10 +138,6 @@ const scanHint = computed(() => {
   if (isWxpay.value) return t('payment.qr.scanWxpayHint')
   return ''
 })
-
-function paymentAmountSymbol(order: PaymentOrder): string {
-  return currencySymbol(order.currency)
-}
 
 const countdownDisplay = computed(() => {
   const m = Math.floor(remainingSeconds.value / 60)

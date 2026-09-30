@@ -45,8 +45,8 @@
       <!-- Right: toggles + actions -->
       <div class="flex items-center gap-4">
         <ToggleSwitch :label="t('common.enabled')" :checked="provider.enabled" @toggle="emit('toggleField', 'enabled')" />
-        <ToggleSwitch :label="t('admin.settings.payment.refundEnabled')" :checked="provider.refund_enabled" @toggle="emit('toggleField', 'refund_enabled')" />
-        <ToggleSwitch v-if="provider.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="provider.allow_user_refund" @toggle="emit('toggleField', 'allow_user_refund')" />
+        <ToggleSwitch v-if="providerSupportsRefund(provider.provider_key)" :label="t('admin.settings.payment.refundEnabled')" :checked="provider.refund_enabled" @toggle="emit('toggleField', 'refund_enabled')" />
+        <ToggleSwitch v-if="providerSupportsRefund(provider.provider_key) && provider.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="provider.allow_user_refund" @toggle="emit('toggleField', 'allow_user_refund')" />
         <div class="flex items-center gap-2 border-l border-gray-200 pl-3 dark:border-dark-600">
           <button type="button" @click="emit('edit')" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400">
             <Icon name="edit" size="sm" />
@@ -69,7 +69,7 @@ import Icon from '@/components/icons/Icon.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import type { ProviderInstance } from '@/types/payment'
 import type { TypeOption } from './providerConfig'
-import { PAYMENT_MODE_QRCODE, PAYMENT_MODE_POPUP, PAYMENT_MODE_REDIRECT } from './providerConfig'
+import { PAYMENT_MODE_QRCODE, PAYMENT_MODE_POPUP, PAYMENT_MODE_REDIRECT, providerSupportsRefund } from './providerConfig'
 
 const PROVIDER_KEY_LABELS: Record<string, string> = {
   easypay: 'admin.settings.payment.providerEasypay',
@@ -77,6 +77,8 @@ const PROVIDER_KEY_LABELS: Record<string, string> = {
   wxpay: 'admin.settings.payment.providerWxpay',
   stripe: 'admin.settings.payment.providerStripe',
   airwallex: 'admin.settings.payment.providerAirwallex',
+  okpay: 'admin.settings.payment.providerOkpay',
+  usdt_trc20: 'admin.settings.payment.providerUsdtTrc20',
 }
 
 const props = defineProps<{

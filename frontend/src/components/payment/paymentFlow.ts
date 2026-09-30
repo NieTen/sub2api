@@ -5,7 +5,9 @@ import type {
   OrderType,
   WechatJSAPIPayload,
   WechatOAuthInfo,
+  UsdtExchangeSnapshot,
 } from '@/types/payment'
+import { isUsdtExchangeSnapshot } from './usdtExchange'
 
 export const PAYMENT_RECOVERY_STORAGE_KEY = 'payment.recovery.current'
 
@@ -16,9 +18,11 @@ const VISIBLE_METHOD_ALIASES = {
   wxpay_direct: 'wxpay',
   stripe: 'stripe',
   airwallex: 'airwallex',
+  okpay: 'okpay',
+  usdt_trc20: 'usdt_trc20',
 } as const
 
-export type VisiblePaymentMethod = 'alipay' | 'wxpay' | 'stripe' | 'airwallex'
+export type VisiblePaymentMethod = 'alipay' | 'wxpay' | 'stripe' | 'airwallex' | 'okpay' | 'usdt_trc20'
 export type StripeVisibleMethod = 'alipay' | 'wechat_pay'
 export type PaymentLaunchKind =
   | 'qr_waiting'
@@ -42,6 +46,10 @@ export interface PaymentRecoverySnapshot {
   clientSecret: string
   intentId: string
   currency: string
+  paymentNetwork?: string
+  paymentAddress?: string
+  paymentAmountExact?: string
+  usdtExchange?: UsdtExchangeSnapshot
   countryCode: string
   paymentEnv: string
   payAmount: number
@@ -154,7 +162,7 @@ export function decidePaymentLaunch(
   const baseState = createPaymentRecoverySnapshot({
     orderId: result.order_id,
     amount: result.amount,
-    qrCode: result.qr_code || '',
+    qrCode: result.payment_network === 'TRC20' && result.payment_address ? result.payment_address : result.qr_code || '',
     expiresAt: result.expires_at || '',
     paymentType: visibleMethod,
     payUrl: result.pay_url || '',
@@ -162,6 +170,10 @@ export function decidePaymentLaunch(
     clientSecret: result.client_secret || '',
     intentId: result.intent_id || '',
     currency: result.currency || '',
+    ...(result.payment_network ? { paymentNetwork: result.payment_network } : {}),
+    ...(result.payment_address ? { paymentAddress: result.payment_address } : {}),
+    ...(result.payment_amount_exact ? { paymentAmountExact: result.payment_amount_exact } : {}),
+    ...(result.usdt_exchange ? { usdtExchange: result.usdt_exchange } : {}),
     countryCode: result.country_code || '',
     paymentEnv: result.payment_env || '',
     payAmount: result.pay_amount,
@@ -290,6 +302,10 @@ export function readPaymentRecoverySnapshot(
       || typeof parsed.clientSecret !== 'string'
       || (parsed.intentId != null && typeof parsed.intentId !== 'string')
       || (parsed.currency != null && typeof parsed.currency !== 'string')
+      || (parsed.paymentNetwork != null && typeof parsed.paymentNetwork !== 'string')
+      || (parsed.paymentAddress != null && typeof parsed.paymentAddress !== 'string')
+      || (parsed.paymentAmountExact != null && typeof parsed.paymentAmountExact !== 'string')
+      || (parsed.usdtExchange != null && !isUsdtExchangeSnapshot(parsed.usdtExchange))
       || (parsed.countryCode != null && typeof parsed.countryCode !== 'string')
       || (parsed.paymentEnv != null && typeof parsed.paymentEnv !== 'string')
       || typeof parsed.payAmount !== 'number'
@@ -321,6 +337,10 @@ export function readPaymentRecoverySnapshot(
       clientSecret: parsed.clientSecret,
       intentId: parsed.intentId || '',
       currency: parsed.currency || '',
+      ...(parsed.paymentNetwork ? { paymentNetwork: parsed.paymentNetwork } : {}),
+      ...(parsed.paymentAddress ? { paymentAddress: parsed.paymentAddress } : {}),
+      ...(parsed.paymentAmountExact ? { paymentAmountExact: parsed.paymentAmountExact } : {}),
+      ...(parsed.usdtExchange ? { usdtExchange: parsed.usdtExchange } : {}),
       countryCode: parsed.countryCode || '',
       paymentEnv: parsed.paymentEnv || '',
       payAmount: parsed.payAmount,

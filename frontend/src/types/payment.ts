@@ -19,7 +19,7 @@ export type OrderStatus =
   | 'REFUNDED'
   | 'REFUND_FAILED'
 
-export type PaymentType = 'alipay' | 'wxpay' | 'alipay_direct' | 'wxpay_direct' | 'stripe' | 'easypay' | 'airwallex'
+export type PaymentType = 'alipay' | 'wxpay' | 'alipay_direct' | 'wxpay_direct' | 'stripe' | 'easypay' | 'airwallex' | 'okpay' | 'usdt_trc20'
 
 export type OrderType = 'balance' | 'subscription'
 
@@ -43,6 +43,10 @@ export interface PaymentConfig {
 
 export interface MethodLimit {
   currency?: string
+  input_currency?: string
+  usdt_exchange?: UsdtCnyQuote | null
+  exchange_rate_error?: string
+  balance_credit_multiplier?: number
   display_name?: string
   daily_limit: number
   daily_used: number
@@ -51,6 +55,39 @@ export interface MethodLimit {
   single_max: number
   fee_rate: number
   available: boolean
+}
+
+export type UsdtRateSource = 'okx' | 'fallback' | 'unavailable'
+
+export interface UsdtCnyQuote {
+  rate: number
+  source: UsdtRateSource
+  fetched_at?: string
+  observed_at: string
+  fallback_reason?: string
+  sample_prices: number[]
+  sample_count: number
+  aggregation: string
+}
+
+export interface UsdtRateHistoryResponse {
+  current: UsdtCnyQuote | null
+  history: UsdtCnyQuote[]
+  error?: string
+}
+
+export interface UsdtExchangeSnapshot {
+  rate: number
+  source: UsdtRateSource
+  fetched_at?: string
+  observed_at: string
+  fallback_reason?: string
+  cny_base_amount: number
+  cny_pay_amount: number
+  usdt_pay_amount: number
+  pricing_mode: 'balance_cny' | 'subscription_cny' | 'subscription_legacy_cny'
+  subscription_usd_to_cny_rate?: number
+  plan_price?: number
 }
 
 /** Response from /payment/limits API */
@@ -88,6 +125,10 @@ export interface PaymentOrder {
   amount: number
   pay_amount: number
   currency?: string
+  payment_network?: string
+  payment_address?: string
+  payment_amount_exact?: string
+  usdt_exchange?: UsdtExchangeSnapshot
   fee_rate: number
   payment_type: string
   out_trade_no: string
@@ -104,6 +145,7 @@ export interface PaymentOrder {
   refund_request_reason?: string
   plan_id?: number
   provider_instance_id?: string
+  refund_supported?: boolean
 }
 
 // ==================== Plans & Channels ====================
@@ -206,6 +248,10 @@ export interface CreateOrderResult {
   client_secret?: string
   intent_id?: string
   currency?: string
+  payment_network?: string
+  payment_address?: string
+  payment_amount_exact?: string
+  usdt_exchange?: UsdtExchangeSnapshot
   country_code?: string
   payment_env?: string
   pay_amount: number

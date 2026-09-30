@@ -1,5 +1,6 @@
 <template>
   <div class="space-y-4">
+    <UsdtExchangeDetails :exchange="paidOrder?.usdt_exchange || usdtExchange" :currency="currency" />
     <!-- ═══ Terminal States: show result, user clicks to return ═══ -->
 
     <!-- Success -->
@@ -26,7 +27,7 @@
               </div>
               <div class="flex justify-between">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-                <span class="font-medium text-gray-900 dark:text-white">{{ formatGatewayAmount(paidOrder.pay_amount, paidOrder.currency) }}</span>
+                <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPaymentAmount(paidOrder, localeCode) }}</span>
               </div>
             </div>
           </div>
@@ -45,7 +46,7 @@
             </svg>
           </div>
           <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.qr.cancelled') }}</p>
-          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.cancelledDesc') }}</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t(isTrc20 ? 'payment.crypto.expiredHint' : 'payment.qr.cancelledDesc') }}</p>
           <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>
         </div>
       </div>
@@ -61,7 +62,7 @@
             </svg>
           </div>
           <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.qr.expired') }}</p>
-          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.expiredDesc') }}</p>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t(isTrc20 ? 'payment.crypto.expiredHint' : 'payment.qr.expiredDesc') }}</p>
           <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>
         </div>
       </div>
@@ -180,6 +181,7 @@
             </div>
           </div>
           <p v-if="scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">{{ scanHint }}</p>
+          <Trc20PaymentDetails v-if="isTrc20" :address="paymentAddress || ''" :amount-exact="paymentAmountExact || ''" :bill-amount="payAmount" />
           <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
             {{ t('payment.qr.openPayWindow') }}
           </button>
@@ -188,7 +190,7 @@
       <div class="card p-4 text-center">
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.expiresIn') }}</p>
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
-        <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
+        <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t(isTrc20 ? 'payment.crypto.waitingConfirmation' : 'payment.qr.waitingPayment') }}</p>
       </div>
       <button class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
@@ -201,6 +203,7 @@
         <div class="flex flex-col items-center space-y-4 py-4">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.payInNewWindowHint') }}</p>
+          <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ displayPaymentAmount }}</p>
           <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
             {{ t('payment.qr.openPayWindow') }}
           </button>
@@ -225,8 +228,10 @@ import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
-import { currencySymbol, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
-import type { PaymentOrder } from '@/types/payment'
+import { currencySymbol, formatOrderPaymentAmount, formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
+import Trc20PaymentDetails from './Trc20PaymentDetails.vue'
+import type { PaymentOrder, UsdtExchangeSnapshot } from '@/types/payment'
+import UsdtExchangeDetails from './UsdtExchangeDetails.vue'
 import Icon from '@/components/icons/Icon.vue'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
@@ -248,6 +253,10 @@ const props = defineProps<{
   payUrl?: string
   orderType?: string
   currency?: string
+  paymentNetwork?: string
+  paymentAddress?: string
+  paymentAmountExact?: string
+  usdtExchange?: UsdtExchangeSnapshot
   outTradeNo?: string
   mobileAlipayDeepLink?: boolean
 }>()
@@ -293,6 +302,7 @@ const VERIFY_RETRY_MAX_ATTEMPTS = 6
 
 const isAlipay = computed(() => isBuiltInAlipayMethod(props.paymentType))
 const isWxpay = computed(() => isBuiltInWxpayMethod(props.paymentType))
+const isTrc20 = computed(() => props.paymentNetwork === 'TRC20' && !!props.paymentAddress && !!props.paymentAmountExact)
 const isMobileAlipayDeepLink = computed(() => props.mobileAlipayDeepLink === true && isAlipay.value && !!qrUrl.value)
 const showQRCode = computed(() => !!qrUrl.value && (!isMobileAlipayDeepLink.value || deepLinkFallbackVisible.value))
 
@@ -315,6 +325,7 @@ const qrLogoIcon = computed(() => {
 })
 
 const scanTitle = computed(() => {
+  if (isTrc20.value) return t('payment.crypto.scanTrc20')
   if (isAlipay.value) return t('payment.qr.scanAlipay')
   if (isWxpay.value) return t('payment.qr.scanWxpay')
   return t('payment.qr.scanToPay')
@@ -476,7 +487,7 @@ function cleanup() {
 }
 
 // Initialize on mount
-qrUrl.value = props.qrCode
+qrUrl.value = props.paymentNetwork === 'TRC20' && props.paymentAddress ? props.paymentAddress : props.qrCode
 verifyAttempts = 0
 lastVerifyAt = 0
 let seconds = 30 * 60

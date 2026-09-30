@@ -12,15 +12,16 @@
         <span v-if="row.user_notes" class="ml-1 text-xs text-gray-400">({{ row.user_notes }})</span>
       </div>
     </template>
-    <template #cell-pay_amount="{ value, row }">
+    <template #cell-pay_amount="{ row }">
       <div class="text-sm">
-        <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol(row) }}{{ value.toFixed(2) }}</span>
+        <span class="font-medium text-gray-900 dark:text-white">{{ formatOrderPaymentAmount(row) }}</span>
         <span v-if="row.fee_rate > 0" class="ml-1 text-xs text-gray-400" :title="t('payment.orders.fee') + ': ' + row.fee_rate + '%'">
           ({{ t('payment.orders.fee') }} {{ row.fee_rate }}%)
         </span>
         <div v-if="row.amount !== row.pay_amount" class="text-xs text-gray-500">
           {{ t('payment.orders.creditedAmount') }}: {{ creditedAmountSymbol }}{{ row.amount.toFixed(2) }}
         </div>
+        <UsdtExchangeDetails :exchange="row.usdt_exchange" :currency="row.currency" compact />
       </div>
     </template>
     <template #cell-payment_type="{ value }">
@@ -45,7 +46,8 @@ import type { PaymentOrder } from '@/types/payment'
 import type { Column } from '@/components/common/types'
 import DataTable from '@/components/common/DataTable.vue'
 import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
-import { currencySymbol } from '@/components/payment/currency'
+import UsdtExchangeDetails from '@/components/payment/UsdtExchangeDetails.vue'
+import { currencySymbol, formatOrderPaymentAmount } from '@/components/payment/currency'
 
 const { t } = useI18n()
 
@@ -58,10 +60,6 @@ const props = defineProps<{
 function formatDate(dateStr: string) { return new Date(dateStr).toLocaleString() }
 
 const creditedAmountSymbol = currencySymbol('USD')
-
-function paymentAmountSymbol(order: PaymentOrder): string {
-  return currencySymbol(order.currency)
-}
 
 const columns = computed((): Column[] => {
   const cols: Column[] = [

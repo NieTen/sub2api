@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/payment/provider"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
@@ -154,18 +155,25 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 	if err != nil {
 		return ""
 	}
+	if client, ok := prov.(*provider.TRC20); ok {
+		return s.checkTRC20Paid(ctx, o, client)
+	}
 	queryRef := paymentOrderQueryReference(o, prov)
 	if queryRef == "" {
 		return ""
 	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
-	resp, err := prov.QueryOrder(ctx, queryRef)
+	resp, err := queryPaymentProviderOrder(ctx, prov, queryRef)
 	finishProviderCall()
 	if err != nil {
 		slog.Warn("query upstream failed", "orderID", o.ID, "error", err)
 		return ""
 	}
 	if resp.Status == payment.ProviderStatusPaid {
+		if prov.ProviderKey() == payment.TypeOKPay && o.PaymentTradeNo != "" && o.PaymentTradeNo != resp.TradeNo {
+			slog.Warn("OKPay 查单返回的平台订单号不匹配", "orderID", o.ID)
+			return ""
+		}
 		if !isValidProviderAmount(resp.Amount) {
 			s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", prov.ProviderKey(), map[string]any{
 				"expected": o.PayAmount,
@@ -179,6 +187,9 @@ func (s *PaymentService) checkPaidWithOptions(ctx context.Context, o *dbent.Paym
 				return ""
 			}
 			resp = retriedResp
+		}
+		if prov.ProviderKey() == payment.TypeOKPay && o.PaymentTradeNo != "" && o.PaymentTradeNo != resp.TradeNo {
+			return ""
 		}
 		notificationTradeNo := o.PaymentTradeNo
 		if upstreamTradeNo := strings.TrimSpace(resp.TradeNo); paymentOrderShouldPersistUpstreamTradeNo(queryRef, upstreamTradeNo, notificationTradeNo) {
@@ -214,7 +225,7 @@ func requeryPaidOrderOnce(ctx context.Context, prov payment.Provider, queryRef s
 		return nil, false
 	}
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
-	resp, err := prov.QueryOrder(ctx, queryRef)
+	resp, err := queryPaymentProviderOrder(ctx, prov, queryRef)
 	finishProviderCall()
 	if err != nil {
 		slog.Warn("query upstream retry failed", "queryRef", queryRef, "error", err)
@@ -229,6 +240,9 @@ func requeryPaidOrderOnce(ctx context.Context, prov payment.Provider, queryRef s
 func paymentOrderQueryReference(order *dbent.PaymentOrder, prov payment.Provider) string {
 	if order == nil {
 		return ""
+	}
+	if _, ok := prov.(payment.MerchantOrderQueryProvider); ok {
+		return strings.TrimSpace(order.OutTradeNo)
 	}
 
 	providerKey := ""
@@ -256,6 +270,14 @@ func paymentOrderQueryReference(order *dbent.PaymentOrder, prov payment.Provider
 		}
 		return strings.TrimSpace(order.OutTradeNo)
 	}
+}
+
+// 需要商户订单号的渠道不能使用平台流水号查单。
+func queryPaymentProviderOrder(ctx context.Context, prov payment.Provider, reference string) (*payment.QueryOrderResponse, error) {
+	if merchantProvider, ok := prov.(payment.MerchantOrderQueryProvider); ok {
+		return merchantProvider.QueryOrderByMerchantOrderID(ctx, reference)
+	}
+	return prov.QueryOrder(ctx, reference)
 }
 
 func paymentOrderShouldPersistUpstreamTradeNo(queryRef, upstreamTradeNo, currentTradeNo string) bool {

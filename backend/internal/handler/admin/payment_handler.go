@@ -117,6 +117,9 @@ func (h *PaymentHandler) RetryFulfillment(c *gin.Context) {
 }
 
 type AdminPaymentOrderResult struct {
+	USDTExchange *service.PaymentOrderExchangeDetails `json:"usdt_exchange,omitempty"`
+	service.PaymentTransferDetails
+	RefundSupported     *bool      `json:"refund_supported,omitempty"`
 	ID                  int64      `json:"id"`
 	UserID              int64      `json:"user_id"`
 	UserEmail           string     `json:"user_email,omitempty"`
@@ -174,46 +177,49 @@ func sanitizeAdminPaymentOrderForResponse(order *dbent.PaymentOrder) *AdminPayme
 		return nil
 	}
 	return &AdminPaymentOrderResult{
-		ID:                  order.ID,
-		UserID:              order.UserID,
-		UserEmail:           order.UserEmail,
-		UserName:            order.UserName,
-		UserNotes:           order.UserNotes,
-		Amount:              order.Amount,
-		PayAmount:           order.PayAmount,
-		FeeRate:             order.FeeRate,
-		Currency:            service.PaymentOrderCurrency(order),
-		RechargeCode:        order.RechargeCode,
-		OutTradeNo:          order.OutTradeNo,
-		PaymentType:         order.PaymentType,
-		PaymentTradeNo:      order.PaymentTradeNo,
-		PayURL:              order.PayURL,
-		QRCode:              order.QrCode,
-		QRCodeImg:           order.QrCodeImg,
-		OrderType:           order.OrderType,
-		PlanID:              order.PlanID,
-		SubscriptionGroupID: order.SubscriptionGroupID,
-		SubscriptionDays:    order.SubscriptionDays,
-		ProviderInstanceID:  order.ProviderInstanceID,
-		ProviderKey:         order.ProviderKey,
-		Status:              order.Status,
-		RefundAmount:        order.RefundAmount,
-		RefundReason:        order.RefundReason,
-		RefundAt:            order.RefundAt,
-		ForceRefund:         order.ForceRefund,
-		RefundRequestedAt:   order.RefundRequestedAt,
-		RefundRequestReason: order.RefundRequestReason,
-		RefundRequestedBy:   order.RefundRequestedBy,
-		ExpiresAt:           order.ExpiresAt,
-		PaidAt:              order.PaidAt,
-		CompletedAt:         order.CompletedAt,
-		FailedAt:            order.FailedAt,
-		FailedReason:        order.FailedReason,
-		ClientIP:            order.ClientIP,
-		SrcHost:             order.SrcHost,
-		SrcURL:              order.SrcURL,
-		CreatedAt:           order.CreatedAt,
-		UpdatedAt:           order.UpdatedAt,
+		USDTExchange:           service.PaymentOrderUSDTExchange(order),
+		PaymentTransferDetails: service.PaymentOrderTransferDetails(order),
+		RefundSupported:        service.PaymentOrderRefundSupported(order),
+		ID:                     order.ID,
+		UserID:                 order.UserID,
+		UserEmail:              order.UserEmail,
+		UserName:               order.UserName,
+		UserNotes:              order.UserNotes,
+		Amount:                 order.Amount,
+		PayAmount:              order.PayAmount,
+		FeeRate:                order.FeeRate,
+		Currency:               service.PaymentOrderCurrency(order),
+		RechargeCode:           order.RechargeCode,
+		OutTradeNo:             order.OutTradeNo,
+		PaymentType:            order.PaymentType,
+		PaymentTradeNo:         order.PaymentTradeNo,
+		PayURL:                 order.PayURL,
+		QRCode:                 order.QrCode,
+		QRCodeImg:              order.QrCodeImg,
+		OrderType:              order.OrderType,
+		PlanID:                 order.PlanID,
+		SubscriptionGroupID:    order.SubscriptionGroupID,
+		SubscriptionDays:       order.SubscriptionDays,
+		ProviderInstanceID:     order.ProviderInstanceID,
+		ProviderKey:            order.ProviderKey,
+		Status:                 order.Status,
+		RefundAmount:           order.RefundAmount,
+		RefundReason:           order.RefundReason,
+		RefundAt:               order.RefundAt,
+		ForceRefund:            order.ForceRefund,
+		RefundRequestedAt:      order.RefundRequestedAt,
+		RefundRequestReason:    order.RefundRequestReason,
+		RefundRequestedBy:      order.RefundRequestedBy,
+		ExpiresAt:              order.ExpiresAt,
+		PaidAt:                 order.PaidAt,
+		CompletedAt:            order.CompletedAt,
+		FailedAt:               order.FailedAt,
+		FailedReason:           order.FailedReason,
+		ClientIP:               order.ClientIP,
+		SrcHost:                order.SrcHost,
+		SrcURL:                 order.SrcURL,
+		CreatedAt:              order.CreatedAt,
+		UpdatedAt:              order.UpdatedAt,
 	}
 }
 
@@ -475,6 +481,16 @@ func parseIDParam(c *gin.Context, paramName string) (int64, bool) {
 }
 
 // --- Config ---
+
+// GetUSDTRates 返回近三天费率走势和当前报价状态。
+func (h *PaymentHandler) GetUSDTRates(c *gin.Context) {
+	rates, err := h.paymentService.GetUSDTRates(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, rates)
+}
 
 // GetConfig returns the payment configuration (admin view).
 // GET /api/v1/admin/payment/config

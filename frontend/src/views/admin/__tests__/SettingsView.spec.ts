@@ -556,6 +556,7 @@ function mountView() {
         ConfirmDialog: true,
         PaymentProviderList: true,
         PaymentProviderDialog: true,
+        UsdtRateSettings: true,
         GroupBadge: true,
         GroupOptionItem: true,
         ProxySelector: true,
@@ -1114,6 +1115,50 @@ describe("admin SettingsView payment visible method controls", () => {
     }
   });
 
+  it("支付设置展示 USDT 费率并允许启用两个原生 USDT 服务商", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    expect(wrapper.findComponent({ name: "UsdtRateSettings" }).exists()).toBe(false);
+
+    await openPaymentTab(wrapper);
+    expect(wrapper.findComponent({ name: "UsdtRateSettings" }).exists()).toBe(true);
+    const dialog = wrapper.getComponent({ name: "PaymentProviderDialog" });
+    expect(dialog.props("allKeyOptions")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: "okpay" }),
+      expect.objectContaining({ value: "usdt_trc20" }),
+    ]));
+
+    for (const method of ["okpay", "usdt_trc20"]) {
+      const toggle = wrapper.findAll("button").find((node) => node.text() === `payment.methods.${method}`);
+      expect(toggle).toBeDefined();
+      await toggle!.trigger("click");
+    }
+    expect(dialog.props("enabledKeyOptions")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ value: "okpay" }),
+      expect.objectContaining({ value: "usdt_trc20" }),
+    ]));
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(expect.objectContaining({
+      payment_enabled_types: ["okpay", "usdt_trc20"],
+    }));
+    wrapper.unmount();
+  });
+
+  it("订单费率图的链接直接打开支付设置", async () => {
+    const originalUrl = window.location.href;
+    window.history.replaceState({}, "", "/admin/settings?tab=payment");
+    const wrapper = mountView();
+    try {
+      await flushPromises();
+      expect(wrapper.findComponent({ name: "UsdtRateSettings" }).exists()).toBe(true);
+    } finally {
+      wrapper.unmount();
+      window.history.replaceState({}, "", originalUrl);
+    }
+  });
+
   it("does not submit legacy visible payment method settings", async () => {
     const wrapper = mountView();
 
@@ -1292,6 +1337,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ConfirmDialog: true,
           PaymentProviderList: PaymentProviderListStub,
           PaymentProviderDialog: true,
+          UsdtRateSettings: true,
           GroupBadge: true,
           GroupOptionItem: true,
           ProxySelector: true,
@@ -1638,6 +1684,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ConfirmDialog: true,
           PaymentProviderList: PaymentProviderListCapture,
           PaymentProviderDialog: true,
+          UsdtRateSettings: true,
           GroupBadge: true,
           GroupOptionItem: true,
           ProxySelector: true,

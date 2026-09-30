@@ -154,10 +154,14 @@ async function confirmCancel() {
   }
 }
 
-function openRefundDialog(order: PaymentOrder) { refundTarget.value = order; refundReason.value = '' }
+function openRefundDialog(order: PaymentOrder) {
+  if (!canRequestRefund(order)) return
+  refundTarget.value = order
+  refundReason.value = ''
+}
 
 async function confirmRefund() {
-  if (!refundTarget.value || !refundReason.value.trim()) return
+  if (!refundTarget.value || !canRequestRefund(refundTarget.value) || !refundReason.value.trim()) return
   actionLoading.value = true
   try {
     await paymentAPI.requestRefund(refundTarget.value.id, { reason: refundReason.value.trim() })
@@ -173,6 +177,7 @@ async function confirmRefund() {
 }
 
 function canRequestRefund(order: PaymentOrder): boolean {
+  if (order.refund_supported === false) return false
   if (order.status !== 'COMPLETED') return false
   if (!order.provider_instance_id) return false
   return refundEligibleProviders.value.has(order.provider_instance_id)

@@ -73,6 +73,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { formatPaymentAmount } from '@/components/payment/currency'
 import { useAppStore } from '@/stores/app'
 import { adminPaymentAPI } from '@/api/admin/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
@@ -120,7 +121,7 @@ function hasTopUsers(usersByCurrency: Record<string, TopUserPaymentStats[]>): bo
 }
 
 function formatMoney(currency: string, amount: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+  return formatPaymentAmount(amount, currency)
 }
 
 async function loadDashboard() {

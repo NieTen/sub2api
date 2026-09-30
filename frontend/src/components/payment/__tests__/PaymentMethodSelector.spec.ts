@@ -9,6 +9,14 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('PaymentMethodSelector', () => {
+  it('原生 OKPay 和 TRC20 入口显示图标并能选择', async () => {
+    const wrapper = mount(PaymentMethodSelector, { props: { selected: 'okpay', methods: [{ type: 'okpay', fee_rate: 0, available: true }, { type: 'usdt_trc20', fee_rate: 0, available: true }] } })
+    const buttons = wrapper.findAll('button')
+    expect(buttons).toHaveLength(2)
+    expect(buttons.every(button => button.find('img').exists())).toBe(true)
+    await buttons[1].trigger('click')
+    expect(wrapper.emitted('select')?.[0]).toEqual(['usdt_trc20'])
+  })
   it('wraps large custom method collections without letting labels widen the selector', () => {
     const methods = Array.from({ length: 12 }, (_, index) => ({
       type: `custom_${index}`,

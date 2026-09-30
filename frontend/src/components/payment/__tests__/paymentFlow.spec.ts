@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { CreateOrderResult, MethodLimit } from '@/types/payment'
+import type { CreateOrderResult, MethodLimit, UsdtExchangeSnapshot } from '@/types/payment'
 import {
   buildCreateOrderPayload,
+  createPaymentRecoverySnapshot,
   decidePaymentLaunch,
   getVisibleMethods,
   readPaymentRecoverySnapshot,
@@ -74,6 +75,36 @@ describe('getVisibleMethods', () => {
 })
 
 describe('decidePaymentLaunch', () => {
+  it('保存并恢复订单原始费率快照，不以新报价替换已锁定值', () => {
+    const exchange: UsdtExchangeSnapshot = { rate: 7.2, source: 'fallback', observed_at: '2026-09-30T12:00:00Z', cny_base_amount: 10, cny_pay_amount: 10.25, usdt_pay_amount: 1.43, pricing_mode: 'balance_cny' }
+    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'okpay', currency: 'USDT', usdt_exchange: exchange, pay_url: 'https://example.com/pay' }), { visibleMethod: 'okpay', orderType: 'balance', isMobile: false })
+    expect(decision.paymentState.usdtExchange).toEqual(exchange)
+    expect(readPaymentRecoverySnapshot(JSON.stringify(decision.recovery))?.usdtExchange).toEqual(exchange)
+    expect(readPaymentRecoverySnapshot(JSON.stringify({ ...decision.recovery, usdtExchange: { ...exchange, rate: 0 } }))).toBeNull()
+  })
+  it('OKPay 使用 USDT 收银台链接跳转', () => {
+    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'okpay', currency: 'USDT', payment_mode: 'redirect', pay_url: 'https://okaypay.me/pay/test' }), { visibleMethod: 'okpay', orderType: 'balance', isMobile: false })
+    expect(decision.kind).toBe('redirect_waiting')
+    expect(decision.paymentState.payUrl).toBe('https://okaypay.me/pay/test')
+    expect(decision.paymentState.currency).toBe('USDT')
+  })
+
+  it('原生 TRC20 二维码仅编码地址并能恢复完整精确金额', () => {
+    const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
+    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'usdt_trc20', currency: 'USDT', payment_mode: 'qrcode', qr_code: '错误的旧二维码', payment_network: 'TRC20', payment_address: address, payment_amount_exact: '88.000010' }), { visibleMethod: 'usdt_trc20', orderType: 'balance', isMobile: true })
+    expect(decision.kind).toBe('qr_waiting')
+    expect(decision.paymentState.qrCode).toBe(address)
+    const snapshot = createPaymentRecoverySnapshot(decision.recovery)
+    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot))).toMatchObject({ paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: '88.000010', currency: 'USDT' })
+    expect(readPaymentRecoverySnapshot(JSON.stringify({ ...snapshot, paymentAmountExact: 88.00001 }))).toBeNull()
+  })
+
+  it('旧 EasyPay 同名自定义方式继续使用商户二维码', () => {
+    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'usdt_trc20', qr_code: 'https://legacy.example/pay' }), { visibleMethod: 'usdt_trc20', orderType: 'balance', isMobile: false })
+    expect(decision.kind).toBe('qr_waiting')
+    expect(decision.paymentState.qrCode).toBe('https://legacy.example/pay')
+    expect(decision.paymentState.paymentAddress).toBeUndefined()
+  })
   it('uses Stripe popup waiting flow for desktop Alipay client secret', () => {
     const decision = decidePaymentLaunch(createOrderResult({
       client_secret: 'cs_test',

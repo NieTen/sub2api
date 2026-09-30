@@ -72,6 +72,9 @@ func NewAirwallex(instanceID string, config map[string]string) (*Airwallex, erro
 		return nil, fmt.Errorf("airwallex config currency: %w", err)
 	}
 	cfg["currency"] = currency
+	if currency == "USDT" {
+		return nil, fmt.Errorf("airwallex currency must be a 3-letter ISO currency code")
+	}
 	countryCode, err := normalizeAirwallexCountryCode(cfg["countryCode"])
 	if err != nil {
 		return nil, err

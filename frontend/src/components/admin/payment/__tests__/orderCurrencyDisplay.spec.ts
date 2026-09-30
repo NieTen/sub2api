@@ -27,6 +27,7 @@ const DataTableStub = {
     <div>
       <div v-for="row in data" :key="row.id">
         <slot name="cell-pay_amount" :value="row.pay_amount" :row="row" />
+        <slot name="cell-actions" :row="row" />
       </div>
     </div>
   `,
@@ -52,6 +53,19 @@ function orderFactory(overrides: Partial<PaymentOrder> = {}): PaymentOrder {
 }
 
 describe('admin order currency display', () => {
+  it('TRC20 实付保留六位金额，原生通道不可退款，旧聚合通道仍可退款', () => {
+    const native = orderFactory({ payment_type: 'usdt_trc20', currency: 'USDT', payment_amount_exact: '108.000010', refund_supported: false })
+    const legacy = orderFactory({ id: 2, payment_type: 'usdt_trc20', currency: 'USDT' })
+    const wrapper = mount(AdminOrderTable, { props: { orders: [native, legacy], loading: false, page: 1, pageSize: 20, total: 2 }, global: { stubs: { DataTable: DataTableStub, Icon: true, Pagination: true, Select: true } } })
+    expect(wrapper.text()).toContain('USDT 108.000010')
+    expect(wrapper.findAll('button').filter(button => button.text() === 'payment.admin.refund')).toHaveLength(1)
+    const detail = mount(AdminOrderDetail, { props: { show: true, order: native }, global: { stubs: { BaseDialog: BaseDialogStub } } })
+    expect(detail.text()).toContain('USDT 108.000010')
+    expect(detail.findAll('button').some(button => button.text() === 'payment.admin.refund')).toBe(false)
+    const refund = mount(AdminRefundDialog, { props: { show: true, order: native, userBalance: 200 }, global: { stubs: { BaseDialog: BaseDialogStub } } })
+    expect(refund.text()).toContain('payment.crypto.refundUnsupported')
+    expect(refund.find('form').exists()).toBe(false)
+  })
   it('uses order currency for paid/base/fee amounts and USD for credited/refund amounts', () => {
     const wrapper = mount(AdminOrderDetail, {
       props: {

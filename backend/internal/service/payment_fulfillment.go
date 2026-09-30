@@ -101,6 +101,14 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 		})
 		return err
 	}
+	if pk == payment.TypeUSDTTRC20 {
+		if err := s.validateTRC20PaymentClaim(ctx, o, tradeNo); err != nil {
+			return err
+		}
+	}
+	if pk == payment.TypeOKPay && strings.TrimSpace(o.PaymentTradeNo) != "" && o.PaymentTradeNo != tradeNo {
+		return fmt.Errorf("OKPay 平台订单号与下单记录不匹配")
+	}
 	if !isValidProviderAmount(paid) {
 		s.writeAuditLog(ctx, o.ID, "PAYMENT_INVALID_AMOUNT", pk, map[string]any{
 			"expected": o.PayAmount,
@@ -117,6 +125,10 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 }
 
 func paymentAmountToleranceForCurrency(currency string) float64 {
+	// USDT 不沿用人民币历史上的一分钱容差，防止少付或错金额被入账。
+	if currency == "USDT" {
+		return 0.0000005
+	}
 	minorUnit := payment.CurrencyMinorUnit(currency)
 	if minorUnit <= 2 {
 		return amountToleranceCNY
@@ -151,11 +163,16 @@ func (s *PaymentService) toPaid(ctx context.Context, o *dbent.PaymentOrder, trad
 	previousStatus := o.Status
 	now := time.Now()
 	grace := now.Add(-paymentGraceMinutes * time.Minute)
+	// 链上确认可能延迟；入账前已验证持久化交易发生在订单原有效期内。
+	if pk == payment.TypeUSDTTRC20 {
+		grace = time.Time{}
+	}
 	c, err := s.entClient.PaymentOrder.Update().Where(
 		paymentorder.IDEQ(o.ID),
 		paymentorder.Or(
 			paymentorder.StatusEQ(OrderStatusPending),
 			paymentorder.StatusEQ(OrderStatusCancelled),
+			paymentorder.And(paymentorder.ProviderKeyEQ(payment.TypeUSDTTRC20), paymentorder.StatusEQ(OrderStatusFailed)),
 			paymentorder.And(
 				paymentorder.StatusEQ(OrderStatusExpired),
 				paymentorder.UpdatedAtGTE(grace),

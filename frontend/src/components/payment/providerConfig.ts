@@ -42,13 +42,20 @@ export const PROVIDER_SUPPORTED_TYPES: Record<string, string[]> = {
   wxpay: ['wxpay'],
   stripe: ['card', 'alipay', 'wxpay', 'link'],
   airwallex: ['airwallex'],
+  okpay: ['okpay'],
+  usdt_trc20: ['usdt_trc20'],
 }
 
 /** Available payment modes for EasyPay providers. */
 export const EASYPAY_PAYMENT_MODES = ['qrcode', 'popup'] as const
 
 /** Fixed display order for user-facing payment methods */
-export const METHOD_ORDER = ['alipay', 'alipay_direct', 'wxpay', 'wxpay_direct', 'stripe', 'airwallex'] as const
+export const METHOD_ORDER = ['alipay', 'alipay_direct', 'wxpay', 'wxpay_direct', 'stripe', 'airwallex', 'okpay', 'usdt_trc20'] as const
+
+// OKPay 与链上直收通道不提供自动退款接口。
+export function providerSupportsRefund(providerKey: string): boolean {
+  return providerKey !== 'okpay' && providerKey !== 'usdt_trc20'
+}
 
 export function isBuiltInAlipayMethod(type: string): boolean {
   return type === 'alipay' || type === 'alipay_direct'
@@ -110,6 +117,7 @@ export const WEBHOOK_PATHS: Record<string, string> = {
   wxpay: '/api/v1/payment/webhook/wxpay',
   stripe: '/api/v1/payment/webhook/stripe',
   airwallex: '/api/v1/payment/webhook/airwallex',
+  okpay: '/api/v1/payment/webhook/okpay',
 }
 
 export const RETURN_PATH = '/payment/result'
@@ -119,12 +127,23 @@ export const PROVIDER_CALLBACK_PATHS: Record<string, CallbackPaths> = {
   easypay: { notifyUrl: WEBHOOK_PATHS.easypay, returnUrl: RETURN_PATH },
   alipay: { notifyUrl: WEBHOOK_PATHS.alipay, returnUrl: RETURN_PATH },
   wxpay: { notifyUrl: WEBHOOK_PATHS.wxpay },
+  okpay: { notifyUrl: WEBHOOK_PATHS.okpay, returnUrl: RETURN_PATH },
   // stripe: 不需要回调 URL 配置，Webhook 单独配置。
   // airwallex: 不需要回调 URL 配置，Webhook 在空中云汇后台配置。
 }
 
 /** Per-provider config fields (excludes notifyUrl/returnUrl which are handled separately). */
 export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
+  okpay: [
+    { key: 'id', label: '', sensitive: false },
+    { key: 'token', label: '', sensitive: true },
+    { key: 'apiBase', label: '', sensitive: false, defaultValue: 'https://api.okaypay.me/shop', hintKey: 'admin.settings.payment.field_okpayApiBaseHint' },
+  ],
+  usdt_trc20: [
+    { key: 'walletAddress', label: '', sensitive: false },
+    { key: 'apiKey', label: '', sensitive: true },
+    { key: 'apiBase', label: '', sensitive: false, defaultValue: 'https://api.trongrid.io', hintKey: 'admin.settings.payment.field_trc20ApiBaseHint' },
+  ],
   easypay: [
     { key: 'pid', label: 'PID', sensitive: false },
     { key: 'pkey', label: 'PKey', sensitive: true },

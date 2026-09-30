@@ -6,6 +6,9 @@ const cancelOrder = vi.hoisted(() => vi.fn())
 const verifyOrder = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
 const toCanvas = vi.hoisted(() => vi.fn())
+const copyToClipboard = vi.hoisted(() => vi.fn())
+
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard }) }))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -67,10 +70,34 @@ describe('PaymentStatusPanel', () => {
     verifyOrder.mockReset()
     showError.mockReset()
     toCanvas.mockReset().mockResolvedValue(undefined)
+    copyToClipboard.mockReset()
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('TRC20 显示账单与六位精确金额，复制原值，未确认不显示成功', async () => {
+    const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
+    pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
+    const wrapper = mount(PaymentStatusPanel, { props: { orderId: 42, qrCode: '忽略此二维码', expiresAt: '2099-01-01T12:30:00Z', paymentType: 'usdt_trc20', orderType: 'balance', paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: '88.000010', payAmount: 88, currency: 'USDT' }, global: { stubs: { Icon: true } } })
+    await flushPromises()
+    expect(toCanvas).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), address, expect.any(Object))
+    expect(wrapper.get('[data-test="trc20-exact-amount"]').text()).toBe('88.000010')
+    expect(wrapper.get('[data-test="trc20-bill-amount"]').text()).toBe('USDT 88.00')
+    await wrapper.get('[data-test="copy-trc20-amount"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenLastCalledWith('88.000010')
+    await wrapper.get('[data-test="copy-trc20-address"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenLastCalledWith(address)
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(wrapper.emitted('success')).toBeUndefined()
+    expect(wrapper.text()).toContain('payment.crypto.waitingConfirmation')
+    pollOrderStatus.mockResolvedValue(orderFactory('EXPIRED'))
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(wrapper.find('[data-test="trc20-payment-details"]').exists()).toBe(false)
+    expect(wrapper.find('canvas').exists()).toBe(false)
+    expect(wrapper.text()).toContain('payment.crypto.expiredHint')
+    wrapper.unmount()
   })
 
   it('treats RECHARGING as a successful terminal state', async () => {

@@ -32,8 +32,8 @@
       <!-- Toggles + Payment mode + Supported types (single row) -->
       <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
         <ToggleSwitch :label="t('common.enabled')" :checked="form.enabled" @toggle="form.enabled = !form.enabled" />
-        <ToggleSwitch :label="t('admin.settings.payment.refundEnabled')" :checked="form.refund_enabled" @toggle="form.refund_enabled = !form.refund_enabled; if (!form.refund_enabled) form.allow_user_refund = false" />
-        <ToggleSwitch v-if="form.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="form.allow_user_refund" @toggle="form.allow_user_refund = !form.allow_user_refund" />
+        <ToggleSwitch v-if="supportsRefund" :label="t('admin.settings.payment.refundEnabled')" :checked="form.refund_enabled" @toggle="form.refund_enabled = !form.refund_enabled; if (!form.refund_enabled) form.allow_user_refund = false" />
+        <ToggleSwitch v-if="supportsRefund && form.refund_enabled" :label="t('admin.settings.payment.allowUserRefund')" :checked="form.allow_user_refund" @toggle="form.allow_user_refund = !form.allow_user_refund" />
         <div v-if="supportsPaymentMode" class="flex items-center gap-2">
           <span class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.paymentMode') }}</span>
           <div class="flex gap-1.5">
@@ -69,6 +69,8 @@
           </div>
         </div>
       </div>
+
+      <p v-if="form.provider_key === 'okpay' || form.provider_key === 'usdt_trc20'" class="rounded-lg bg-teal-50 p-3 text-sm leading-6 text-teal-900 dark:bg-teal-950/30 dark:text-teal-200">{{ t(form.provider_key === 'okpay' ? 'admin.settings.payment.okpayPaymentHint' : 'admin.settings.payment.trc20PaymentHint') }}</p>
 
       <div v-if="form.provider_key === 'easypay'" class="space-y-3 rounded-lg border border-gray-100 p-3 dark:border-dark-700">
         <div class="flex items-center justify-between gap-3">
@@ -162,6 +164,7 @@
             <textarea
               v-if="field.sensitive && field.key.toLowerCase().includes('key') && field.key !== 'pkey'"
               v-model="config[field.key]"
+              :name="'provider-' + field.key"
               rows="3"
               class="input font-mono text-xs"
               autocomplete="new-password"
@@ -175,6 +178,7 @@
               <input
                 :type="visibleFields[field.key] ? 'text' : 'password'"
                 v-model="config[field.key]"
+                :name="'provider-' + field.key"
                 class="input pr-10"
                 autocomplete="new-password"
                 data-1p-ignore
@@ -202,8 +206,10 @@
               v-else
               type="text"
               v-model="config[field.key]"
+              :name="'provider-' + field.key"
               class="input"
               :placeholder="field.defaultValue || ''"
+              :readonly="form.provider_key === 'usdt_trc20' && field.key === 'apiBase'"
             />
             <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
               {{ t(field.hintKey) }}
@@ -327,24 +333,29 @@ import {
   extractBaseUrl,
   parseEasyPayCustomMethods,
   serializeEasyPayCustomMethods,
+  providerSupportsRefund,
 } from './providerConfig'
 
 /** Default payment_mode per provider key — "" means "no preference, use
  * provider's built-in default behavior". */
 function defaultPaymentMode(providerKey: string): string {
   if (providerKey === 'easypay') return PAYMENT_MODE_QRCODE
+  if (providerKey === 'okpay') return PAYMENT_MODE_REDIRECT
+  if (providerKey === 'usdt_trc20') return PAYMENT_MODE_QRCODE
   return ''
 }
 
 /** Provider keys whose admin UI exposes a payment_mode selector.
  * Other providers always send payment_mode = ''. */
 function providerSupportsPaymentMode(providerKey: string): boolean {
-  return providerKey === 'easypay' || providerKey === 'alipay'
+  return ['easypay', 'alipay', 'okpay', 'usdt_trc20'].includes(providerKey)
 }
 
 /** Allowed payment_mode values per provider. Used to coerce DB values
  * from a different provider (or stale data) back to the default. */
 function isValidPaymentMode(providerKey: string, mode: string): boolean {
+  if (providerKey === 'okpay') return mode === PAYMENT_MODE_REDIRECT
+  if (providerKey === 'usdt_trc20') return mode === PAYMENT_MODE_QRCODE
   if (providerKey === 'easypay') {
     return mode === PAYMENT_MODE_QRCODE || mode === PAYMENT_MODE_POPUP
   }
@@ -432,8 +443,15 @@ const providerWebhookHint = computed(() =>
 const callbackPaths = computed(() => PROVIDER_CALLBACK_PATHS[form.provider_key] || null)
 
 const supportsPaymentMode = computed(() => providerSupportsPaymentMode(form.provider_key))
+const supportsRefund = computed(() => providerSupportsRefund(form.provider_key))
 
 const paymentModeOptions = computed(() => {
+  if (form.provider_key === 'okpay') {
+    return [{ value: PAYMENT_MODE_REDIRECT, label: t('admin.settings.payment.modeRedirect') }]
+  }
+  if (form.provider_key === 'usdt_trc20') {
+    return [{ value: PAYMENT_MODE_QRCODE, label: t('admin.settings.payment.modeQRCode') }]
+  }
   if (form.provider_key === 'alipay') {
     // For Alipay official: "" = default (precreate → page.pay fallback);
     // "redirect" = always open the Alipay checkout page in a new tab.
@@ -593,6 +611,11 @@ function onKeyChange() {
   form.payment_mode = defaultPaymentMode(form.provider_key)
   clearConfig()
   applyDefaults()
+  if (!supportsRefund.value) {
+    form.refund_enabled = false
+    form.allow_user_refund = false
+    if (form.provider_key === 'usdt_trc20') config.apiBase = 'https://api.trongrid.io'
+  }
 }
 
 function clearConfig() {
@@ -609,6 +632,7 @@ function applyDefaults() {
   for (const f of PROVIDER_CONFIG_FIELDS[form.provider_key] || []) {
     if (f.defaultValue && !config[f.key]) config[f.key] = f.defaultValue
   }
+  if (form.provider_key === 'usdt_trc20') config.apiBase = 'https://api.trongrid.io'
 }
 
 function getLimitVal(paymentType: string, field: string): string {
@@ -659,6 +683,25 @@ function handleSave() {
   if (!form.name.trim()) {
     emitValidationError(t('admin.settings.payment.validationNameRequired'))
     return
+  }
+  if (form.provider_key === 'okpay' || form.provider_key === 'usdt_trc20') {
+    // 两个 USDT 通道固定各自的付款模式，并排除沿用旧配置启用自动退款的情况。
+    form.supported_types = [form.provider_key]
+    form.payment_mode = defaultPaymentMode(form.provider_key)
+    form.refund_enabled = false
+    form.allow_user_refund = false
+    try {
+      const apiBase = new URL((config.apiBase || '').trim())
+      if (apiBase.protocol !== 'https:' || apiBase.username || apiBase.password || apiBase.search || apiBase.hash) throw new Error('invalid')
+      config.apiBase = apiBase.toString().replace(/\/+$/, '')
+    } catch {
+      emitValidationError(t('admin.settings.payment.validationCryptoApiBase'))
+      return
+    }
+    if (form.provider_key === 'usdt_trc20' && !/^T[1-9A-HJ-NP-Za-km-z]{33}$/.test((config.walletAddress || '').trim())) {
+      emitValidationError(t('admin.settings.payment.validationTrc20Address'))
+      return
+    }
   }
   if (form.provider_key === 'easypay') {
     const validationError = validateEasyPayCustomMethods()
@@ -808,8 +851,8 @@ function loadProvider(provider: ProviderInstance) {
   form.payment_mode = isValidPaymentMode(provider.provider_key, provider.payment_mode || '')
     ? (provider.payment_mode || '')
     : defaultPaymentMode(provider.provider_key)
-  form.refund_enabled = provider.refund_enabled
-  form.allow_user_refund = provider.allow_user_refund
+  form.refund_enabled = providerSupportsRefund(provider.provider_key) && provider.refund_enabled
+  form.allow_user_refund = providerSupportsRefund(provider.provider_key) && provider.allow_user_refund
   clearConfig()
   // Pre-fill config from API response. Backend omits sensitive fields entirely,
   // so those inputs stay blank — submitting blank preserves the stored secret.

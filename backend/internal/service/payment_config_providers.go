@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
@@ -111,6 +112,8 @@ var pendingOrderStatuses = []string{
 // Key matching is case-insensitive. Non-listed keys (e.g. appId, notifyUrl,
 // stripe publishableKey) are returned in plaintext by the admin GET API.
 var providerSensitiveConfigFields = map[string]map[string]struct{}{
+	payment.TypeOKPay:     {"token": {}},
+	"usdt_trc20":          {"apikey": {}},
 	payment.TypeEasyPay:   {"pkey": {}},
 	payment.TypeAlipay:    {"privatekey": {}, "publickey": {}, "alipaypublickey": {}},
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}},
@@ -123,6 +126,8 @@ var providerSensitiveConfigFields = map[string]map[string]struct{}{
 // all provider identity fields that are snapshotted into orders or used by
 // webhook/refund verification.
 var providerPendingOrderProtectedConfigFields = map[string]map[string]struct{}{
+	payment.TypeOKPay:     {"token": {}, "id": {}, "apibase": {}},
+	"usdt_trc20":          {"walletaddress": {}, "apibase": {}},
 	payment.TypeEasyPay:   {"pkey": {}, "pid": {}},
 	payment.TypeAlipay:    {"privatekey": {}, "publickey": {}, "alipaypublickey": {}, "appid": {}},
 	payment.TypeWxpay:     {"privatekey": {}, "apiv3key": {}, "publickey": {}, "appid": {}, "mpappid": {}, "mchid": {}, "publickeyid": {}, "certserial": {}},
@@ -165,7 +170,11 @@ func (s *PaymentConfigService) countPendingOrders(ctx context.Context, providerI
 	return s.entClient.PaymentOrder.Query().
 		Where(
 			paymentorder.ProviderInstanceIDEQ(strconv.FormatInt(providerInstanceID, 10)),
-			paymentorder.StatusIn(pendingOrderStatuses...),
+			paymentorder.Or(
+				paymentorder.StatusIn(pendingOrderStatuses...),
+				// 链上确认宽限期内保留实例，避免刚过期付款因删除渠道而无法查询。
+				paymentorder.And(paymentorder.ProviderKeyEQ(payment.TypeUSDTTRC20), paymentorder.ExpiresAtGT(time.Now().Add(-30*time.Minute)), paymentorder.StatusIn(OrderStatusExpired, OrderStatusCancelled, OrderStatusFailed)),
+			),
 		).Count(ctx)
 }
 
@@ -178,10 +187,16 @@ func (s *PaymentConfigService) countPendingOrdersByPlan(ctx context.Context, pla
 }
 
 var validProviderKeys = map[string]bool{
+	payment.TypeOKPay: true, "usdt_trc20": true,
 	payment.TypeEasyPay: true, payment.TypeAlipay: true, payment.TypeWxpay: true, payment.TypeStripe: true, payment.TypeAirwallex: true,
 }
 
 func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req CreateProviderInstanceRequest) (*dbent.PaymentProviderInstance, error) {
+	if providerDisablesRefund(req.ProviderKey) {
+		req.RefundEnabled = false
+		req.AllowUserRefund = false
+		req.PaymentMode = dedicatedUSDTMode(req.ProviderKey)
+	}
 	typesStr := joinTypes(req.SupportedTypes)
 	if err := validateProviderRequest(req.ProviderKey, req.Name, typesStr); err != nil {
 		return nil, err
@@ -219,7 +234,21 @@ func validateProviderRequest(providerKey, name, supportedTypes string) error {
 	if !validProviderKeys[providerKey] {
 		return infraerrors.BadRequest("VALIDATION_ERROR", fmt.Sprintf("invalid provider key: %s", providerKey))
 	}
+	if err := validateDedicatedUSDTTypes(providerKey, supportedTypes); err != nil {
+		return err
+	}
 	// supported_types can be empty (provider accepts no payment types until configured)
+	return nil
+}
+
+func validateDedicatedUSDTTypes(providerKey, supportedTypes string) error {
+	if providerDisablesRefund(providerKey) {
+		for _, method := range splitTypes(supportedTypes) {
+			if method != providerKey {
+				return infraerrors.BadRequest("VALIDATION_ERROR", "USDT 渠道只能启用自身支付方式")
+			}
+		}
+	}
 	return nil
 }
 
@@ -312,6 +341,9 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 	nextSupportedTypes := current.SupportedTypes
 	if req.SupportedTypes != nil {
 		nextSupportedTypes = joinTypes(req.SupportedTypes)
+	}
+	if err := validateDedicatedUSDTTypes(current.ProviderKey, nextSupportedTypes); err != nil {
+		return nil, err
 	}
 	if err := s.validateVisibleMethodEnablementConflicts(ctx, id, current.ProviderKey, nextSupportedTypes, nextEnabled); err != nil {
 		return nil, err
@@ -447,7 +479,22 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 	if req.PaymentMode != nil {
 		u.SetPaymentMode(*req.PaymentMode)
 	}
+	if providerDisablesRefund(current.ProviderKey) {
+		u.SetRefundEnabled(false).SetAllowUserRefund(false).SetPaymentMode(dedicatedUSDTMode(current.ProviderKey))
+	}
 	return u.Save(ctx)
+}
+
+// 两种 USDT 渠道没有可用的原路退款接口，不允许通过配置开启自动退款。
+func providerDisablesRefund(providerKey string) bool {
+	return providerKey == payment.TypeOKPay || providerKey == "usdt_trc20"
+}
+
+func dedicatedUSDTMode(providerKey string) string {
+	if providerKey == payment.TypeOKPay {
+		return "redirect"
+	}
+	return "qrcode"
 }
 
 // GetUserRefundEligibleInstanceIDs returns provider instance IDs that allow user refund.

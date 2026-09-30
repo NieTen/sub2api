@@ -134,6 +134,7 @@ func provideCleanup(
 	bulkEmail *service.BulkEmailService,
 	community *service.CommunityService,
 	modelDetection *service.ModelDetectionService,
+	paymentExchangeRate *service.PaymentExchangeRateService,
 ) func() {
 	return func() {
 		modelDetection.Stop()
@@ -147,6 +148,12 @@ func provideCleanup(
 
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
+			{"PaymentExchangeRate", func() error {
+				if paymentExchangeRate != nil {
+					paymentExchangeRate.Stop()
+				}
+				return nil
+			}},
 			{"Community", func() error {
 				if community != nil {
 					community.Stop()

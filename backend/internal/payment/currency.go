@@ -53,6 +53,10 @@ func NormalizePaymentCurrency(raw string) (string, error) {
 	if currency == "" {
 		return DefaultPaymentCurrency, nil
 	}
+	// USDT 账单保留两位精度；链上六位转账金额由独立收款记录保存。
+	if currency == "USDT" {
+		return currency, nil
+	}
 	if len(currency) != 3 {
 		return "", fmt.Errorf("payment currency must be a 3-letter ISO currency code")
 	}

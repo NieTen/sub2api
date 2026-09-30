@@ -127,7 +127,7 @@ func expectedNotificationProviderKeyForOrder(registry *payment.Registry, order *
 }
 
 func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey string, metadata map[string]string) error {
-	if order == nil || len(metadata) == 0 {
+	if order == nil || (len(metadata) == 0 && providerKey != payment.TypeOKPay && providerKey != "usdt_trc20") {
 		return nil
 	}
 
@@ -137,6 +137,16 @@ func validateProviderSnapshotMetadata(order *dbent.PaymentOrder, providerKey str
 	}
 
 	switch strings.TrimSpace(providerKey) {
+	case payment.TypeOKPay, "usdt_trc20":
+		if snapshot.MerchantID == "" || metadata["merchant_id"] != snapshot.MerchantID {
+			return fmt.Errorf("USDT 收款商户或钱包地址不匹配")
+		}
+		if snapshot.Currency != "USDT" || metadata["currency"] != "USDT" {
+			return fmt.Errorf("USDT 收款币种不匹配")
+		}
+		if metadata["unique_id"] != order.OutTradeNo {
+			return fmt.Errorf("USDT 收款商户订单号不匹配")
+		}
 	case payment.TypeWxpay:
 		if expected := strings.TrimSpace(snapshot.MerchantAppID); expected != "" {
 			actual := strings.TrimSpace(metadata["appid"])

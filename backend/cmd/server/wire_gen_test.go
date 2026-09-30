@@ -104,6 +104,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // 批量邮件
 		nil, // 社群审批
 		nil, // 模型检测
+		nil, // 汇率采集
 	)
 
 	require.NotPanics(t, func() {

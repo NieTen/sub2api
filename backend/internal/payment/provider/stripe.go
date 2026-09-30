@@ -39,6 +39,9 @@ func NewStripe(instanceID string, config map[string]string) (*Stripe, error) {
 		return nil, fmt.Errorf("stripe config currency: %w", err)
 	}
 	cfg["currency"] = currency
+	if currency == "USDT" {
+		return nil, fmt.Errorf("stripe currency must be a 3-letter ISO currency code")
+	}
 	return &Stripe{
 		instanceID: instanceID,
 		config:     cfg,

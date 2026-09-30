@@ -122,6 +122,68 @@ describe('PaymentProviderDialog callback URLs', () => {
 })
 
 describe('PaymentProviderDialog payment guide', () => {
+  it('创建 OKPay 使用正式 id/token 配置、固定跳转与禁用退款', async () => {
+    const wrapper = mountDialog()
+    ;(wrapper.vm as unknown as { reset: (key: string) => void }).reset('okpay')
+    await nextTick()
+    await wrapper.find('input[type="text"]').setValue('原生 OKPay')
+    await wrapper.get('input[name="provider-id"]').setValue('shop-1')
+    await wrapper.get('input[name="provider-token"]').setValue('token-1')
+    expect(wrapper.text()).not.toContain('admin.settings.payment.refundEnabled')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'okpay', payment_mode: 'redirect', supported_types: ['okpay'], refund_enabled: false, allow_user_refund: false, config: { id: 'shop-1', token: 'token-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
+    expect(payload.config.notifyUrl).toMatch(/\/api\/v1\/payment\/webhook\/okpay$/)
+  })
+
+  it('编辑 OKPay 空 token 保留服务端凭据且纠正旧退款开关', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', refund_enabled: true, allow_user_refund: true, config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string>; refund_enabled: boolean; allow_user_refund: boolean }
+    expect(payload.config).not.toHaveProperty('token')
+    expect(payload.refund_enabled).toBe(false)
+    expect(payload.allow_user_refund).toBe(false)
+  })
+
+  it.each(['http://api.example.com/shop', 'https://user:password@api.example.com/shop', 'https://api.example.com/shop?token=test'])('拒绝不安全 OKPay API 地址 %s', async apiBase => {
+    const provider = providerFactory({ provider_key: 'okpay', config: { id: 'shop-1', apiBase } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')).toBeUndefined()
+  })
+
+  it('TRC20 必填 API Key 与有效地址并固定官方主网', async () => {
+    const wrapper = mountDialog()
+    ;(wrapper.vm as unknown as { reset: (key: string) => void }).reset('usdt_trc20')
+    await nextTick()
+    await wrapper.find('input[type="text"]').setValue('TRC20 直收')
+    await wrapper.get('input[name="provider-walletAddress"]').setValue('无效地址')
+    await wrapper.get('[name="provider-apiKey"]').setValue('test-key')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    await wrapper.get('input[name="provider-walletAddress"]').setValue('TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE')
+    await wrapper.get('[name="provider-apiKey"]').setValue('')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')).toBeUndefined()
+    await wrapper.get('[name="provider-apiKey"]').setValue('test-key')
+    expect(wrapper.get('input[name="provider-apiBase"]').attributes('readonly')).toBeDefined()
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'usdt_trc20', payment_mode: 'qrcode', supported_types: ['usdt_trc20'], refund_enabled: false, config: { apiBase: 'https://api.trongrid.io', apiKey: 'test-key', walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE' } })
+  })
+
+  it('保留 EasyPay 原有 usdt_trc20 自定义映射及退款设置', async () => {
+    const provider = providerFactory({ provider_key: 'easypay', name: '旧聚合支付', supported_types: ['usdt_trc20'], refund_enabled: true, config: { pid: 'pid-1', apiBase: 'https://legacy.example.com', customMethods: JSON.stringify([{ type: 'usdt_trc20', upstreamType: 'trc20', displayName: '旧 USDT' }]) } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'easypay', supported_types: ['usdt_trc20'], refund_enabled: true, config: { customMethods: provider.config.customMethods } })
+  })
   it('shows no payment guide for providers without a flow guide', () => {
     const wrapper = mountDialog()
 

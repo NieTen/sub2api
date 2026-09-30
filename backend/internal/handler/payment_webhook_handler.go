@@ -67,6 +67,11 @@ func (h *PaymentWebhookHandler) AirwallexWebhook(c *gin.Context) {
 	h.handleNotify(c, payment.TypeAirwallex)
 }
 
+// OKPayNotify 接收 OKPay 签名收款通知。
+func (h *PaymentWebhookHandler) OKPayNotify(c *gin.Context) {
+	h.handleNotify(c, payment.TypeOKPay)
+}
+
 // handleNotify is the shared logic for all provider webhook handlers.
 func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string) {
 	var rawBody string
@@ -90,7 +95,7 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 	providers, err := h.paymentService.GetWebhookProviders(c.Request.Context(), providerKey, outTradeNo)
 	if err != nil {
 		slog.Warn("[Payment Webhook] provider not found", "provider", providerKey, "outTradeNo", outTradeNo, "error", err)
-		if providerKey == payment.TypeWxpay {
+		if providerKey == payment.TypeWxpay || providerKey == payment.TypeOKPay {
 			c.String(http.StatusBadRequest, "verify failed")
 			return
 		}
@@ -105,12 +110,15 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 
 	resolvedProviderKey, notification, err := verifyNotificationWithProviders(c.Request.Context(), providers, rawBody, headers)
 	if err != nil {
-		truncatedBody := rawBody
-		if len(truncatedBody) > webhookLogTruncateLen {
-			truncatedBody = truncatedBody[:webhookLogTruncateLen] + "...(truncated)"
-		}
 		slog.Error("[Payment Webhook] verify failed", "provider", providerKey, "error", err, "method", c.Request.Method, "bodyLen", len(rawBody))
-		slog.Debug("[Payment Webhook] verify failed body", "provider", providerKey, "rawBody", truncatedBody)
+		// OKPay 回调包含签名及付款用户标识，验签失败时也不能记录原始正文。
+		if providerKey != payment.TypeOKPay {
+			truncatedBody := rawBody
+			if len(truncatedBody) > webhookLogTruncateLen {
+				truncatedBody = truncatedBody[:webhookLogTruncateLen] + "...(truncated)"
+			}
+			slog.Debug("[Payment Webhook] verify failed body", "provider", providerKey, "rawBody", truncatedBody)
+		}
 		c.String(http.StatusBadRequest, "verify failed")
 		return
 	}
@@ -148,6 +156,21 @@ func (h *PaymentWebhookHandler) handleNotify(c *gin.Context, providerKey string)
 // This allows looking up the correct provider instance before verification.
 func extractOutTradeNo(rawBody, providerKey string) string {
 	switch providerKey {
+	case payment.TypeOKPay:
+		// 此处只定位候选实例，实际通知仍须通过该实例的签名及身份校验。
+		var payload map[string]json.RawMessage
+		if json.Unmarshal([]byte(rawBody), &payload) == nil {
+			var data map[string]json.RawMessage
+			if json.Unmarshal(payload["data"], &data) == nil {
+				var orderID string
+				if json.Unmarshal(data["unique_id"], &orderID) == nil {
+					return strings.TrimSpace(orderID)
+				}
+			}
+		}
+		if values, err := url.ParseQuery(rawBody); err == nil {
+			return strings.TrimSpace(values.Get("data[unique_id]"))
+		}
 	case payment.TypeEasyPay, payment.TypeAlipay:
 		values, err := url.ParseQuery(rawBody)
 		if err == nil {
@@ -206,6 +229,8 @@ const (
 // Stripe 和空中云汇接受空 200，其它服务商接受纯文本 "success"。
 func writeSuccessResponse(c *gin.Context, providerKey string) {
 	switch providerKey {
+	case payment.TypeOKPay:
+		c.JSON(http.StatusOK, gin.H{"status": "success"})
 	case payment.TypeWxpay:
 		c.JSON(http.StatusOK, wxpaySuccessResponse{Code: wxpaySuccessCode, Message: wxpaySuccessMessage})
 	case payment.TypeStripe, payment.TypeAirwallex:

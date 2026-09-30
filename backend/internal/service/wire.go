@@ -978,6 +978,8 @@ var ProviderSet = wire.NewSet(
 	NewAffiliateService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
+	NewPaymentTRC20Service,
+	ProvidePaymentExchangeRateService,
 	ProvidePaymentOrderExpiryService,
 	ProvideBalanceNotifyService,
 	ProvideChannelMonitorService,
@@ -1010,9 +1012,20 @@ func ProvideBalanceNotifyService(emailService *EmailService, settingRepo Setting
 }
 
 // ProvidePaymentService creates PaymentService and attaches notification email delivery.
-func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService, notificationEmailService *NotificationEmailService) *PaymentService {
+func ProvidePaymentService(entClient *dbent.Client, registry *payment.Registry, loadBalancer payment.LoadBalancer, redeemService *RedeemService, subscriptionSvc *SubscriptionService, configService *PaymentConfigService, userRepo UserRepository, groupRepo GroupRepository, affiliateService *AffiliateService, notificationEmailService *NotificationEmailService, trc20Service *PaymentTRC20Service, exchangeRateService *PaymentExchangeRateService) *PaymentService {
 	svc := NewPaymentService(entClient, registry, loadBalancer, redeemService, subscriptionSvc, configService, userRepo, groupRepo, affiliateService)
 	svc.SetNotificationEmailService(notificationEmailService)
+	svc.SetTRC20Service(trc20Service)
+	svc.SetExchangeRateService(exchangeRateService)
+	return svc
+}
+
+// ProvidePaymentExchangeRateService 接入动态兜底配置，并启动独立汇率采集任务。
+func ProvidePaymentExchangeRateService(repo PaymentExchangeRateRepository, configService *PaymentConfigService, cache LeaderLockCache, db *sql.DB) *PaymentExchangeRateService {
+	svc := NewPaymentExchangeRateService(repo, configService)
+	svc.SetLeaderLock(cache, db)
+	configService.SetExchangeRateService(svc)
+	svc.Start()
 	return svc
 }
 

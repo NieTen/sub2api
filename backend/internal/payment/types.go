@@ -18,6 +18,7 @@ const (
 	TypeLink         PaymentType = "link"
 	TypeEasyPay      PaymentType = "easypay"
 	TypeAirwallex    PaymentType = "airwallex"
+	TypeOKPay        PaymentType = "okpay"
 )
 
 // Order status constants shared across payment and service layers.
@@ -232,6 +233,12 @@ type Provider interface {
 type RefundQueryProvider interface {
 	Provider
 	QueryRefund(ctx context.Context, req RefundQueryRequest) (*RefundResponse, error)
+}
+
+// MerchantOrderQueryProvider 按网站商户订单号查询，避免将商户订单号冒充平台流水号。
+type MerchantOrderQueryProvider interface {
+	Provider
+	QueryOrderByMerchantOrderID(ctx context.Context, merchantOrderID string) (*QueryOrderResponse, error)
 }
 
 // CancelableProvider extends Provider with the ability to cancel pending payments.

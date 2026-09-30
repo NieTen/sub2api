@@ -477,6 +477,9 @@ func (h *PaymentHandler) VerifyOrder(c *gin.Context) {
 // proves possession of the checkout session, so the result keeps the legacy
 // frontend contract needed by payment result pages.
 type PublicOrderResult struct {
+	USDTExchange *service.PaymentOrderExchangeDetails `json:"usdt_exchange,omitempty"`
+	service.PaymentTransferDetails
+	RefundSupported     *bool      `json:"refund_supported,omitempty"`
 	ID                  int64      `json:"id"`
 	OutTradeNo          string     `json:"out_trade_no"`
 	Amount              float64    `json:"amount"`
@@ -512,25 +515,28 @@ type PublicOrderVerifyResult struct {
 
 func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 	return PublicOrderResult{
-		ID:                  order.ID,
-		OutTradeNo:          order.OutTradeNo,
-		Amount:              order.Amount,
-		PayAmount:           order.PayAmount,
-		FeeRate:             order.FeeRate,
-		Currency:            service.PaymentOrderCurrency(order),
-		PaymentType:         order.PaymentType,
-		OrderType:           order.OrderType,
-		Status:              order.Status,
-		CreatedAt:           order.CreatedAt,
-		ExpiresAt:           order.ExpiresAt,
-		PaidAt:              order.PaidAt,
-		CompletedAt:         order.CompletedAt,
-		RefundAmount:        order.RefundAmount,
-		RefundReason:        order.RefundReason,
-		RefundRequestedAt:   order.RefundRequestedAt,
-		RefundRequestedBy:   order.RefundRequestedBy,
-		RefundRequestReason: order.RefundRequestReason,
-		PlanID:              order.PlanID,
+		USDTExchange:           service.PaymentOrderUSDTExchange(order),
+		PaymentTransferDetails: service.PaymentOrderTransferDetails(order),
+		RefundSupported:        service.PaymentOrderRefundSupported(order),
+		ID:                     order.ID,
+		OutTradeNo:             order.OutTradeNo,
+		Amount:                 order.Amount,
+		PayAmount:              order.PayAmount,
+		FeeRate:                order.FeeRate,
+		Currency:               service.PaymentOrderCurrency(order),
+		PaymentType:            order.PaymentType,
+		OrderType:              order.OrderType,
+		Status:                 order.Status,
+		CreatedAt:              order.CreatedAt,
+		ExpiresAt:              order.ExpiresAt,
+		PaidAt:                 order.PaidAt,
+		CompletedAt:            order.CompletedAt,
+		RefundAmount:           order.RefundAmount,
+		RefundReason:           order.RefundReason,
+		RefundRequestedAt:      order.RefundRequestedAt,
+		RefundRequestedBy:      order.RefundRequestedBy,
+		RefundRequestReason:    order.RefundRequestReason,
+		PlanID:                 order.PlanID,
 	}
 }
 
@@ -620,6 +626,9 @@ func isMobile(c *gin.Context) bool {
 }
 
 type PaymentOrderResult struct {
+	USDTExchange *service.PaymentOrderExchangeDetails `json:"usdt_exchange,omitempty"`
+	service.PaymentTransferDetails
+	RefundSupported     *bool      `json:"refund_supported,omitempty"`
 	ID                  int64      `json:"id"`
 	UserID              int64      `json:"user_id"`
 	Amount              float64    `json:"amount"`
@@ -658,27 +667,30 @@ func sanitizePaymentOrderForResponse(order *dbent.PaymentOrder) *PaymentOrderRes
 		return nil
 	}
 	return &PaymentOrderResult{
-		ID:                  order.ID,
-		UserID:              order.UserID,
-		Amount:              order.Amount,
-		PayAmount:           order.PayAmount,
-		FeeRate:             order.FeeRate,
-		Currency:            service.PaymentOrderCurrency(order),
-		PaymentType:         order.PaymentType,
-		OutTradeNo:          order.OutTradeNo,
-		Status:              order.Status,
-		OrderType:           order.OrderType,
-		CreatedAt:           order.CreatedAt,
-		ExpiresAt:           order.ExpiresAt,
-		PaidAt:              order.PaidAt,
-		CompletedAt:         order.CompletedAt,
-		RefundAmount:        order.RefundAmount,
-		RefundReason:        order.RefundReason,
-		RefundRequestedAt:   order.RefundRequestedAt,
-		RefundRequestedBy:   order.RefundRequestedBy,
-		RefundRequestReason: order.RefundRequestReason,
-		PlanID:              order.PlanID,
-		ProviderInstanceID:  order.ProviderInstanceID,
+		USDTExchange:           service.PaymentOrderUSDTExchange(order),
+		PaymentTransferDetails: service.PaymentOrderTransferDetails(order),
+		RefundSupported:        service.PaymentOrderRefundSupported(order),
+		ID:                     order.ID,
+		UserID:                 order.UserID,
+		Amount:                 order.Amount,
+		PayAmount:              order.PayAmount,
+		FeeRate:                order.FeeRate,
+		Currency:               service.PaymentOrderCurrency(order),
+		PaymentType:            order.PaymentType,
+		OutTradeNo:             order.OutTradeNo,
+		Status:                 order.Status,
+		OrderType:              order.OrderType,
+		CreatedAt:              order.CreatedAt,
+		ExpiresAt:              order.ExpiresAt,
+		PaidAt:                 order.PaidAt,
+		CompletedAt:            order.CompletedAt,
+		RefundAmount:           order.RefundAmount,
+		RefundReason:           order.RefundReason,
+		RefundRequestedAt:      order.RefundRequestedAt,
+		RefundRequestedBy:      order.RefundRequestedBy,
+		RefundRequestReason:    order.RefundRequestReason,
+		PlanID:                 order.PlanID,
+		ProviderInstanceID:     order.ProviderInstanceID,
 	}
 }
 

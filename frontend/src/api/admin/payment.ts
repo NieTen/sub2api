@@ -9,7 +9,8 @@ import type {
   PaymentOrder,
   PaymentChannel,
   SubscriptionPlan,
-  ProviderInstance
+  ProviderInstance,
+  UsdtRateHistoryResponse
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
@@ -25,6 +26,7 @@ export interface AdminPaymentConfig {
   balance_disabled: boolean
   balance_recharge_multiplier: number
   subscription_usd_to_cny_rate: number
+  usdt_cny_fallback_rate: number
   recharge_fee_rate: number
   load_balance_strategy: string
   product_name_prefix: string
@@ -45,6 +47,7 @@ export interface UpdatePaymentConfigRequest {
   balance_disabled?: boolean
   balance_recharge_multiplier?: number
   subscription_usd_to_cny_rate?: number
+  usdt_cny_fallback_rate?: number
   recharge_fee_rate?: number
   load_balance_strategy?: string
   product_name_prefix?: string
@@ -72,6 +75,11 @@ export const adminPaymentAPI = {
   /** Update payment configuration */
   updateConfig(data: UpdatePaymentConfigRequest) {
     return apiClient.put('/admin/payment/config', data)
+  },
+
+  /** 当前 USDT/CNY 报价及最近 72 小时真实采样记录。 */
+  getUsdtRates() {
+    return apiClient.get<UsdtRateHistoryResponse>('/admin/payment/usdt-rates')
   },
 
   // ==================== Dashboard ====================

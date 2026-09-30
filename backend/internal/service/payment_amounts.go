@@ -9,6 +9,11 @@ import (
 
 const defaultBalanceRechargeMultiplier = 1.0
 
+// 各渠道余额充值统一以输入的充值本金应用全局倍率，网关换汇不改变入账余额。
+func balanceRechargeMultiplierForCurrency(_ string, configured float64) float64 {
+	return normalizeBalanceRechargeMultiplier(configured)
+}
+
 func normalizeBalanceRechargeMultiplier(multiplier float64) float64 {
 	if math.IsNaN(multiplier) || math.IsInf(multiplier, 0) || multiplier <= 0 {
 		return defaultBalanceRechargeMultiplier

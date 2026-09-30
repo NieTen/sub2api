@@ -106,6 +106,12 @@ func (s *PaymentOrderExpiryService) runOnce() {
 		slog.Info("[PaymentOrderExpiry] reconciled paid orders", "count", recovered)
 	}
 
+	chainCtx, chainCancel := context.WithTimeout(context.Background(), expiryCheckTimeout)
+	if _, err := s.paymentSvc.ReconcileTRC20Orders(chainCtx); err != nil {
+		slog.Warn("TRC20 链上收款检查失败，将在下次轮询重试", "error", err)
+	}
+	chainCancel()
+
 	expireCtx, cancel := context.WithTimeout(context.Background(), expiryCheckTimeout)
 	defer cancel()
 	expired, err := s.paymentSvc.ExpireTimedOutOrders(expireCtx)

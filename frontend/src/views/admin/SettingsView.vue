@@ -7933,6 +7933,7 @@
         <!-- Tab: Email -->
         <!-- Tab: Payment -->
         <div v-show="activeTab === 'payment'" class="space-y-6">
+          <UsdtRateSettings v-if="activeTab === 'payment'" />
           <!-- Payment System Settings -->
           <div class="card">
             <div
@@ -9060,6 +9061,7 @@ import {
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
+import UsdtRateSettings from "@/components/payment/UsdtRateSettings.vue";
 import GroupBadge from "@/components/common/GroupBadge.vue";
 import GroupOptionItem from "@/components/common/GroupOptionItem.vue";
 import Toggle from "@/components/common/Toggle.vue";
@@ -9082,6 +9084,7 @@ import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiErro
 import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
 import { normalizeVisibleMethod } from "@/components/payment/paymentFlow";
+import { providerSupportsRefund } from "@/components/payment/providerConfig";
 import {
   isRegistrationEmailSuffixDomainValid,
   normalizeRegistrationEmailSuffixDomain,
@@ -9129,7 +9132,7 @@ type SettingsTab =
   | "payment"
   | "email"
   | "backup";
-const activeTab = ref<SettingsTab>("general");
+const activeTab = ref<SettingsTab>(new URLSearchParams(window.location.search).get("tab") === "payment" ? "payment" : "general");
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "models" as SettingsTab, icon: "cube" as const },
@@ -12571,6 +12574,8 @@ const allPaymentTypes = computed(() => [
   { value: "wxpay", label: t("payment.methods.wxpay") },
   { value: "stripe", label: t("payment.methods.stripe") },
   { value: "airwallex", label: t("payment.methods.airwallex") },
+  { value: "okpay", label: t("payment.methods.okpay") },
+  { value: "usdt_trc20", label: t("payment.methods.usdt_trc20") },
 ]);
 
 function isPaymentTypeEnabled(type: string): boolean {
@@ -12628,6 +12633,8 @@ const providerKeyOptions = computed(() => [
   { value: "wxpay", label: t("admin.settings.payment.providerWxpay") },
   { value: "stripe", label: t("admin.settings.payment.providerStripe") },
   { value: "airwallex", label: t("admin.settings.payment.providerAirwallex") },
+  { value: "okpay", label: t("admin.settings.payment.providerOkpay") },
+  { value: "usdt_trc20", label: t("admin.settings.payment.providerUsdtTrc20") },
 ]);
 
 const enabledProviderKeyOptions = computed(() => {
@@ -12828,6 +12835,7 @@ async function handleToggleField(
   provider: ProviderInstance,
   field: "enabled" | "refund_enabled" | "allow_user_refund",
 ) {
+  if (field !== "enabled" && !providerSupportsRefund(provider.provider_key)) return;
   let newValue: boolean;
   if (field === "enabled") newValue = !provider.enabled;
   else if (field === "refund_enabled") newValue = !provider.refund_enabled;

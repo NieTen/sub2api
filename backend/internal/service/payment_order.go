@@ -73,6 +73,21 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 	if err != nil {
 		return nil, err
 	}
+	if methodCurrency == "USDT" {
+		if s.exchangeRateSvc == nil {
+			return nil, infraerrors.ServiceUnavailable("USDT_EXCHANGE_RATE_UNAVAILABLE", "USDT 汇率服务暂不可用")
+		}
+		quote, quoteErr := s.exchangeRateSvc.GetQuote(ctx)
+		if quoteErr != nil {
+			return nil, infraerrors.ServiceUnavailable("USDT_EXCHANGE_RATE_UNAVAILABLE", "USDT 费率读取失败，请稍后重试")
+		}
+		req.usdtExchange, err = calculateUSDTExchangePayment(limitAmount, feeRate, req.OrderType, cfg.SubscriptionUSDToCNYRate, quote)
+		if err != nil {
+			return nil, err
+		}
+		payAmount = req.usdtExchange.USDTPayAmount
+		payAmountStr = decimal.NewFromFloat(payAmount).StringFixed(2)
+	}
 	sel, err := s.selectCreateOrderInstance(ctx, req, cfg, payAmount)
 	if err != nil {
 		return nil, err
@@ -85,6 +100,10 @@ func (s *PaymentService) CreateOrder(ctx context.Context, req CreateOrderRequest
 		selectedCurrency = paymentProviderConfigCurrency(sel.ProviderKey, sel.Config)
 	}
 	if selectedCurrency != methodCurrency {
+		// 费率与渠道必须在同一次下单内一致，避免使用旧限额选择结果向新币种付款。
+		if selectedCurrency == "USDT" || methodCurrency == "USDT" {
+			return nil, infraerrors.ServiceUnavailable("PAYMENT_METHOD_CURRENCY_CONFLICT", "支付渠道币种已变化，请刷新后重试")
+		}
 		payAmountStr, payAmount, err = calculateCreateOrderPayAmountForOrderType(limitAmount, feeRate, selectedCurrency, req.OrderType, cfg.SubscriptionUSDToCNYRate)
 		if err != nil {
 			return nil, err
@@ -158,7 +177,11 @@ func (s *PaymentService) createOrderInTx(ctx context.Context, req CreateOrderReq
 	if err := s.checkPendingLimit(ctx, tx, req.UserID, cfg.MaxPendingOrders); err != nil {
 		return nil, err
 	}
-	if err := s.checkDailyLimit(ctx, tx, req.UserID, limitAmount, cfg.DailyLimit); err != nil {
+	dailyLimitAmount := limitAmount
+	if req.OrderType == payment.OrderTypeBalance && req.usdtExchange != nil {
+		dailyLimitAmount = req.usdtExchange.CNYPayAmount
+	}
+	if err := s.checkDailyLimit(ctx, tx, req.UserID, dailyLimitAmount, cfg.DailyLimit); err != nil {
 		return nil, err
 	}
 	tm := cfg.OrderTimeoutMin
@@ -299,6 +322,17 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 	if providerKey == payment.TypeStripe {
 		snapshot["currency"] = paymentProviderConfigCurrency(providerKey, sel.Config)
 	}
+	if providerKey == payment.TypeOKPay {
+		snapshot["merchant_id"] = strings.TrimSpace(sel.Config["id"])
+		snapshot["currency"] = "USDT"
+	}
+	if providerKey == "usdt_trc20" {
+		snapshot["merchant_id"] = strings.TrimSpace(sel.Config["walletAddress"])
+		snapshot["currency"] = "USDT"
+	}
+	if req.usdtExchange != nil && (providerKey == payment.TypeOKPay || providerKey == payment.TypeUSDTTRC20) {
+		snapshot["usdt_exchange"] = *req.usdtExchange
+	}
 	if providerKey == payment.TypeAirwallex {
 		if accountID := strings.TrimSpace(sel.Config["accountId"]); accountID != "" {
 			snapshot["merchant_id"] = accountID
@@ -333,11 +367,7 @@ func (s *PaymentService) checkDailyLimit(ctx context.Context, tx *dbent.Tx, user
 	}
 	var used float64
 	for _, o := range orders {
-		if o.OrderType == payment.OrderTypeBalance {
-			used += o.PayAmount
-			continue
-		}
-		used += o.Amount
+		used += paymentOrderDailyLimitAmount(o)
 	}
 	if used+amount > limit {
 		return infraerrors.TooManyRequests("DAILY_LIMIT_EXCEEDED", "daily_limit_exceeded").
@@ -413,7 +443,12 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		return nil, infraerrors.ServiceUnavailable("PAYMENT_PROVIDER_MISCONFIGURED", "provider_misconfigured").
 			WithMetadata(map[string]string{"provider": sel.ProviderKey, "instance_id": sel.InstanceID})
 	}
-	subject := s.buildPaymentSubject(plan, limitAmount, cfg, sel)
+	subjectAmount := limitAmount
+	if req.usdtExchange != nil {
+		// 原生 USDT 收银台标题使用换算后的账单金额，避免把人民币本金标成 USDT。
+		subjectAmount = payAmount
+	}
+	subject := s.buildPaymentSubject(plan, subjectAmount, cfg, sel)
 	outTradeNo := order.OutTradeNo
 	canonicalReturnURL, err := CanonicalizeReturnURL(req.ReturnURL, req.SrcHost, req.SrcURL)
 	if err != nil {
@@ -448,7 +483,12 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	}, sel, outTradeNo, payAmountStr, subject)
 	providerReq.AlipayMobilePrecreate = shouldUseAlipayMobilePrecreate(req, cfg, sel)
 	finishProviderCall := servertiming.ObserveDependency(ctx, "payment")
-	pr, err := prov.CreatePayment(ctx, providerReq)
+	var pr *payment.CreatePaymentResponse
+	if sel.ProviderKey == payment.TypeUSDTTRC20 {
+		pr, err = s.createTRC20Checkout(ctx, order, sel)
+	} else {
+		pr, err = prov.CreatePayment(ctx, providerReq)
+	}
 	finishProviderCall()
 	if err != nil {
 		slog.Error("[PaymentService] CreatePayment failed", "provider", sel.ProviderKey, "instance", sel.InstanceID, "error", err)
@@ -459,6 +499,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	}
 	sanitizeCreatePaymentResponseDetails(pr)
 	_, err = s.entClient.PaymentOrder.UpdateOneID(order.ID).
+		SetProviderSnapshot(order.ProviderSnapshot).
 		SetNillablePaymentTradeNo(psNilIfEmpty(pr.TradeNo)).
 		SetNillablePayURL(psNilIfEmpty(pr.PayURL)).
 		SetNillableQrCode(psNilIfEmpty(pr.QRCode)).
@@ -481,6 +522,7 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 		resultType = payment.CreatePaymentResultOrderCreated
 	}
 	resp := buildCreateOrderResponse(order, req, payAmount, sel, pr, resultType)
+	resp.PaymentTransferDetails = PaymentOrderTransferDetails(order)
 	resp.ResumeToken = resumeToken
 	resp.AlipayMobilePrecreateDeepLink = providerReq.AlipayMobilePrecreate && strings.TrimSpace(pr.QRCode) != ""
 	return resp, nil
@@ -731,6 +773,7 @@ func classifyCreatePaymentError(req CreateOrderRequest, providerKey string, err 
 
 func buildCreateOrderResponse(order *dbent.PaymentOrder, req CreateOrderRequest, payAmount float64, sel *payment.InstanceSelection, pr *payment.CreatePaymentResponse, resultType payment.CreatePaymentResultType) *CreateOrderResponse {
 	return &CreateOrderResponse{
+		USDTExchange: PaymentOrderUSDTExchange(order),
 		OrderID:      order.ID,
 		Amount:       order.Amount,
 		PayAmount:    payAmount,

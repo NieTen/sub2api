@@ -28,6 +28,7 @@ const (
 	// SettingSubscriptionUSDToCNYRate 是订阅 CNY 换算汇率（1 USD = X CNY）。
 	// 0/未配置 = 关闭换算（订阅按 price 数值直付），显式配置后 CNY 通道订阅按 price × rate 收款。
 	SettingSubscriptionUSDToCNYRate      = "SUBSCRIPTION_USD_TO_CNY_RATE"
+	SettingUSDTCNYFallbackRate           = "USDT_CNY_FALLBACK_RATE"
 	SettingRechargeFeeRate               = "RECHARGE_FEE_RATE"
 	SettingProductNamePrefix             = "PRODUCT_NAME_PREFIX"
 	SettingProductNameSuffix             = "PRODUCT_NAME_SUFFIX"
@@ -61,6 +62,7 @@ type PaymentConfig struct {
 	BalanceRechargeMultiplier float64  `json:"balance_recharge_multiplier"`
 	// SubscriptionUSDToCNYRate 为 0 时订阅换算关闭（兼容存量行为）。
 	SubscriptionUSDToCNYRate float64 `json:"subscription_usd_to_cny_rate"`
+	USDTCNYFallbackRate      float64 `json:"usdt_cny_fallback_rate"`
 	RechargeFeeRate          float64 `json:"recharge_fee_rate"`
 	LoadBalanceStrategy      string  `json:"load_balance_strategy"`
 	ProductNamePrefix        string  `json:"product_name_prefix"`
@@ -94,6 +96,7 @@ type UpdatePaymentConfigRequest struct {
 	BalanceDisabled           *bool    `json:"balance_disabled"`
 	BalanceRechargeMultiplier *float64 `json:"balance_recharge_multiplier"`
 	SubscriptionUSDToCNYRate  *float64 `json:"subscription_usd_to_cny_rate"`
+	USDTCNYFallbackRate       *float64 `json:"usdt_cny_fallback_rate"`
 	RechargeFeeRate           *float64 `json:"recharge_fee_rate"`
 	LoadBalanceStrategy       *string  `json:"load_balance_strategy"`
 	ProductNamePrefix         *string  `json:"product_name_prefix"`
@@ -121,13 +124,16 @@ type UpdatePaymentConfigRequest struct {
 
 // MethodLimits holds per-payment-type limits.
 type MethodLimits struct {
-	PaymentType string  `json:"payment_type"`
-	DisplayName string  `json:"display_name,omitempty"`
-	Currency    string  `json:"currency"`
-	FeeRate     float64 `json:"fee_rate"`
-	DailyLimit  float64 `json:"daily_limit"`
-	SingleMin   float64 `json:"single_min"`
-	SingleMax   float64 `json:"single_max"`
+	InputCurrency           string                    `json:"input_currency,omitempty"`
+	USDTExchange            *PaymentExchangeRateQuote `json:"usdt_exchange,omitempty"`
+	BalanceCreditMultiplier float64                   `json:"balance_credit_multiplier,omitempty"`
+	PaymentType             string                    `json:"payment_type"`
+	DisplayName             string                    `json:"display_name,omitempty"`
+	Currency                string                    `json:"currency"`
+	FeeRate                 float64                   `json:"fee_rate"`
+	DailyLimit              float64                   `json:"daily_limit"`
+	SingleMin               float64                   `json:"single_min"`
+	SingleMax               float64                   `json:"single_max"`
 }
 
 // MethodLimitsResponse is the full response for the user-facing /limits API.
@@ -195,9 +201,10 @@ type UpdatePlanRequest struct {
 // PaymentConfigService manages payment configuration and CRUD for
 // provider instances, channels, and subscription plans.
 type PaymentConfigService struct {
-	entClient     *dbent.Client
-	settingRepo   SettingRepository
-	encryptionKey []byte
+	exchangeRateSvc PaymentExchangeRateReader
+	entClient       *dbent.Client
+	settingRepo     SettingRepository
+	encryptionKey   []byte
 }
 
 // NewPaymentConfigService creates a new PaymentConfigService.
@@ -219,7 +226,7 @@ func (s *PaymentConfigService) GetPaymentConfig(ctx context.Context) (*PaymentCo
 	keys := []string{
 		SettingPaymentEnabled, SettingMinRechargeAmount, SettingMaxRechargeAmount,
 		SettingDailyRechargeLimit, SettingOrderTimeoutMinutes, SettingMaxPendingOrders,
-		SettingEnabledPaymentTypes, SettingBalancePayDisabled, SettingBalanceRechargeMult, SettingSubscriptionUSDToCNYRate, SettingRechargeFeeRate, SettingLoadBalanceStrategy,
+		SettingEnabledPaymentTypes, SettingBalancePayDisabled, SettingBalanceRechargeMult, SettingSubscriptionUSDToCNYRate, SettingUSDTCNYFallbackRate, SettingRechargeFeeRate, SettingLoadBalanceStrategy,
 		SettingProductNamePrefix, SettingProductNameSuffix,
 		SettingHelpImageURL, SettingHelpText,
 		SettingCancelRateLimitOn, SettingCancelRateLimitMax,
@@ -249,6 +256,7 @@ func (s *PaymentConfigService) parsePaymentConfig(vals map[string]string) *Payme
 		BalanceDisabled:           vals[SettingBalancePayDisabled] == "true",
 		BalanceRechargeMultiplier: normalizeBalanceRechargeMultiplier(pcParseFloat(vals[SettingBalanceRechargeMult], defaultBalanceRechargeMultiplier)),
 		SubscriptionUSDToCNYRate:  normalizeSubscriptionUSDToCNYRate(pcParseFloat(vals[SettingSubscriptionUSDToCNYRate], 0)),
+		USDTCNYFallbackRate:       normalizeUSDTCNYFallbackRate(pcParseFloat(vals[SettingUSDTCNYFallbackRate], 0)),
 		RechargeFeeRate:           pcParseFloat(vals[SettingRechargeFeeRate], 0),
 		LoadBalanceStrategy:       vals[SettingLoadBalanceStrategy],
 		ProductNamePrefix:         vals[SettingProductNamePrefix],
@@ -322,6 +330,12 @@ func (s *PaymentConfigService) getStripePublishableKey(ctx context.Context) stri
 // nil-check before serialisation — this is inherent to patch-style update patterns
 // and cannot be meaningfully decomposed without introducing unnecessary abstraction.
 func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req UpdatePaymentConfigRequest) error {
+	if req.USDTCNYFallbackRate != nil {
+		v := *req.USDTCNYFallbackRate
+		if math.IsNaN(v) || math.IsInf(v, 0) || (v != 0 && (v < 1 || v > 100)) {
+			return infraerrors.BadRequest("INVALID_USDT_CNY_FALLBACK_RATE", "USDT 兜底费率须为 1 至 100 元，或设为 0 清空")
+		}
+	}
 	if req.BalanceRechargeMultiplier != nil {
 		if math.IsNaN(*req.BalanceRechargeMultiplier) || math.IsInf(*req.BalanceRechargeMultiplier, 0) || *req.BalanceRechargeMultiplier <= 0 {
 			return infraerrors.BadRequest("INVALID_BALANCE_RECHARGE_MULTIPLIER", "balance recharge multiplier must be greater than 0")
@@ -344,6 +358,9 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 		}
 	}
 	m := make(map[string]string)
+	if req.USDTCNYFallbackRate != nil {
+		m[SettingUSDTCNYFallbackRate] = formatPositiveFloatExact(req.USDTCNYFallbackRate)
+	}
 	if req.Enabled != nil {
 		m[SettingPaymentEnabled] = formatBoolOrEmpty(req.Enabled)
 	}
