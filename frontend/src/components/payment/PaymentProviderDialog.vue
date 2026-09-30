@@ -165,6 +165,7 @@
               v-if="field.sensitive && field.key.toLowerCase().includes('key') && field.key !== 'pkey'"
               v-model="config[field.key]"
               :name="'provider-' + field.key"
+              :disabled="form.provider_key === 'usdt_trc20' && field.key === 'apiKey' && clearTrc20ApiKey"
               rows="3"
               class="input font-mono text-xs"
               autocomplete="new-password"
@@ -209,11 +210,17 @@
               :name="'provider-' + field.key"
               class="input"
               :placeholder="field.defaultValue || ''"
-              :readonly="form.provider_key === 'usdt_trc20' && field.key === 'apiBase'"
             />
             <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
               {{ t(field.hintKey) }}
             </p>
+            <div v-if="editing && form.provider_key === 'usdt_trc20' && field.key === 'apiKey'" class="mt-2 space-y-1">
+              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <input v-model="clearTrc20ApiKey" name="clear-trc20-api-key" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600" />
+                <span>{{ t('admin.settings.payment.trc20ClearApiKey') }}</span>
+              </label>
+              <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.trc20ClearApiKeyHint') }}</p>
+            </div>
           </div>
         </div>
 
@@ -422,6 +429,7 @@ const returnBaseUrl = ref('')
 const limitsExpanded = ref(false)
 const visibleFields = reactive<Record<string, boolean>>({})
 const easyPayCustomMethods = reactive<EasyPayCustomMethod[]>([])
+const clearTrc20ApiKey = ref(false)
 
 // --- Computed ---
 const defaultBaseUrl = typeof window !== 'undefined' ? window.location.origin : ''
@@ -626,6 +634,7 @@ function clearConfig() {
   returnBaseUrl.value = ''
   limitsExpanded.value = false
   easyPayCustomMethods.splice(0, easyPayCustomMethods.length)
+  clearTrc20ApiKey.value = false
 }
 
 function applyDefaults() {
@@ -742,6 +751,10 @@ function handleSave() {
   }
   if (form.provider_key === 'easypay') {
     filteredConfig.customMethods = serializeEasyPayCustomMethods(normalizedEasyPayCustomMethods())
+  }
+  if (props.editing && form.provider_key === 'usdt_trc20' && clearTrc20ApiKey.value) {
+    // 显式清除才发送空串；普通编辑留空仍省略，保留服务端已保存的密钥。
+    filteredConfig.apiKey = ''
   }
 
   // Inject computed callback URLs (each URL = independent base + fixed path)

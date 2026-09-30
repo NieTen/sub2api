@@ -157,23 +157,61 @@ describe('PaymentProviderDialog payment guide', () => {
     expect(wrapper.emitted('save')).toBeUndefined()
   })
 
-  it('TRC20 必填 API Key 与有效地址并固定官方主网', async () => {
+  it.each([undefined, 'test-key'])('TRC20 仅必填有效收款地址，支持可选密钥 %s 并隐藏官方节点', async (apiKey) => {
     const wrapper = mountDialog()
     ;(wrapper.vm as unknown as { reset: (key: string) => void }).reset('usdt_trc20')
     await nextTick()
     await wrapper.find('input[type="text"]').setValue('TRC20 直收')
     await wrapper.get('input[name="provider-walletAddress"]').setValue('无效地址')
-    await wrapper.get('[name="provider-apiKey"]').setValue('test-key')
+    if (apiKey) await wrapper.get('[name="provider-apiKey"]').setValue(apiKey)
     await wrapper.get('form').trigger('submit.prevent')
     expect(wrapper.emitted('save')).toBeUndefined()
     await wrapper.get('input[name="provider-walletAddress"]').setValue('TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE')
-    await wrapper.get('[name="provider-apiKey"]').setValue('')
+    expect(wrapper.find('[name="provider-apiBase"]').exists()).toBe(false)
+    expect(wrapper.find('[name="clear-trc20-api-key"]').exists()).toBe(false)
     await wrapper.get('form').trigger('submit.prevent')
-    expect(wrapper.emitted('save')).toBeUndefined()
-    await wrapper.get('[name="provider-apiKey"]').setValue('test-key')
-    expect(wrapper.get('input[name="provider-apiBase"]').attributes('readonly')).toBeDefined()
+    const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
+    expect(payload).toMatchObject({ provider_key: 'usdt_trc20', payment_mode: 'qrcode', supported_types: ['usdt_trc20'], refund_enabled: false, config: { apiBase: 'https://api.trongrid.io', walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE' } })
+    if (apiKey) expect(payload.config.apiKey).toBe(apiKey)
+    else expect(payload.config).not.toHaveProperty('apiKey')
+    wrapper.unmount()
+  })
+
+  it('编辑 TRC20 留空保留密钥，仅明确选择公共查询才清除', async () => {
+    const provider = providerFactory({
+      provider_key: 'usdt_trc20', name: 'TRC20 直收',
+      config: { walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE', apiBase: 'https://api.trongrid.io' },
+      supported_types: ['usdt_trc20'], payment_mode: 'qrcode',
+    })
+    const wrapper = mountDialog({ editing: provider })
+    const dialog = wrapper.vm as unknown as { loadProvider: (provider: ProviderInstance) => void }
+    dialog.loadProvider(provider)
+    await nextTick()
+    expect(wrapper.find('[name="provider-apiBase"]').exists()).toBe(false)
     await wrapper.get('form').trigger('submit.prevent')
-    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'usdt_trc20', payment_mode: 'qrcode', supported_types: ['usdt_trc20'], refund_enabled: false, config: { apiBase: 'https://api.trongrid.io', apiKey: 'test-key', walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE' } })
+    let payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+    expect(payload.config).not.toHaveProperty('apiKey')
+
+    await wrapper.get('[name="provider-apiKey"]').setValue('replacement-key')
+    await wrapper.get('[name="clear-trc20-api-key"]').setValue(true)
+    expect(wrapper.get('[name="provider-apiKey"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form').trigger('submit.prevent')
+    payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+    expect(payload.config.apiKey).toBe('')
+
+    await wrapper.get('[name="clear-trc20-api-key"]').setValue(false)
+    await wrapper.get('form').trigger('submit.prevent')
+    payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+    expect(payload.config.apiKey).toBe('replacement-key')
+
+    await wrapper.get('[name="clear-trc20-api-key"]').setValue(true)
+    dialog.loadProvider(provider)
+    await nextTick()
+    expect((wrapper.get('[name="clear-trc20-api-key"]').element as HTMLInputElement).checked).toBe(false)
+    await wrapper.get('form').trigger('submit.prevent')
+    payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+    expect(payload.config).not.toHaveProperty('apiKey')
+    wrapper.unmount()
   })
 
   it('保留 EasyPay 原有 usdt_trc20 自定义映射及退款设置', async () => {

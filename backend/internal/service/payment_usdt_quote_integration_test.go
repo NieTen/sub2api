@@ -63,17 +63,18 @@ func (r *usdtQuoteIntegrationTransport) RoundTrip(request *http.Request) (*http.
 	if request.URL.Host != "okpay.test" || request.URL.Path != "/shop/payLink" || request.Method != http.MethodPost {
 		return nil, fmt.Errorf("测试不允许访问此地址: %s", request.URL)
 	}
-	var payload map[string]any
-	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+	if request.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+		return nil, errors.New("OKPay 请求必须按 PHP 示例使用表单编码")
+	}
+	if err := request.ParseForm(); err != nil {
 		return nil, err
 	}
-	amount, ok := payload["amount"].(string)
-	if !ok {
+	amount := request.PostForm.Get("amount")
+	if amount == "" || len(request.PostForm["amount"]) != 1 {
 		return nil, errors.New("支付金额必须以精确字符串发送")
 	}
 	r.amounts = append(r.amounts, amount)
-	name, _ := payload["name"].(string)
-	r.names = append(r.names, name)
+	r.names = append(r.names, request.PostForm.Get("name"))
 	body := fmt.Sprintf(`{"status":"success","code":10000,"data":{"order_id":"pay-%d","pay_url":"https://okpay.test/cashier"}}`, len(r.amounts))
 	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body)), Request: request}, nil
 }

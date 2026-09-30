@@ -33,6 +33,7 @@ type TRC20 struct {
 	apiKey        string
 	apiBase       string
 	client        *http.Client
+	requestGate   *trc20RequestGate
 }
 
 func NewTRC20(instanceID string, config map[string]string) (*TRC20, error) {
@@ -51,10 +52,11 @@ func NewTRC20(instanceID string, config map[string]string) (*TRC20, error) {
 	if currency := strings.TrimSpace(config["currency"]); currency != "" && !strings.EqualFold(currency, "USDT") {
 		return nil, errors.New("TRC20 直收仅支持 USDT")
 	}
-	if strings.TrimSpace(config["apiKey"]) == "" || strings.ContainsAny(config["apiKey"], "\r\n\x00") {
-		return nil, errors.New("TRC20 必须配置有效的 TronGrid API Key")
+	if strings.ContainsAny(config["apiKey"], "\r\n\x00") {
+		return nil, errors.New("TRC20 的 TronGrid API Key 不能包含换行或空字符")
 	}
-	return &TRC20{instanceID: instanceID, walletAddress: address, apiKey: strings.TrimSpace(config["apiKey"]), apiBase: base, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
+	// 留空时使用官方公共读取；API Key 仅用于提高查询配额，不参与收款验证。
+	return &TRC20{instanceID: instanceID, walletAddress: address, apiKey: strings.TrimSpace(config["apiKey"]), apiBase: base, requestGate: sharedTRC20RequestGate, client: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 
 func (p *TRC20) Name() string        { return "USDT (TRC20)" }
@@ -157,18 +159,33 @@ func (p *TRC20) requestJSON(ctx context.Context, method, path string, body []byt
 	if p.apiKey != "" {
 		req.Header.Set("TRON-PRO-API-KEY", p.apiKey)
 	}
+	gate := p.requestGate
+	if gate == nil {
+		gate = sharedTRC20RequestGate
+	}
+	gateKey := sha256.Sum256([]byte(trc20APIBase + "\x00" + p.apiKey))
+	if err = gate.wait(ctx, gateKey, p.apiKey == ""); err != nil {
+		return err
+	}
 	resp, err := p.client.Do(req)
 	if err != nil {
+		if ctx.Err() == nil {
+			gate.deferRequests(gateKey, "")
+		}
 		return fmt.Errorf("查询 TRON 主网失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			gate.deferRequests(gateKey, resp.Header.Get("Retry-After"))
+		}
 		return fmt.Errorf("TRON 主网查询返回 HTTP %d", resp.StatusCode)
 	}
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 4*1024*1024))
 	if err = decoder.Decode(out); err != nil {
 		return fmt.Errorf("TRON 主网响应格式无效: %w", err)
 	}
+	gate.succeeded(gateKey)
 	return nil
 }
 

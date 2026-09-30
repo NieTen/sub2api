@@ -527,6 +527,15 @@ func (s *PaymentConfigService) mergeConfig(ctx context.Context, id int64, newCon
 		existing = map[string]string{}
 	}
 	for k, v := range newConfig {
+		// TRC20 的查询密钥可选：省略字段保留原值，显式空值切换到公共查询。
+		if inst.ProviderKey == payment.TypeUSDTTRC20 && strings.EqualFold(k, "apiKey") && v == "" {
+			for existingKey := range existing {
+				if strings.EqualFold(existingKey, "apiKey") {
+					delete(existing, existingKey)
+				}
+			}
+			continue
+		}
 		// Preserve existing secrets when the client submits an empty value
 		// (admin UI omits the value to indicate "leave unchanged").
 		if v == "" && isSensitiveProviderConfigField(inst.ProviderKey, k) {

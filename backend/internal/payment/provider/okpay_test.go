@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -120,29 +119,31 @@ func TestOKPayFormPreservesNestedIndexesAndRejectsAmbiguity(t *testing.T) {
 	}
 }
 
-func TestOKPayCreatesSignedJSONCheckoutAndQueriesByMerchantOrder(t *testing.T) {
+func TestOKPayCreatesSignedFormCheckoutAndQueriesByMerchantOrder(t *testing.T) {
 	var paths []string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.URL.Path)
 		require.Equal(t, http.MethodPost, r.Method)
-		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		require.Equal(t, "application/x-www-form-urlencoded", r.Header.Get("Content-Type"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		var payload map[string]string
-		require.NoError(t, json.Unmarshal(body, &payload))
-		require.Equal(t, "123", payload["id"])
-		require.Equal(t, "site-100", payload["unique_id"])
+		payload, err := url.ParseQuery(string(body))
+		require.NoError(t, err)
+		require.Equal(t, "123", payload.Get("id"))
+		require.Equal(t, "site-100", payload.Get("unique_id"))
 		require.NotContains(t, payload, "token")
-		fields, err := okpayDecodeJSON(string(body))
+		fields, err := okpayDecodeForm(string(body))
 		require.NoError(t, err)
 		signature, err := okpaySign(fields, okpayTestToken)
 		require.NoError(t, err)
-		require.Equal(t, signature, payload["sign"])
+		require.Equal(t, signature, payload.Get("sign"))
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/shop/payLink" {
-			require.Equal(t, "USDT", payload["coin"])
-			require.Equal(t, "12.30", payload["amount"])
-			require.Equal(t, "https://site.example/api/v1/payment/webhook/okpay", payload["callback_url"])
+			require.Equal(t, "USDT", payload.Get("coin"))
+			require.Equal(t, "12.30", payload.Get("amount"))
+			require.Equal(t, "账户充值 A+B & = %2B ?", payload.Get("name"))
+			require.Equal(t, "https://site.example/api/v1/payment/webhook/okpay", payload.Get("callback_url"))
+			require.Equal(t, "https://site.example/payment/result?name=A+B&encoded=%2B", payload.Get("return_url"))
 			require.NotContains(t, payload, "status")
 			fmt.Fprint(w, `{"status":"success","code":10000,"data":{"order_id":"pay-900","pay_url":"https://t.me/OkayPayBot?start=pay-900"}}`)
 		} else {
@@ -154,7 +155,7 @@ func TestOKPayCreatesSignedJSONCheckoutAndQueriesByMerchantOrder(t *testing.T) {
 	provider, err := NewOKPay("1", map[string]string{"id": "123", "token": okpayTestToken, "apiBase": server.URL, "paymentMode": "redirect"})
 	require.NoError(t, err)
 	provider.httpClient.Transport = server.Client().Transport
-	created, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{OrderID: "site-100", Amount: "12.3", Subject: "账户充值", NotifyURL: "https://site.example/api/v1/payment/webhook/okpay", ReturnURL: "https://site.example/payment/result"})
+	created, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{OrderID: "site-100", Amount: "12.3", Subject: "账户充值 A+B & = %2B ?", NotifyURL: "https://site.example/api/v1/payment/webhook/okpay", ReturnURL: "https://site.example/payment/result?name=A+B&encoded=%2B"})
 	require.NoError(t, err)
 	require.Equal(t, "pay-900", created.TradeNo)
 	require.Equal(t, "USDT", created.Currency)

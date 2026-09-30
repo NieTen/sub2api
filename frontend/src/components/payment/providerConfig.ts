@@ -141,8 +141,7 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   ],
   usdt_trc20: [
     { key: 'walletAddress', label: '', sensitive: false },
-    { key: 'apiKey', label: '', sensitive: true },
-    { key: 'apiBase', label: '', sensitive: false, defaultValue: 'https://api.trongrid.io', hintKey: 'admin.settings.payment.field_trc20ApiBaseHint' },
+    { key: 'apiKey', label: '', sensitive: true, optional: true, hintKey: 'admin.settings.payment.field_trc20ApiKeyHint' },
   ],
   easypay: [
     { key: 'pid', label: 'PID', sensitive: false },

@@ -1,10 +1,8 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"crypto/subtle"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -24,7 +22,10 @@ const (
 	okpayCurrency        = "USDT"
 )
 
-var okpayAmountPattern = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+var (
+	okpayAmountPattern       = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+	okpayBusinessCodePattern = regexp.MustCompile(`^[0-9]{1,8}$`)
+)
 
 // OKPay 使用用户提供的商户 API 收银台协议，不直接托管钱包或扫描链上交易。
 type OKPay struct {
@@ -113,7 +114,7 @@ func (o *OKPay) CreatePayment(ctx context.Context, request payment.CreatePayment
 	if err != nil {
 		return nil, err
 	}
-	data, err := okpayResponseData(response)
+	data, err := okpayResponseData(response, o.config["id"], o.config["token"])
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +150,7 @@ func (o *OKPay) QueryOrderByMerchantOrderID(ctx context.Context, merchantOrderID
 	if err != nil {
 		return nil, err
 	}
-	data, err := okpayResponseData(response)
+	data, err := okpayResponseData(response, o.config["id"], o.config["token"])
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +210,7 @@ func (o *OKPay) VerifyNotification(_ context.Context, rawBody string, headers ma
 	if err != nil || subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) != 1 {
 		return nil, fmt.Errorf("OKPay 回调签名无效")
 	}
-	data, err := okpayResponseData(fields)
+	data, err := okpayResponseData(fields, o.config["id"], o.config["token"], provided)
 	if err != nil {
 		return nil, err
 	}
@@ -277,18 +278,25 @@ func (o *OKPay) validateIdentityAndCurrency(fields, data okpayArray, required bo
 	return nil
 }
 
-func okpayResponseData(fields okpayArray) (okpayArray, error) {
+func okpayResponseFailure(fields okpayArray) string {
 	if value, found := fields.get("status"); found {
 		status, err := okpayPHPScalar(value)
 		if err != nil || status != "success" {
-			return nil, fmt.Errorf("OKPay 返回业务失败状态")
+			return "OKPay 返回业务失败状态"
 		}
 	}
 	if value, found := fields.get("code"); found {
 		code, err := okpayPHPScalar(value)
 		if err != nil || code != "10000" {
-			return nil, fmt.Errorf("OKPay 返回业务失败代码")
+			return "OKPay 返回业务失败代码"
 		}
+	}
+	return ""
+}
+
+func okpayResponseData(fields okpayArray, sensitive ...string) (okpayArray, error) {
+	if failure := okpayResponseFailure(fields); failure != "" {
+		return nil, okpayResponseError(failure, fields, sensitive...)
 	}
 	value, found := fields.get("data")
 	data, ok := value.(okpayArray)
@@ -296,6 +304,65 @@ func okpayResponseData(fields okpayArray) (okpayArray, error) {
 		return nil, fmt.Errorf("OKPay 响应缺少有效 data")
 	}
 	return data, nil
+}
+
+func okpayResponseError(reason string, fields okpayArray, sensitive ...string) error {
+	details := make([]string, 0, 2)
+	if code := okpaySafeDiagnosticScalar(fields, "code", sensitive); okpayBusinessCodePattern.MatchString(code) {
+		details = append(details, "code="+code)
+	}
+	for _, key := range []string{"msg", "message"} {
+		message := okpaySafeDiagnosticScalar(fields, key, sensitive)
+		// 仅输出精确匹配后的固定文案，未知上游文本可能反射凭据、订单或用户隐私。
+		switch strings.ToLower(message) {
+		case "身份认证失败", "认证失败", "authentication failed", "unauthorized":
+			message = "身份认证失败，请核对商户 ID 和 Token"
+		case "签名错误", "签名验证失败", "签名校验失败", "invalid signature", "signature error":
+			message = "签名校验失败"
+		case "商户不存在", "无效商户", "merchant not found", "invalid merchant":
+			message = "商户不存在或无效"
+		case "参数错误", "参数不完整", "缺少参数", "参数缺失", "invalid parameters", "missing parameters":
+			message = "请求参数无效或缺失"
+		case "金额错误", "金额无效", "金额超出限制", "invalid amount":
+			message = "支付金额无效或超出限制"
+		case "订单不存在", "order not found":
+			message = "订单不存在"
+		case "请求过于频繁", "请求频繁", "too many requests", "rate limit exceeded":
+			message = "请求过于频繁，请稍后再试"
+		default:
+			continue
+		}
+		details = append(details, message)
+		break
+	}
+	if len(details) > 0 {
+		reason += "（" + strings.Join(details, "；") + "）"
+	}
+	return fmt.Errorf("%s", reason)
+}
+
+func okpaySafeDiagnosticScalar(fields okpayArray, key string, sensitive []string) string {
+	value, found := fields.get(key)
+	if !found {
+		return ""
+	}
+	if _, invalid := value.(bool); invalid {
+		return ""
+	}
+	text, err := okpayPHPScalar(value)
+	if err != nil || len(text) > 256 {
+		return ""
+	}
+	for _, secret := range sensitive {
+		if secret != "" && strings.Contains(text, secret) {
+			return ""
+		}
+	}
+	// 控制字符、URL 查询参数及其他未知内容都无法进入下游的精确白名单。
+	if strings.ContainsAny(text, "\r\n\x00\t") {
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 func okpayRequiredScalar(fields okpayArray, key string) (string, error) {
@@ -352,30 +419,28 @@ func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpay
 	if err != nil {
 		return nil, err
 	}
-	payload := map[string]any{"sign": signature}
+	// 与 PHP 示例的 http_build_query 保持一致；签名与发送值共用 PHP 标量转换。
+	payload := url.Values{"sign": {signature}}
 	for _, field := range fields {
 		if okpayPHPTruthy(field.value) {
-			payload[field.key] = field.value
+			value, err := okpayPHPScalar(field.value)
+			if err != nil {
+				return nil, err
+			}
+			payload.Set(field.key, value)
 		}
 	}
-	raw, err := json.Marshal(payload)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config["apiBase"]+path, strings.NewReader(payload.Encode()))
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config["apiBase"]+path, bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
 	response, err := o.httpClient.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("OKPay 请求失败: %w", err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("OKPay HTTP 状态异常: %d", response.StatusCode)
-	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, okpayMaxResponseSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("OKPay 读取响应失败")
@@ -384,8 +449,21 @@ func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpay
 		return nil, fmt.Errorf("OKPay 响应内容过大")
 	}
 	result, err := okpayDecodeJSON(string(body))
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, okpayResponseError(fmt.Sprintf("OKPay HTTP 状态异常: %d", response.StatusCode), result, o.config["id"], o.config["token"], signature)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("OKPay 响应 JSON 无效")
+	}
+	if failure := okpayResponseFailure(result); failure != "" {
+		return nil, okpayResponseError(failure, result, o.config["id"], o.config["token"], signature)
+	}
+	// 主动接口必须明确确认成功，不能仅凭 data 中的订单或付款状态认可结果。
+	// 签名回调继续沿用既有可省略外层状态字段的协议兼容规则。
+	_, hasStatus := result.get("status")
+	_, hasCode := result.get("code")
+	if !hasStatus && !hasCode {
+		return nil, fmt.Errorf("OKPay 响应缺少明确成功状态或代码")
 	}
 	return result, nil
 }
