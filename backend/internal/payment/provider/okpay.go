@@ -414,10 +414,14 @@ func okpayHTTPSURL(raw string) bool {
 }
 
 func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpayArray, error) {
+	return o.postWithTransport(ctx, path, fields, okpayTransportCurrent)
+}
+
+func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpayArray, mode string) (okpayArray, error) {
 	fields = append(fields, okpayField{key: "id", value: o.config["id"]})
 	signature, err := okpaySign(fields, o.config["token"])
 	if err != nil {
-		return nil, err
+		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, err)
 	}
 	// 与 PHP 示例的 http_build_query 保持一致；签名与发送值共用 PHP 标量转换。
 	payload := url.Values{"sign": {signature}}
@@ -425,45 +429,69 @@ func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpay
 		if okpayPHPTruthy(field.value) {
 			value, err := okpayPHPScalar(field.value)
 			if err != nil {
-				return nil, err
+				return nil, okpayClassifiedFailure(okpayCheckRequestFailed, err)
 			}
 			payload.Set(field.key, value)
 		}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config["apiBase"]+path, strings.NewReader(payload.Encode()))
+	bodyText := payload.Encode()
+	if mode == okpayTransportPHPReference {
+		// PHP 的 RFC1738 编码会转义 ~，且 sign 在 ksort 后追加于最后。
+		payload.Del("sign")
+		bodyText = strings.ReplaceAll(payload.Encode(), "~", "%7E") + "&sign=" + signature
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, o.config["apiBase"]+path, strings.NewReader(bodyText))
 	if err != nil {
-		return nil, err
+		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, err)
 	}
 	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	request.Header.Set("Accept", "application/json")
-	response, err := o.httpClient.Do(request)
+	client := o.httpClient
+	if mode == okpayTransportPHPReference {
+		request.Header.Set("User-Agent", "HTTP CLIENT")
+		request.Header.Set("Accept", "*/*")
+		// 原 PHP cURL 不声明响应压缩；复制传输设置，保留超时、TLS 与重定向限制。
+		transport := client.Transport
+		if transport == nil {
+			transport = http.DefaultTransport
+		}
+		if existing, ok := transport.(*http.Transport); ok {
+			phpTransport := existing.Clone()
+			phpTransport.DisableCompression = true
+			defer phpTransport.CloseIdleConnections()
+			phpClient := *client
+			phpClient.Transport = phpTransport
+			client = &phpClient
+		}
+	}
+	response, err := client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("OKPay 请求失败: %w", err)
+		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, fmt.Errorf("OKPay 请求失败: %w", err))
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, okpayMaxResponseSize+1))
 	if err != nil {
-		return nil, fmt.Errorf("OKPay 读取响应失败")
+		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, fmt.Errorf("OKPay 读取响应失败"))
 	}
 	if len(body) > okpayMaxResponseSize {
-		return nil, fmt.Errorf("OKPay 响应内容过大")
+		return nil, okpayClassifiedFailure(okpayCheckInvalidResponse, fmt.Errorf("OKPay 响应内容过大"))
 	}
 	result, err := okpayDecodeJSON(string(body))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, okpayResponseError(fmt.Sprintf("OKPay HTTP 状态异常: %d", response.StatusCode), result, o.config["id"], o.config["token"], signature)
+		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, okpayResponseError(fmt.Sprintf("OKPay HTTP 状态异常: %d", response.StatusCode), result, o.config["id"], o.config["token"], signature))
 	}
 	if err != nil {
-		return nil, fmt.Errorf("OKPay 响应 JSON 无效")
+		return nil, okpayClassifiedFailure(okpayCheckInvalidResponse, fmt.Errorf("OKPay 响应 JSON 无效"))
 	}
 	if failure := okpayResponseFailure(result); failure != "" {
-		return nil, okpayResponseError(failure, result, o.config["id"], o.config["token"], signature)
+		return nil, okpayClassifiedFailure(okpayBusinessFailureStatus(result), okpayResponseError(failure, result, o.config["id"], o.config["token"], signature))
 	}
 	// 主动接口必须明确确认成功，不能仅凭 data 中的订单或付款状态认可结果。
 	// 签名回调继续沿用既有可省略外层状态字段的协议兼容规则。
 	_, hasStatus := result.get("status")
 	_, hasCode := result.get("code")
 	if !hasStatus && !hasCode {
-		return nil, fmt.Errorf("OKPay 响应缺少明确成功状态或代码")
+		return nil, okpayClassifiedFailure(okpayCheckInvalidResponse, fmt.Errorf("OKPay 响应缺少明确成功状态或代码"))
 	}
 	return result, nil
 }

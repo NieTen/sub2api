@@ -33,8 +33,8 @@ export function currencySymbol(currency?: string | null): string {
 }
 
 export function formatOrderPaymentAmount(order: { pay_amount: number; currency?: string; payment_amount_exact?: string }, locale?: string): string {
-  // 链上识别金额必须原样展示，尾数不能转为浮点数或按业务订单精度四舍五入。
-  if (normalizePaymentCurrency(order.currency) === 'USDT' && order.payment_amount_exact && /^\d+\.\d{6}$/.test(order.payment_amount_exact)) {
+  // 新订单两位金额和旧订单六位金额均原样展示，不能丢失识别差额或转为浮点数。
+  if (normalizePaymentCurrency(order.currency) === 'USDT' && order.payment_amount_exact && /^\d+\.(?:\d{2}|\d{6})$/.test(order.payment_amount_exact)) {
     return 'USDT ' + order.payment_amount_exact
   }
   return formatPaymentAmount(order.pay_amount, order.currency, locale)

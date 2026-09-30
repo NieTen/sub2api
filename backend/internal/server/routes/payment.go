@@ -108,6 +108,7 @@ func RegisterPaymentRoutes(
 		{
 			providers.GET("", adminPaymentHandler.ListProviders)
 			providers.POST("", adminPaymentHandler.CreateProvider)
+			providers.POST("/:id/diagnose-okpay", adminPaymentHandler.DiagnoseOKPayProvider)
 			providers.PUT("/:id", adminPaymentHandler.UpdateProvider)
 			providers.DELETE("/:id", adminPaymentHandler.DeleteProvider)
 		}

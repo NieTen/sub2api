@@ -15,16 +15,25 @@ import (
 
 type paymentTRC20TestRepository struct {
 	PaymentTRC20Repository
-	intents   []PaymentTRC20Intent
-	input     PaymentTRC20CreateInput
-	baseUnits int64
-	checked   []int64
-	credited  []int64
+	intents     []PaymentTRC20Intent
+	input       PaymentTRC20CreateInput
+	baseUnits   int64
+	checked     []int64
+	credited    []int64
+	allocated   *PaymentTRC20Intent
+	extraUnits  int64
+	allocateErr error
 }
 
-func (r *paymentTRC20TestRepository) Allocate(_ context.Context, input PaymentTRC20CreateInput, units, offset int64) (*PaymentTRC20Intent, error) {
+func (r *paymentTRC20TestRepository) Allocate(_ context.Context, input PaymentTRC20CreateInput, units int64) (*PaymentTRC20Intent, error) {
 	r.input, r.baseUnits = input, units
-	return &PaymentTRC20Intent{OrderID: input.OrderID, BaseAmount: input.BaseAmount, AmountUnits: units + 42}, nil
+	if r.allocateErr != nil {
+		return nil, r.allocateErr
+	}
+	if r.allocated != nil {
+		return r.allocated, nil
+	}
+	return &PaymentTRC20Intent{OrderID: input.OrderID, BaseAmount: input.BaseAmount, AmountUnits: units + r.extraUnits}, nil
 }
 func (r *paymentTRC20TestRepository) Get(_ context.Context, orderID int64) (*PaymentTRC20Intent, error) {
 	for _, intent := range r.intents {
@@ -47,20 +56,56 @@ func (r *paymentTRC20TestRepository) MarkCredited(_ context.Context, id int64) e
 	return nil
 }
 
-func TestTRC20AllocateKeepsLedgerPrecisionAndFormatsExactMicroAmount(t *testing.T) {
+func TestTRC20AllocateUsesTwoDecimalTransferAndKeepsLedgerBaseAmount(t *testing.T) {
 	repo := &paymentTRC20TestRepository{}
 	s := NewPaymentTRC20Service(repo)
 	input := PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order", ProviderInstanceID: "1", WalletAddress: "TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7", BaseAmount: 12.34, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}
 	intent, err := s.Allocate(context.Background(), input)
 	require.NoError(t, err)
 	require.Equal(t, int64(12340000), repo.baseUnits)
-	require.Equal(t, "12.340042", intent.ExactAmount)
+	require.Equal(t, "12.34", intent.ExactAmount)
 	require.Equal(t, 12.34, intent.BaseAmount)
 	require.Equal(t, "TRC20", intent.Network)
+	repo.extraUnits = payment.TRC20AmountStepUnits
+	intent, err = s.Allocate(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, "12.35", intent.ExactAmount)
+	require.Equal(t, 12.34, intent.BaseAmount, "识别金额差额不能变更充值余额或汇率快照中的基础应付")
 	for _, amount := range []float64{0, -1, 12.345, math.NaN(), math.Inf(1), 1e30} {
 		input.BaseAmount = amount
 		_, err = s.Allocate(context.Background(), input)
 		require.Error(t, err)
+	}
+}
+
+func TestTRC20AllocationDoesNotRoundExistingMicroAmount(t *testing.T) {
+	start := time.Now().Truncate(time.Millisecond)
+	input := PaymentTRC20CreateInput{OrderID: 7, OutTradeNo: "legacy", ProviderInstanceID: "1", WalletAddress: "TLa2f6VPqDgRE67v1736s7bJ8Ray5wYjU7", BaseAmount: 12.34, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
+	repo := &paymentTRC20TestRepository{allocated: &PaymentTRC20Intent{OrderID: 7, BaseAmount: 12.34, AmountUnits: 12340042}}
+	intent, err := NewPaymentTRC20Service(repo).Allocate(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, int64(12340042), intent.AmountUnits)
+	require.Equal(t, "12.340042", intent.ExactAmount)
+	repo.allocateErr = ErrTRC20AmountExhausted
+	_, err = NewPaymentTRC20Service(repo).Allocate(context.Background(), input)
+	require.ErrorIs(t, err, ErrTRC20AmountExhausted)
+	require.ErrorContains(t, err, "0.99 USDT")
+}
+
+func TestTRC20SavedAmountFormattingPreservesNewAndLegacyPrecision(t *testing.T) {
+	for _, tc := range []struct {
+		units int64
+		exact string
+	}{
+		{10000, "0.01"}, {10000000, "10.00"}, {10010000, "10.01"},
+		{10990000, "10.99"}, {11000000, "11.00"},
+		{10000001, "10.000001"}, {10009999, "10.009999"}, {10010001, "10.010001"},
+	} {
+		repo := &paymentTRC20TestRepository{intents: []PaymentTRC20Intent{{OrderID: 1, AmountUnits: tc.units}}}
+		intent, err := NewPaymentTRC20Service(repo).Get(context.Background(), 1)
+		require.NoError(t, err)
+		require.Equal(t, tc.exact, intent.ExactAmount)
+		require.Equal(t, tc.units, intent.AmountUnits)
 	}
 }
 

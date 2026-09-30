@@ -192,6 +192,23 @@ export interface PaymentChannel {
 
 // ==================== Providers ====================
 
+export type OkpayDiagnosticMode = 'current' | 'php_reference'
+export type OkpayDiagnosticStatus = 'authenticated' | 'rejected' | 'request_failed' | 'invalid_response'
+export type OkpayDiagnosticConclusion = 'both_authenticated' | 'php_only_authenticated' | 'current_only_authenticated' | 'both_rejected' | 'inconclusive'
+
+export interface OkpayDiagnosticCheck {
+  mode: OkpayDiagnosticMode
+  status: OkpayDiagnosticStatus
+  message: string
+}
+
+export interface OkpayDiagnosticResult {
+  provider_instance_id: number
+  provider_name: string
+  checks: OkpayDiagnosticCheck[]
+  conclusion: OkpayDiagnosticConclusion
+}
+
 export interface ProviderInstance {
   id: number
   provider_key: string

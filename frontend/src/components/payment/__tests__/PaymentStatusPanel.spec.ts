@@ -77,16 +77,16 @@ describe('PaymentStatusPanel', () => {
     vi.useRealTimers()
   })
 
-  it('TRC20 显示账单与六位精确金额，复制原值，未确认不显示成功', async () => {
+  it.each(['88.01', '88.000010'])('TRC20 实际金额 %s 与账单分开展示并原样复制，未确认不显示成功', async (amountExact) => {
     const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
     pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))
-    const wrapper = mount(PaymentStatusPanel, { props: { orderId: 42, qrCode: '忽略此二维码', expiresAt: '2099-01-01T12:30:00Z', paymentType: 'usdt_trc20', orderType: 'balance', paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: '88.000010', payAmount: 88, currency: 'USDT' }, global: { stubs: { Icon: true } } })
+    const wrapper = mount(PaymentStatusPanel, { props: { orderId: 42, qrCode: '忽略此二维码', expiresAt: '2099-01-01T12:30:00Z', paymentType: 'usdt_trc20', orderType: 'balance', paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: amountExact, payAmount: 88, currency: 'USDT' }, global: { stubs: { Icon: true } } })
     await flushPromises()
     expect(toCanvas).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), address, expect.any(Object))
-    expect(wrapper.get('[data-test="trc20-exact-amount"]').text()).toBe('88.000010')
+    expect(wrapper.get('[data-test="trc20-exact-amount"]').text()).toBe(amountExact)
     expect(wrapper.get('[data-test="trc20-bill-amount"]').text()).toBe('USDT 88.00')
     await wrapper.get('[data-test="copy-trc20-amount"]').trigger('click')
-    expect(copyToClipboard).toHaveBeenLastCalledWith('88.000010')
+    expect(copyToClipboard).toHaveBeenLastCalledWith(amountExact)
     await wrapper.get('[data-test="copy-trc20-address"]').trigger('click')
     expect(copyToClipboard).toHaveBeenLastCalledWith(address)
     await vi.advanceTimersByTimeAsync(3000)

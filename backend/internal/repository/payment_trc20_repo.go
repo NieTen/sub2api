@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
@@ -31,7 +32,10 @@ func scanTRC20Intent(row trc20IntentScanner) (*service.PaymentTRC20Intent, error
 	return intent, err
 }
 
-func (r *paymentTRC20Repository) Allocate(ctx context.Context, input service.PaymentTRC20CreateInput, baseUnits, offset int64) (*service.PaymentTRC20Intent, error) {
+func (r *paymentTRC20Repository) Allocate(ctx context.Context, input service.PaymentTRC20CreateInput, baseUnits int64) (*service.PaymentTRC20Intent, error) {
+	if baseUnits <= 0 || baseUnits%payment.TRC20AmountStepUnits != 0 {
+		return nil, errors.New("TRC20 基础金额必须为有效的两位小数金额")
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -53,12 +57,17 @@ func (r *paymentTRC20Repository) Allocate(ctx context.Context, input service.Pay
 	if !errors.Is(err, service.ErrTRC20IntentNotFound) {
 		return nil, err
 	}
+	// 只约束新分配的候选范围；历史意图即使接近整数上限，也必须原样幂等返回。
+	if baseUnits > math.MaxInt64-payment.TRC20AmountStepUnits*payment.TRC20AmountExtraSteps {
+		return nil, errors.New("TRC20 金额超出支持范围")
+	}
 	// 按钱包串行分配，两个实例并发下单也不能获得相同金额；唯一索引作为最终约束。
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,20260930))`, input.WalletAddress); err != nil {
 		return nil, err
 	}
 	var units int64
-	err = tx.QueryRowContext(ctx, `SELECT $1::bigint+((n+$3::bigint)%9999)+1 FROM generate_series(0,9998) AS n WHERE NOT EXISTS (SELECT 1 FROM payment_trc20_intents i WHERE i.wallet_address=$2 AND i.amount_units=$1::bigint+((n+$3::bigint)%9999)+1) ORDER BY n LIMIT 1`, baseUnits, input.WalletAddress, offset).Scan(&units)
+	// 从基础金额开始按一分递增，最多增加 0.99 USDT；历史订单永不释放金额。
+	err = tx.QueryRowContext(ctx, `SELECT $1::bigint+n*$3::bigint FROM generate_series(0,$4::bigint) AS n WHERE NOT EXISTS (SELECT 1 FROM payment_trc20_intents i WHERE i.wallet_address=$2 AND i.amount_units=$1::bigint+n*$3::bigint) ORDER BY n LIMIT 1`, baseUnits, input.WalletAddress, payment.TRC20AmountStepUnits, payment.TRC20AmountExtraSteps).Scan(&units)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrTRC20AmountExhausted
 	}

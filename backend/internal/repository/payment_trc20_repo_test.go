@@ -16,11 +16,15 @@ import (
 )
 
 func trc20RepoTestRows(start time.Time, hash string) *sqlmock.Rows {
+	return trc20RepoTestAmountRows(start, hash, 10000001)
+}
+
+func trc20RepoTestAmountRows(start time.Time, hash string, amountUnits int64) *sqlmock.Rows {
 	var transferred any
 	if hash != "" {
 		transferred = start.Add(time.Minute)
 	}
-	return sqlmock.NewRows([]string{"order_id", "out_trade_no", "provider_instance_id", "wallet_address", "base_amount", "amount_units", "created_at", "expires_at", "transaction_hash", "transferred_at", "credited"}).AddRow(1, "order-1", "2", "wallet", 10, 10000001, start, start.Add(time.Hour), hash, transferred, false)
+	return sqlmock.NewRows([]string{"order_id", "out_trade_no", "provider_instance_id", "wallet_address", "base_amount", "amount_units", "created_at", "expires_at", "transaction_hash", "transferred_at", "credited"}).AddRow(1, "order-1", "2", "wallet", 10, amountUnits, start, start.Add(time.Hour), hash, transferred, false)
 }
 
 func TestTRC20AllocationSerializesWalletAndPermanentlyExcludesUsedAmounts(t *testing.T) {
@@ -35,12 +39,45 @@ func TestTRC20AllocationSerializesWalletAndPermanentlyExcludesUsedAmounts(t *tes
 	mock.ExpectQuery(`SELECT .* FROM payment_trc20_intents WHERE order_id=\$1`).WithArgs(int64(1)).WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_xact_lock(hashtextextended($1,20260930))`)).WithArgs("wallet").WillReturnResult(sqlmock.NewResult(0, 1))
 	// 不按过期状态回收尾数，否则旧订单迟到的转账会落入另一用户新订单。
-	mock.ExpectQuery(regexp.QuoteMeta(`SELECT $1::bigint+((n+$3::bigint)%9999)+1 FROM generate_series(0,9998) AS n WHERE NOT EXISTS (SELECT 1 FROM payment_trc20_intents i WHERE i.wallet_address=$2 AND i.amount_units=$1::bigint+((n+$3::bigint)%9999)+1) ORDER BY n LIMIT 1`)).WithArgs(int64(10000000), "wallet", int64(0)).WillReturnRows(sqlmock.NewRows([]string{"amount_units"}).AddRow(10000001))
-	mock.ExpectQuery(`INSERT INTO payment_trc20_intents.*RETURNING`).WithArgs(input.OrderID, input.OutTradeNo, input.ProviderInstanceID, input.WalletAddress, input.BaseAmount, int64(10000001), input.CreatedAt, input.ExpiresAt).WillReturnRows(trc20RepoTestRows(start, ""))
+	mock.ExpectQuery(regexp.QuoteMeta(`SELECT $1::bigint+n*$3::bigint FROM generate_series(0,$4::bigint) AS n WHERE NOT EXISTS (SELECT 1 FROM payment_trc20_intents i WHERE i.wallet_address=$2 AND i.amount_units=$1::bigint+n*$3::bigint) ORDER BY n LIMIT 1`)).WithArgs(int64(10000000), "wallet", int64(10000), int64(99)).WillReturnRows(sqlmock.NewRows([]string{"amount_units"}).AddRow(10000000))
+	mock.ExpectQuery(`INSERT INTO payment_trc20_intents.*RETURNING`).WithArgs(input.OrderID, input.OutTradeNo, input.ProviderInstanceID, input.WalletAddress, input.BaseAmount, int64(10000000), input.CreatedAt, input.ExpiresAt).WillReturnRows(trc20RepoTestAmountRows(start, "", 10000000))
 	mock.ExpectCommit()
-	intent, err := r.Allocate(context.Background(), input, 10000000, 0)
+	intent, err := r.Allocate(context.Background(), input, 10000000)
+	require.NoError(t, err)
+	require.Equal(t, int64(10000000), intent.AmountUnits)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestTRC20AllocationReturnsLegacyIntentWithoutReallocating(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	start := time.Now().Truncate(time.Millisecond)
+	input := service.PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order-1", ProviderInstanceID: "2", WalletAddress: "wallet", BaseAmount: 10, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM payment_orders .*FOR UPDATE`).WithArgs(input.OrderID, input.OutTradeNo, input.BaseAmount, input.ProviderInstanceID, input.CreatedAt, input.ExpiresAt).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`SELECT .* FROM payment_trc20_intents WHERE order_id=\$1`).WithArgs(int64(1)).WillReturnRows(trc20RepoTestRows(start, ""))
+	mock.ExpectCommit()
+	intent, err := NewPaymentTRC20Repository(db).Allocate(context.Background(), input, 10000000)
 	require.NoError(t, err)
 	require.Equal(t, int64(10000001), intent.AmountUnits)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestTRC20AllocationExhaustionRollsBackWithoutIncreasingLimit(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer db.Close()
+	start := time.Now().Truncate(time.Millisecond)
+	input := service.PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order-1", ProviderInstanceID: "2", WalletAddress: "wallet", BaseAmount: 10, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT id FROM payment_orders .*FOR UPDATE`).WithArgs(input.OrderID, input.OutTradeNo, input.BaseAmount, input.ProviderInstanceID, input.CreatedAt, input.ExpiresAt).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
+	mock.ExpectQuery(`SELECT .* FROM payment_trc20_intents WHERE order_id=\$1`).WithArgs(int64(1)).WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec(regexp.QuoteMeta(`SELECT pg_advisory_xact_lock(hashtextextended($1,20260930))`)).WithArgs("wallet").WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT .* FROM generate_series\(0,\$4::bigint\) AS n WHERE NOT EXISTS`).WithArgs(int64(10000000), "wallet", int64(10000), int64(99)).WillReturnError(sql.ErrNoRows)
+	mock.ExpectRollback()
+	_, err = NewPaymentTRC20Repository(db).Allocate(context.Background(), input, 10000000)
+	require.ErrorIs(t, err, service.ErrTRC20AmountExhausted)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

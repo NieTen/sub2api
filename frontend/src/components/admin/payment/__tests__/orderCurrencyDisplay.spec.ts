@@ -53,14 +53,14 @@ function orderFactory(overrides: Partial<PaymentOrder> = {}): PaymentOrder {
 }
 
 describe('admin order currency display', () => {
-  it('TRC20 实付保留六位金额，原生通道不可退款，旧聚合通道仍可退款', () => {
-    const native = orderFactory({ payment_type: 'usdt_trc20', currency: 'USDT', payment_amount_exact: '108.000010', refund_supported: false })
+  it.each(['108.01', '108.000010'])('TRC20 实付原样显示 %s，原生通道不可退款，旧聚合通道仍可退款', (amountExact) => {
+    const native = orderFactory({ payment_type: 'usdt_trc20', currency: 'USDT', payment_amount_exact: amountExact, refund_supported: false })
     const legacy = orderFactory({ id: 2, payment_type: 'usdt_trc20', currency: 'USDT' })
     const wrapper = mount(AdminOrderTable, { props: { orders: [native, legacy], loading: false, page: 1, pageSize: 20, total: 2 }, global: { stubs: { DataTable: DataTableStub, Icon: true, Pagination: true, Select: true } } })
-    expect(wrapper.text()).toContain('USDT 108.000010')
+    expect(wrapper.text()).toContain('USDT ' + amountExact)
     expect(wrapper.findAll('button').filter(button => button.text() === 'payment.admin.refund')).toHaveLength(1)
     const detail = mount(AdminOrderDetail, { props: { show: true, order: native }, global: { stubs: { BaseDialog: BaseDialogStub } } })
-    expect(detail.text()).toContain('USDT 108.000010')
+    expect(detail.text()).toContain('USDT ' + amountExact)
     expect(detail.findAll('button').some(button => button.text() === 'payment.admin.refund')).toBe(false)
     const refund = mount(AdminRefundDialog, { props: { show: true, order: native, userBalance: 200 }, global: { stubs: { BaseDialog: BaseDialogStub } } })
     expect(refund.text()).toContain('payment.crypto.refundUnsupported')
@@ -119,6 +119,8 @@ describe('admin order currency display', () => {
         orders: [
           orderFactory({ id: 1, currency: 'USD', amount: 100, pay_amount: 108 }),
           orderFactory({ id: 2, currency: 'CNY', amount: 100, pay_amount: 108 }),
+          orderFactory({ id: 3, currency: 'USDT', pay_amount: 108, payment_amount_exact: '108.01' }),
+          orderFactory({ id: 4, currency: 'USDT', pay_amount: 108, payment_amount_exact: '108.000010' }),
         ],
         loading: false,
         showUser: true,
@@ -134,6 +136,8 @@ describe('admin order currency display', () => {
     const text = wrapper.text()
     expect(text).toContain('$108.00')
     expect(text).toContain('¥108.00')
+    expect(text).toContain('USDT 108.01')
+    expect(text).toContain('USDT 108.000010')
     expect(text).toContain('$100.00')
   })
 

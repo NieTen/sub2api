@@ -6,6 +6,7 @@ const getOrder = vi.hoisted(() => vi.fn())
 const toCanvas = vi.hoisted(() => vi.fn())
 const showError = vi.hoisted(() => vi.fn())
 const push = vi.hoisted(() => vi.fn())
+const copyToClipboard = vi.hoisted(() => vi.fn())
 const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
 
 vi.mock('vue-i18n', async () => ({ ...(await vi.importActual('vue-i18n')), useI18n: () => ({ t: (key: string) => key }) }))
@@ -13,7 +14,7 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push }), useRoute: () => ({ q
 vi.mock('@/api/payment', () => ({ paymentAPI: { getOrder, cancelOrder: vi.fn() } }))
 vi.mock('@/stores/payment', () => ({ usePaymentStore: () => ({ pollOrderStatus: vi.fn() }) }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError }) }))
-vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard: vi.fn() }) }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard }) }))
 vi.mock('qrcode', () => ({ default: { toCanvas } }))
 
 function mountPage() {
@@ -29,14 +30,17 @@ describe('旧二维码页面 TRC20 支付', () => {
   })
   afterEach(() => { vi.useRealTimers() })
 
-  it('只从服务端订单读取地址、金额和到期时间', async () => {
+  it.each(['88.01', '88.000010'])('只从服务端订单读取地址和实际金额 %s，显示与复制均保留原值', async (amountExact) => {
+    getOrder.mockResolvedValue({ data: { id: 42, payment_type: 'usdt_trc20', status: 'PENDING', expires_at: '2099-01-01', pay_amount: 88, payment_network: 'TRC20', payment_address: address, payment_amount_exact: amountExact } })
     const wrapper = mountPage()
     await flushPromises()
     expect(getOrder).toHaveBeenCalledWith(42)
-    expect(wrapper.get('[data-test="trc20-exact-amount"]').text()).toBe('88.000010')
+    expect(wrapper.get('[data-test="trc20-exact-amount"]').text()).toBe(amountExact)
     expect(wrapper.get('[data-test="trc20-address"]').text()).toBe(address)
     expect(wrapper.get('[data-test="trc20-bill-amount"]').text()).toBe('USDT 88.00')
     expect(toCanvas).toHaveBeenCalledWith(expect.any(HTMLCanvasElement), address, expect.any(Object))
+    await wrapper.get('[data-test="copy-trc20-amount"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenLastCalledWith(amountExact)
     expect(wrapper.text()).not.toContain('查询参数中的非可信地址')
     wrapper.unmount()
   })

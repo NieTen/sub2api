@@ -10,6 +10,7 @@ import type {
   PaymentChannel,
   SubscriptionPlan,
   ProviderInstance,
+  OkpayDiagnosticResult,
   UsdtRateHistoryResponse
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
@@ -182,6 +183,11 @@ export const adminPaymentAPI = {
   /** Get all provider instances */
   getProviders() {
     return apiClient.get<ProviderInstance[]>('/admin/payment/providers')
+  },
+
+  /** 使用已保存的 OKPay 配置查询认证，不创建支付订单或发送凭据。 */
+  diagnoseOkpayProvider(id: number) {
+    return apiClient.post<OkpayDiagnosticResult>(`/admin/payment/providers/${id}/diagnose-okpay`)
   },
 
   /** Create a provider instance */

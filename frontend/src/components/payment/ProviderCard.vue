@@ -2,14 +2,16 @@
   <div
     :class="[
       'group relative rounded-lg border transition-all',
-      enabled ? 'border-gray-200 dark:border-dark-600' : 'border-gray-200 bg-gray-50 opacity-50 dark:border-dark-700 dark:bg-dark-800/50',
+      enabled ? 'border-gray-200 dark:border-dark-600' : 'border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-800/50',
     ]"
-    :title="!enabled ? t('admin.settings.payment.typeDisabled') + ' — ' + t('admin.settings.payment.enableTypesFirst') : undefined"
   >
-    <div :class="[
-      'flex items-center justify-between px-4 py-2.5',
-      !enabled && 'pointer-events-none',
-    ]">
+    <div
+      :class="[
+        'flex items-center justify-between px-4 py-2.5',
+        !enabled && 'pointer-events-none opacity-50',
+      ]"
+      :title="!enabled ? t('admin.settings.payment.typeDisabled') + ' — ' + t('admin.settings.payment.enableTypesFirst') : undefined"
+    >
       <!-- Left: icon + name + key badge + type badges -->
       <div class="flex items-center gap-3">
         <div :class="[
@@ -59,6 +61,12 @@
         </div>
       </div>
     </div>
+    <OkpayDiagnosticPanel
+      v-if="provider.provider_key === 'okpay' && provider.id > 0"
+      :key="provider.id"
+      :provider-id="provider.id"
+      :provider-name="provider.name"
+    />
   </div>
 </template>
 
@@ -67,6 +75,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
+import OkpayDiagnosticPanel from './OkpayDiagnosticPanel.vue'
 import type { ProviderInstance } from '@/types/payment'
 import type { TypeOption } from './providerConfig'
 import { PAYMENT_MODE_QRCODE, PAYMENT_MODE_POPUP, PAYMENT_MODE_REDIRECT, providerSupportsRefund } from './providerConfig'

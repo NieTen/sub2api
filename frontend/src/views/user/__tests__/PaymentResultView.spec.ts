@@ -107,6 +107,21 @@ describe('PaymentResultView', () => {
     vi.useRealTimers()
   })
 
+  it.each(['88.01', '88.000010'])('TRC20 支付结果按实际金额 %s 展示，不回退到基础账单金额', async (amountExact) => {
+    routeState.query = { resume_token: 'resume-trc20' }
+    resolveOrderPublicByResumeToken.mockResolvedValue({ data: {
+      ...orderFactory('COMPLETED'),
+      payment_type: 'usdt_trc20',
+      currency: 'USDT',
+      payment_amount_exact: amountExact,
+    } })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('USDT ' + amountExact)
+    expect(wrapper.text()).toContain('payment.result.success')
+    wrapper.unmount()
+  })
+
   it('renders a pending state instead of a failure state when the restored order is still pending', async () => {
     routeState.query = {
       resume_token: 'resume-42',

@@ -89,13 +89,13 @@ describe('decidePaymentLaunch', () => {
     expect(decision.paymentState.currency).toBe('USDT')
   })
 
-  it('原生 TRC20 二维码仅编码地址并能恢复完整精确金额', () => {
+  it.each(['88.01', '88.000010'])('原生 TRC20 二维码仅编码地址并能恢复完整实际金额 %s', (amountExact) => {
     const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
-    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'usdt_trc20', currency: 'USDT', payment_mode: 'qrcode', qr_code: '错误的旧二维码', payment_network: 'TRC20', payment_address: address, payment_amount_exact: '88.000010' }), { visibleMethod: 'usdt_trc20', orderType: 'balance', isMobile: true })
+    const decision = decidePaymentLaunch(createOrderResult({ payment_type: 'usdt_trc20', currency: 'USDT', payment_mode: 'qrcode', qr_code: '错误的旧二维码', payment_network: 'TRC20', payment_address: address, payment_amount_exact: amountExact }), { visibleMethod: 'usdt_trc20', orderType: 'balance', isMobile: true })
     expect(decision.kind).toBe('qr_waiting')
     expect(decision.paymentState.qrCode).toBe(address)
     const snapshot = createPaymentRecoverySnapshot(decision.recovery)
-    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot))).toMatchObject({ paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: '88.000010', currency: 'USDT' })
+    expect(readPaymentRecoverySnapshot(JSON.stringify(snapshot))).toMatchObject({ paymentNetwork: 'TRC20', paymentAddress: address, paymentAmountExact: amountExact, currency: 'USDT' })
     expect(readPaymentRecoverySnapshot(JSON.stringify({ ...snapshot, paymentAmountExact: 88.00001 }))).toBeNull()
   })
 

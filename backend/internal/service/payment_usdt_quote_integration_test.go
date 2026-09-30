@@ -84,8 +84,8 @@ type usdtQuoteIntegrationIntentRepository struct {
 	intents map[int64]*PaymentTRC20Intent
 }
 
-func (r *usdtQuoteIntegrationIntentRepository) Allocate(_ context.Context, input PaymentTRC20CreateInput, units, _ int64) (*PaymentTRC20Intent, error) {
-	intent := &PaymentTRC20Intent{OrderID: input.OrderID, OutTradeNo: input.OutTradeNo, ProviderInstanceID: input.ProviderInstanceID, WalletAddress: input.WalletAddress, BaseAmount: input.BaseAmount, AmountUnits: units + 42, CreatedAt: input.CreatedAt, ExpiresAt: input.ExpiresAt}
+func (r *usdtQuoteIntegrationIntentRepository) Allocate(_ context.Context, input PaymentTRC20CreateInput, units int64) (*PaymentTRC20Intent, error) {
+	intent := &PaymentTRC20Intent{OrderID: input.OrderID, OutTradeNo: input.OutTradeNo, ProviderInstanceID: input.ProviderInstanceID, WalletAddress: input.WalletAddress, BaseAmount: input.BaseAmount, AmountUnits: units + 10000, CreatedAt: input.CreatedAt, ExpiresAt: input.ExpiresAt}
 	r.intents[input.OrderID] = intent
 	return intent, nil
 }
@@ -208,8 +208,8 @@ func TestUSDTQuoteNativeOrdersLockQuoteAndCreditCNYBalance(t *testing.T) {
 				require.Equal(t, []string{"1.43"}, fixture.transport.amounts)
 				require.Equal(t, []string{"Sub2API 1.43 USDT"}, fixture.transport.names)
 			} else {
-				require.Equal(t, "1.430042", PaymentOrderTransferDetails(order).PaymentAmountExact)
-				require.Equal(t, int64(1430042), fixture.intents.intents[order.ID].AmountUnits)
+				require.Equal(t, "1.44", PaymentOrderTransferDetails(order).PaymentAmountExact)
+				require.Equal(t, int64(1440000), fixture.intents.intents[order.ID].AmountUnits)
 			}
 			// 报价刷新只影响新订单，数据库中的旧订单金额、来源和时间必须锁定。
 			fixture.quoteRepo.latest.Rate = 8

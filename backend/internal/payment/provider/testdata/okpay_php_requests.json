@@ -1,0 +1,165 @@
+{
+  "source": {
+    "attachment": "OkayPay (1).php",
+    "sha256": "E46FCCF0132FF9AC948B18F004914F4C6F86C4786ED2FEB074164B065E2E4937",
+    "runtime": "PHP 7.4.3 CLI x64",
+    "generated_at": "2026-10-01",
+    "description": "使用用户提供附件的原始 sign/checkSign 方法生成；全部为假凭据，不会访问真实支付接口。"
+  },
+  "cases": [
+    {
+      "name": "现有下单测试：中文与特殊Token",
+      "id": "123",
+      "token": "token+plus%2Band%zz",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "43BE9AAF5B8713347DAB70D779D360FF",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=43BE9AAF5B8713347DAB70D779D360FF"
+    },
+    {
+      "name": "普通Token",
+      "id": "123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "E2C5858645DAFA72760E34E4F6C7C2B5",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=E2C5858645DAFA72760E34E4F6C7C2B5"
+    },
+    {
+      "name": "全部ASCII标点Token",
+      "id": "123",
+      "token": "!#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "C5E9AD1C51E53557E0A7800592371232",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=C5E9AD1C51E53557E0A7800592371232"
+    },
+    {
+      "name": "百分号与加号Token",
+      "id": "123",
+      "token": "%00%20%2B%26%3D%25%zz+%A",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "C16322158799770E30006988E09F3FA6",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=C16322158799770E30006988E09F3FA6"
+    },
+    {
+      "name": "Token首尾空白按原样",
+      "id": "123",
+      "token": " fixture-only-token \r\n",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "2BB8B43665EAD08727E7F4D2A271BCCA",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=2BB8B43665EAD08727E7F4D2A271BCCA"
+    },
+    {
+      "name": "有前导零的商户ID",
+      "id": "00123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "账户充值 A+B & = %2B ? ~ !",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "BA6270B32DD266BC035B36B2CB4E6463",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=00123&name=%E8%B4%A6%E6%88%B7%E5%85%85%E5%80%BC+A%2BB+%26+%3D+%252B+%3F+%7E+%21&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=BA6270B32DD266BC035B36B2CB4E6463"
+    },
+    {
+      "name": "金额两位与空可选参数",
+      "id": "123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "",
+        "callback_url": "",
+        "status": "0"
+      },
+      "expected_signature": "8462591F9459203318615885A8EC8AAF",
+      "php_body": "amount=12.30&coin=USDT&id=123&unique_id=site-100&sign=8462591F9459203318615885A8EC8AAF"
+    },
+    {
+      "name": "字符串零可选参数被过滤",
+      "id": "123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "0",
+        "amount": "0.10",
+        "coin": "USDT",
+        "return_url": "",
+        "callback_url": "",
+        "status": 0
+      },
+      "expected_signature": "D1D89AE998FF5E68F74B80505DE36EC8",
+      "php_body": "amount=0.10&coin=USDT&id=123&unique_id=site-100&sign=D1D89AE998FF5E68F74B80505DE36EC8"
+    },
+    {
+      "name": "查单仅商户订单号",
+      "id": "123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100"
+      },
+      "expected_signature": "47D9CA965CE009AE73BA70F8D8E7474B",
+      "php_body": "id=123&unique_id=site-100&sign=47D9CA965CE009AE73BA70F8D8E7474B"
+    },
+    {
+      "name": "UTF8组合字符和Emoji",
+      "id": "123",
+      "token": "fixture-only-token",
+      "fields": {
+        "unique_id": "site-100",
+        "name": "中文😀éé\r\n=+&%~",
+        "amount": "12.30",
+        "coin": "USDT",
+        "return_url": "https://site.example/payment/result?name=A+B&encoded=%2B&tilde=~",
+        "callback_url": "https://site.example/api/v1/payment/webhook/okpay",
+        "status": "0"
+      },
+      "expected_signature": "A509CF0C277496392AD2ACBCC459DEEC",
+      "php_body": "amount=12.30&callback_url=https%3A%2F%2Fsite.example%2Fapi%2Fv1%2Fpayment%2Fwebhook%2Fokpay&coin=USDT&id=123&name=%E4%B8%AD%E6%96%87%F0%9F%98%80%C3%A9e%CC%81%0D%0A%3D%2B%26%25%7E&return_url=https%3A%2F%2Fsite.example%2Fpayment%2Fresult%3Fname%3DA%2BB%26encoded%3D%252B%26tilde%3D%7E&unique_id=site-100&sign=A509CF0C277496392AD2ACBCC459DEEC"
+    }
+  ]
+}
