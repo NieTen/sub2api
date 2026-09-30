@@ -18,7 +18,7 @@ type PaymentOKPayDiagnostic struct {
 	*provider.OKPayAuthenticationDiagnostic
 }
 
-// DiagnoseOKPayProvider 使用同一份已保存配置完成两种传输方式的只读认证对照。
+// DiagnoseOKPayProvider 使用同一份已保存配置完成当前、新旧协议的只读认证对照。
 func (s *PaymentConfigService) DiagnoseOKPayProvider(ctx context.Context, id int64) (*PaymentOKPayDiagnostic, error) {
 	if id <= 0 {
 		return nil, infraerrors.BadRequest("INVALID_PROVIDER_ID", "服务商实例编号无效")
@@ -42,7 +42,7 @@ func (s *PaymentConfigService) DiagnoseOKPayProvider(ctx context.Context, id int
 		return nil, infraerrors.BadRequest("INVALID_PROVIDER_CONFIG", "已保存的 OKPay 配置不完整或格式无效，请检查后重新保存")
 	}
 	// 诊断固定查询余额接口，仅使用成功状态，既不创建订单也不返回余额。
-	probeContext, cancel := context.WithTimeout(ctx, 25*time.Second)
+	probeContext, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
 	return &PaymentOKPayDiagnostic{
 		ProviderInstanceID:            instance.ID,

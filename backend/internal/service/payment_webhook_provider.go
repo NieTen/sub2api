@@ -45,7 +45,7 @@ func (s *PaymentService) GetWebhookProviders(ctx context.Context, providerKey, o
 				return nil, fmt.Errorf("load order provider instance: %w", err)
 			}
 			if inst != nil {
-				prov, err := s.createProviderFromInstance(ctx, inst)
+				prov, err := s.createProviderFromOrderInstance(ctx, inst, order)
 				if err != nil {
 					return nil, err
 				}
@@ -90,7 +90,7 @@ func (s *PaymentService) getPinnedOrderProvider(ctx context.Context, o *dbent.Pa
 	if inst == nil {
 		return nil, fmt.Errorf("order %d provider instance is missing", o.ID)
 	}
-	return s.createProviderFromInstance(ctx, inst)
+	return s.createProviderFromOrderInstance(ctx, inst, o)
 }
 
 func (s *PaymentService) webhookRegistryFallbackAllowed(ctx context.Context, providerKey string) bool {

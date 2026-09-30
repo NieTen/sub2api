@@ -23,7 +23,7 @@ func TestOKPayBusinessErrorsPreserveSafeDetailsWithoutRetry(t *testing.T) {
 		{
 			name: "公开接口实际认证失败响应", statusCode: http.StatusOK,
 			body:     `{"status":"warning","msg":"身份认证失败"}`,
-			expected: "OKPay 返回业务失败状态（身份认证失败，请核对商户 ID 和 Token）",
+			expected: "OKPay 返回业务失败状态（身份认证失败，请核对签名协议、商户 ID 和 Token）",
 		},
 		{
 			name: "状态失败保留代码", statusCode: http.StatusOK,
@@ -43,7 +43,7 @@ func TestOKPayBusinessErrorsPreserveSafeDetailsWithoutRetry(t *testing.T) {
 		{
 			name: "非成功HTTP状态保留业务原因", statusCode: http.StatusForbidden,
 			body:     `{"status":"warning","code":20003,"msg":"身份认证失败"}`,
-			expected: "OKPay HTTP 状态异常: 403（code=20003；身份认证失败，请核对商户 ID 和 Token）",
+			expected: "OKPay HTTP 状态异常: 403（code=20003；身份认证失败，请核对签名协议、商户 ID 和 Token）",
 		},
 		{
 			name: "HTTP失败不能被成功业务内容覆盖", statusCode: http.StatusServiceUnavailable,

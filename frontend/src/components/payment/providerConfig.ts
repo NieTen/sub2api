@@ -18,6 +18,7 @@ export interface ConfigFieldDef {
 export interface TypeOption {
   value: string
   label: string
+  labelKey?: string
   [key: string]: unknown
 }
 
@@ -137,6 +138,14 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   okpay: [
     { key: 'id', label: '', sensitive: false },
     { key: 'token', label: '', sensitive: true },
+    {
+      key: 'signatureAlgorithm', label: '', sensitive: false, defaultValue: 'hmac_sha256',
+      hintKey: 'admin.settings.payment.field_okpaySignatureAlgorithmHint',
+      options: [
+        { value: 'hmac_sha256', label: 'HMAC-SHA256', labelKey: 'admin.settings.payment.okpaySignatureHmac' },
+        { value: 'legacy_md5', label: 'MD5', labelKey: 'admin.settings.payment.okpaySignatureLegacy' },
+      ],
+    },
     { key: 'apiBase', label: '', sensitive: false, defaultValue: 'https://api.okaypay.me/shop', hintKey: 'admin.settings.payment.field_okpayApiBaseHint' },
   ],
   usdt_trc20: [

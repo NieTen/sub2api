@@ -134,6 +134,7 @@ describe('PaymentProviderDialog payment guide', () => {
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'okpay', payment_mode: 'redirect', supported_types: ['okpay'], refund_enabled: false, allow_user_refund: false, config: { id: 'shop-1', token: 'token-1', apiBase: 'https://api.okaypay.me/shop' } })
     const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
     expect(payload.config.notifyUrl).toMatch(/\/api\/v1\/payment\/webhook\/okpay$/)
+    expect(payload.config.signatureAlgorithm).toBe('hmac_sha256')
   })
 
   it('编辑 OKPay 空 token 保留服务端凭据且纠正旧退款开关', async () => {
@@ -144,8 +145,37 @@ describe('PaymentProviderDialog payment guide', () => {
     await wrapper.get('form').trigger('submit.prevent')
     const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string>; refund_enabled: boolean; allow_user_refund: boolean }
     expect(payload.config).not.toHaveProperty('token')
+    expect(payload.config.signatureAlgorithm).toBe('hmac_sha256')
     expect(payload.refund_enabled).toBe(false)
     expect(payload.allow_user_refund).toBe(false)
+  })
+
+  it('OKPay 缺省使用 HMAC，管理员可明确切换旧 MD5 并保留已保存选择', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    const dialog = wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }
+    dialog.loadProvider(provider)
+    await nextTick()
+    const selector = wrapper.getComponent('[name="provider-signatureAlgorithm"]')
+    expect(selector.props('modelValue')).toBe('hmac_sha256')
+    expect(selector.props('options')).toEqual([
+      expect.objectContaining({ value: 'hmac_sha256', label: 'admin.settings.payment.okpaySignatureHmac' }),
+      expect.objectContaining({ value: 'legacy_md5', label: 'admin.settings.payment.okpaySignatureLegacy' }),
+    ])
+    selector.vm.$emit('update:modelValue', 'legacy_md5')
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    const payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+    expect(payload.config.signatureAlgorithm).toBe('legacy_md5')
+    expect(payload.config).not.toHaveProperty('token')
+
+    dialog.loadProvider({ ...provider, config: { ...provider.config, signatureAlgorithm: 'legacy_md5' } })
+    await nextTick()
+    expect(selector.props('modelValue')).toBe('legacy_md5')
+    dialog.loadProvider(provider)
+    await nextTick()
+    expect(selector.props('modelValue')).toBe('hmac_sha256')
+    wrapper.unmount()
   })
 
   it.each(['http://api.example.com/shop', 'https://user:password@api.example.com/shop', 'https://api.example.com/shop?token=test'])('拒绝不安全 OKPay API 地址 %s', async apiBase => {

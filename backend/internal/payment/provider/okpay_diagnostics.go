@@ -3,11 +3,13 @@ package provider
 import (
 	"context"
 	"errors"
+	"strings"
 )
 
 const (
 	okpayTransportCurrent      = "current"
 	okpayTransportPHPReference = "php_reference"
+	okpayTransportHMAC         = "hmac_sha256"
 	okpayCheckAuthenticated    = "authenticated"
 	okpayCheckRejected         = "rejected"
 	okpayCheckRequestFailed    = "request_failed"
@@ -21,15 +23,21 @@ type OKPayAuthenticationDiagnostic struct {
 }
 
 type OKPayAuthenticationCheck struct {
-	Mode    string `json:"mode"`
-	Status  string `json:"status"`
-	Message string `json:"message"`
+	Mode         string `json:"mode"`
+	Status       string `json:"status"`
+	Message      string `json:"message"`
+	Reason       string `json:"reason"`
+	HTTPStatus   int    `json:"http_status,omitempty"`
+	BusinessCode string `json:"business_code,omitempty"`
 }
 
 // okpayDiagnosticFailure 保留原有错误链，诊断接口只使用分类，绝不输出底层错误文本。
 type okpayDiagnosticFailure struct {
-	status string
-	cause  error
+	status       string
+	cause        error
+	reason       string
+	httpStatus   int
+	businessCode string
 }
 
 func (e *okpayDiagnosticFailure) Error() string { return e.cause.Error() }
@@ -37,6 +45,43 @@ func (e *okpayDiagnosticFailure) Unwrap() error { return e.cause }
 
 func okpayClassifiedFailure(status string, cause error) error {
 	return &okpayDiagnosticFailure{status: status, cause: cause}
+}
+
+func okpayUpstreamFailure(status string, httpStatus int, fields okpayArray, cause error, sensitive ...string) error {
+	return &okpayDiagnosticFailure{status: status, cause: cause, httpStatus: httpStatus,
+		reason: okpayBusinessReason(fields, sensitive), businessCode: okpaySafeBusinessCode(fields, sensitive)}
+}
+
+func okpaySafeBusinessCode(fields okpayArray, sensitive []string) string {
+	code := okpaySafeDiagnosticScalar(fields, "code", sensitive)
+	if !okpayBusinessCodePattern.MatchString(code) {
+		return ""
+	}
+	for _, secret := range sensitive {
+		if secret != "" && strings.Contains(secret, code) {
+			return ""
+		}
+	}
+	return code
+}
+
+// 只将精确命中的上游消息归类，未知文本可能包含商户凭据，不能返回给前端。
+func okpayBusinessReason(fields okpayArray, sensitive []string) string {
+	for _, key := range []string{"msg", "message"} {
+		switch strings.ToLower(okpaySafeDiagnosticScalar(fields, key, sensitive)) {
+		case "身份认证失败", "认证失败", "authentication failed", "unauthorized":
+			return "auth_failed"
+		case "签名错误", "签名验证失败", "签名校验失败", "invalid signature", "signature error":
+			return "signature_failed"
+		case "商户不存在", "无效商户", "merchant not found", "invalid merchant":
+			return "merchant_invalid"
+		case "参数错误", "参数不完整", "缺少参数", "参数缺失", "invalid parameters", "missing parameters":
+			return "invalid_parameters"
+		case "请求过于频繁", "请求频繁", "too many requests", "rate limit exceeded":
+			return "rate_limited"
+		}
+	}
+	return "unknown_business_error"
 }
 
 func okpayBusinessFailureStatus(fields okpayArray) string {
@@ -52,32 +97,54 @@ func okpayBusinessFailureStatus(fields okpayArray) string {
 	return okpayCheckRejected
 }
 
-// DiagnoseAuthentication 对同一份已保存配置执行两次只读余额请求，不创建订单或重试。
+// DiagnoseAuthentication 对同一份已保存配置比较当前、新旧签名协议，只查询余额，不下单或重试。
 func (o *OKPay) DiagnoseAuthentication(ctx context.Context) *OKPayAuthenticationDiagnostic {
-	diagnostic := &OKPayAuthenticationDiagnostic{Checks: make([]OKPayAuthenticationCheck, 0, 2)}
-	for _, mode := range []string{okpayTransportCurrent, okpayTransportPHPReference} {
+	diagnostic := &OKPayAuthenticationDiagnostic{Checks: make([]OKPayAuthenticationCheck, 0, 3)}
+	for _, mode := range []string{okpayTransportCurrent, okpayTransportPHPReference, okpayTransportHMAC} {
 		fields, err := o.postWithTransport(ctx, "/balance", nil, mode)
-		status := okpayCheckAuthenticated
+		check := OKPayAuthenticationCheck{Mode: mode, Status: okpayCheckAuthenticated, Reason: "success"}
 		if err != nil {
-			status = okpayCheckRequestFailed
+			check.Status, check.Reason = okpayCheckRequestFailed, "network_error"
 			var failure *okpayDiagnosticFailure
 			if errors.As(err, &failure) {
-				status = failure.status
+				check.Status, check.HTTPStatus, check.BusinessCode = failure.status, failure.httpStatus, failure.businessCode
+				if failure.reason != "" && (check.Status == okpayCheckRejected || failure.reason != "unknown_business_error") {
+					check.Reason = failure.reason
+				}
 			}
 		} else if !okpayHasValidBalanceData(fields) {
-			status = okpayCheckInvalidResponse
+			check.Status = okpayCheckInvalidResponse
 		}
-		diagnostic.Checks = append(diagnostic.Checks, OKPayAuthenticationCheck{Mode: mode, Status: status, Message: okpayDiagnosticMessage(status)})
+		if check.Status == okpayCheckInvalidResponse {
+			check.Reason = "invalid_response"
+		}
+		if err == nil {
+			check.BusinessCode = okpaySafeBusinessCode(fields, []string{o.config["id"], o.config["token"]})
+		}
+		check.Message = okpayDiagnosticMessage(check.Status)
+		diagnostic.Checks = append(diagnostic.Checks, check)
 	}
-	current, reference := diagnostic.Checks[0].Status, diagnostic.Checks[1].Status
+	for _, check := range diagnostic.Checks {
+		if check.Status != okpayCheckAuthenticated && check.Status != okpayCheckRejected {
+			diagnostic.Conclusion = "inconclusive"
+			return diagnostic
+		}
+	}
+	current, reference, hmac := diagnostic.Checks[0].Status, diagnostic.Checks[1].Status, diagnostic.Checks[2].Status
+	// 同协议的两次结果不一致时，仍可能存在传输或短暂上游变化，不能归因于算法。
+	if (o.config["signatureAlgorithm"] == OKPaySignatureHMACSHA256 && current != hmac) ||
+		(o.config["signatureAlgorithm"] == OKPaySignatureLegacyMD5 && current != reference) {
+		diagnostic.Conclusion = "inconclusive"
+		return diagnostic
+	}
 	switch {
-	case current == okpayCheckAuthenticated && reference == okpayCheckAuthenticated:
+	case current == okpayCheckAuthenticated && reference == okpayCheckAuthenticated && hmac == okpayCheckAuthenticated:
 		diagnostic.Conclusion = "both_authenticated"
-	case current == okpayCheckRejected && reference == okpayCheckAuthenticated:
-		diagnostic.Conclusion = "php_only_authenticated"
-	case current == okpayCheckAuthenticated && reference == okpayCheckRejected:
-		diagnostic.Conclusion = "current_only_authenticated"
-	case current == okpayCheckRejected && reference == okpayCheckRejected:
+	case hmac == okpayCheckAuthenticated && reference == okpayCheckRejected:
+		diagnostic.Conclusion = "hmac_only_authenticated"
+	case reference == okpayCheckAuthenticated && hmac == okpayCheckRejected:
+		diagnostic.Conclusion = "legacy_only_authenticated"
+	case current == okpayCheckRejected && reference == okpayCheckRejected && hmac == okpayCheckRejected:
 		diagnostic.Conclusion = "both_rejected"
 	default:
 		// 网络或格式异常不能用来推断传输方式或商户凭据是否正确。
@@ -111,7 +178,7 @@ func okpayDiagnosticMessage(status string) string {
 	case okpayCheckAuthenticated:
 		return "只读商户认证通过"
 	case okpayCheckRejected:
-		return "上游未接受本次认证，请检查商户配置或上游访问限制"
+		return "上游返回业务拒绝，请结合具体分类检查签名协议、商户配置或上游限制"
 	case okpayCheckInvalidResponse:
 		return "上游响应缺少可确认认证成功的有效数据"
 	default:

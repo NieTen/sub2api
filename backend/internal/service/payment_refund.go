@@ -590,7 +590,7 @@ func (s *PaymentService) getRefundProvider(ctx context.Context, o *dbent.Payment
 	if inst == nil {
 		return nil, fmt.Errorf("refund provider instance is unavailable for order %d", o.ID)
 	}
-	return s.createProviderFromInstance(ctx, inst)
+	return s.createProviderFromOrderInstance(ctx, inst, o)
 }
 
 func (s *PaymentService) handleGwFail(ctx context.Context, p *RefundPlan, gErr error) (*RefundResult, error) {

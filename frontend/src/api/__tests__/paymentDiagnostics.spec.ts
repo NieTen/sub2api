@@ -12,7 +12,7 @@ describe('OKPay 认证诊断接口', () => {
     vi.mocked(apiClient.post).mockResolvedValue(response)
     await expect(adminPaymentAPI.diagnoseOkpayProvider(42)).resolves.toEqual(response)
     expect(apiClient.post).toHaveBeenCalledTimes(1)
-    expect(apiClient.post).toHaveBeenCalledWith('/admin/payment/providers/42/diagnose-okpay')
+    expect(apiClient.post).toHaveBeenCalledWith('/admin/payment/providers/42/diagnose-okpay', undefined, { timeout: 40000 })
   })
 
   it('保留 API 错误且不重试或回退到创建订单', async () => {

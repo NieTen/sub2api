@@ -19,7 +19,7 @@ const okpayTestDeposit = `{"id":"123","status":"success","code":10000,"data":{"o
 
 func newOKPayForTest(t *testing.T) *OKPay {
 	t.Helper()
-	provider, err := NewOKPay("1", map[string]string{"id": "123", "token": okpayTestToken})
+	provider, err := NewOKPay("1", map[string]string{"id": "123", "token": okpayTestToken, "signatureAlgorithm": OKPaySignatureLegacyMD5})
 	require.NoError(t, err)
 	return provider
 }
@@ -152,7 +152,7 @@ func TestOKPayCreatesSignedFormCheckoutAndQueriesByMerchantOrder(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	provider, err := NewOKPay("1", map[string]string{"id": "123", "token": okpayTestToken, "apiBase": server.URL, "paymentMode": "redirect"})
+	provider, err := NewOKPay("1", map[string]string{"id": "123", "token": okpayTestToken, "apiBase": server.URL, "paymentMode": "redirect", "signatureAlgorithm": OKPaySignatureLegacyMD5})
 	require.NoError(t, err)
 	provider.httpClient.Transport = server.Client().Transport
 	created, err := provider.CreatePayment(context.Background(), payment.CreatePaymentRequest{OrderID: "site-100", Amount: "12.3", Subject: "账户充值 A+B & = %2B ?", NotifyURL: "https://site.example/api/v1/payment/webhook/okpay", ReturnURL: "https://site.example/payment/result?name=A+B&encoded=%2B"})

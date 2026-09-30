@@ -61,7 +61,7 @@ func TestOKPayRequestsMatchIndependentPHPFixtures(t *testing.T) {
 				fmt.Fprint(w, `{"status":"success","code":10000,"data":{"fixture":true}}`)
 			}))
 			defer server.Close()
-			provider, err := NewOKPay("php-compat", map[string]string{"id": fixture.ID, "token": fixture.Token, "apiBase": server.URL})
+			provider, err := NewOKPay("php-compat", map[string]string{"id": fixture.ID, "token": fixture.Token, "apiBase": server.URL, "signatureAlgorithm": OKPaySignatureLegacyMD5})
 			require.NoError(t, err)
 			provider.httpClient.Transport = server.Client().Transport
 			fields, err := okpayDecodeJSON(string(fixture.Fields))

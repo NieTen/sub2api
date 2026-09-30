@@ -30,7 +30,11 @@ func TestOKPayAuthenticationDiagnosticOnlyUsesReadOnlyBalanceRequests(t *testing
 		require.Equal(t, "/shop/balance", request.URL.Path)
 		require.Equal(t, http.MethodPost, request.Method)
 		require.NoError(t, request.ParseForm())
-		require.Len(t, request.PostForm, 2)
+		if request.PostForm.Has("timestamp") {
+			require.Len(t, request.PostForm, 4)
+		} else {
+			require.Len(t, request.PostForm, 2)
+		}
 		require.Equal(t, "123", request.PostForm.Get("id"))
 		require.NotContains(t, request.PostForm, "token")
 		if request.UserAgent() == "HTTP CLIENT" {
@@ -38,7 +42,11 @@ func TestOKPayAuthenticationDiagnosticOnlyUsesReadOnlyBalanceRequests(t *testing
 			require.Equal(t, "*/*", request.Header.Get("Accept"))
 			require.Empty(t, request.Header.Get("Accept-Encoding"))
 		} else {
-			modes = append(modes, okpayTransportCurrent)
+			mode := okpayTransportCurrent
+			if request.PostForm.Has("timestamp") {
+				mode = okpayTransportHMAC
+			}
+			modes = append(modes, mode)
 			require.Equal(t, "application/json", request.Header.Get("Accept"))
 			require.Equal(t, "gzip", request.Header.Get("Accept-Encoding"))
 		}
@@ -51,12 +59,12 @@ func TestOKPayAuthenticationDiagnosticOnlyUsesReadOnlyBalanceRequests(t *testing
 	provider.config["apiBase"] = server.URL + "/shop"
 	provider.httpClient.Transport = server.Client().Transport
 	result := provider.DiagnoseAuthentication(context.Background())
-	require.Equal(t, []string{okpayTransportCurrent, okpayTransportPHPReference}, modes)
-	require.Equal(t, []string{"", ""}, amounts)
+	require.Equal(t, []string{okpayTransportCurrent, okpayTransportPHPReference, okpayTransportHMAC}, modes)
+	require.Equal(t, []string{"", "", ""}, amounts)
 	require.Equal(t, signatures[0], signatures[1])
 	require.NotEmpty(t, signatures[0])
 	require.Equal(t, "both_authenticated", result.Conclusion)
-	require.Len(t, result.Checks, 2)
+	require.Len(t, result.Checks, 3)
 	for _, check := range result.Checks {
 		require.Equal(t, okpayCheckAuthenticated, check.Status)
 	}
@@ -74,8 +82,8 @@ func TestOKPayAuthenticationDiagnosticClassifiesWithoutGuessingCredentials(t *te
 	}{
 		{name: "两个请求都通过", current: okpayDiagnosticBalanceResponse, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckAuthenticated, referenceStatus: okpayCheckAuthenticated, conclusion: "both_authenticated"},
 		{name: "两个请求都拒绝", current: okpayDiagnosticRejectedResponse, reference: okpayDiagnosticRejectedResponse, currentStatus: okpayCheckRejected, referenceStatus: okpayCheckRejected, conclusion: "both_rejected"},
-		{name: "仅PHP传输通过", current: okpayDiagnosticRejectedResponse, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckRejected, referenceStatus: okpayCheckAuthenticated, conclusion: "php_only_authenticated"},
-		{name: "仅当前传输通过", current: okpayDiagnosticBalanceResponse, reference: okpayDiagnosticRejectedResponse, currentStatus: okpayCheckAuthenticated, referenceStatus: okpayCheckRejected, conclusion: "current_only_authenticated"},
+		{name: "仅PHP传输通过", current: okpayDiagnosticRejectedResponse, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckRejected, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
+		{name: "仅当前传输通过", current: okpayDiagnosticBalanceResponse, reference: okpayDiagnosticRejectedResponse, currentStatus: okpayCheckAuthenticated, referenceStatus: okpayCheckRejected, conclusion: "inconclusive"},
 		{name: "HTTP异常不能推断凭据", currentHTTP: http.StatusServiceUnavailable, current: okpayDiagnosticBalanceResponse, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckRequestFailed, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
 		{name: "缺少成功标记", current: `{"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckInvalidResponse, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
 		{name: "缺少余额数据", current: `{"status":"success","data":{}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckInvalidResponse, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
@@ -86,7 +94,7 @@ func TestOKPayAuthenticationDiagnosticClassifiesWithoutGuessingCredentials(t *te
 		{name: "对象代码不能视为认证拒绝", current: `{"status":"success","code":{},"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckInvalidResponse, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
 		{name: "空状态不能视为认证拒绝", current: `{"status":"","code":10000,"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckInvalidResponse, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
 		{name: "空代码不能视为认证拒绝", current: `{"status":"success","code":null,"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckInvalidResponse, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
-		{name: "成功代码不能覆盖失败状态", current: `{"status":"warning","code":10000,"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckRejected, referenceStatus: okpayCheckAuthenticated, conclusion: "php_only_authenticated"},
+		{name: "成功代码不能覆盖失败状态", current: `{"status":"warning","code":10000,"data":{"usdt":"1"}}`, reference: okpayDiagnosticBalanceResponse, currentStatus: okpayCheckRejected, referenceStatus: okpayCheckAuthenticated, conclusion: "inconclusive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
@@ -109,7 +117,7 @@ func TestOKPayAuthenticationDiagnosticClassifiesWithoutGuessingCredentials(t *te
 			require.Equal(t, tc.conclusion, result.Conclusion)
 			require.Equal(t, tc.currentStatus, result.Checks[0].Status)
 			require.Equal(t, tc.referenceStatus, result.Checks[1].Status)
-			require.Equal(t, 2, calls, "每种传输只能查询一次，不能自动重试")
+			require.Equal(t, 3, calls, "每种协议只能查询一次，不能自动重试")
 		})
 	}
 }
@@ -120,7 +128,7 @@ func TestOKPayAuthenticationDiagnosticDoesNotExposeNetworkErrorsOrFollowRedirect
 	provider.httpClient.Transport = transport
 	result := provider.DiagnoseAuthentication(context.Background())
 	require.Equal(t, "inconclusive", result.Conclusion)
-	require.Equal(t, 2, transport.calls)
+	require.Equal(t, 3, transport.calls)
 	raw, err := json.Marshal(result)
 	require.NoError(t, err)
 	for _, secret := range []string{okpayTestToken, "private-sign", "9845631.73", "网络错误包含私密内容"} {
@@ -138,7 +146,7 @@ func TestOKPayAuthenticationDiagnosticDoesNotExposeNetworkErrorsOrFollowRedirect
 	provider.httpClient.Transport = server.Client().Transport
 	result = provider.DiagnoseAuthentication(context.Background())
 	require.Equal(t, "inconclusive", result.Conclusion)
-	require.Equal(t, 2, sourceCalls)
+	require.Equal(t, 3, sourceCalls)
 	require.Zero(t, destinationCalls)
 	for _, check := range result.Checks {
 		require.Equal(t, okpayCheckRequestFailed, check.Status)
@@ -147,7 +155,7 @@ func TestOKPayAuthenticationDiagnosticDoesNotExposeNetworkErrorsOrFollowRedirect
 	cancel()
 	result = provider.DiagnoseAuthentication(ctx)
 	require.Equal(t, "inconclusive", result.Conclusion)
-	require.Equal(t, 2, sourceCalls)
+	require.Equal(t, 3, sourceCalls)
 	for _, check := range result.Checks {
 		require.Equal(t, okpayCheckRequestFailed, check.Status)
 		require.False(t, strings.Contains(check.Message, "Token错误"))

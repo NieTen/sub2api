@@ -325,6 +325,11 @@ func buildPaymentOrderProviderSnapshot(sel *payment.InstanceSelection, req Creat
 	if providerKey == payment.TypeOKPay {
 		snapshot["merchant_id"] = strings.TrimSpace(sel.Config["id"])
 		snapshot["currency"] = "USDT"
+		algorithm := strings.TrimSpace(sel.Config["signatureAlgorithm"])
+		if algorithm == "" {
+			algorithm = provider.OKPaySignatureHMACSHA256
+		}
+		snapshot["signature_algorithm"] = algorithm
 	}
 	if providerKey == "usdt_trc20" {
 		snapshot["merchant_id"] = strings.TrimSpace(sel.Config["walletAddress"])

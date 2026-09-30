@@ -192,14 +192,18 @@ export interface PaymentChannel {
 
 // ==================== Providers ====================
 
-export type OkpayDiagnosticMode = 'current' | 'php_reference'
+export type OkpayDiagnosticMode = 'current' | 'php_reference' | 'hmac_sha256'
 export type OkpayDiagnosticStatus = 'authenticated' | 'rejected' | 'request_failed' | 'invalid_response'
-export type OkpayDiagnosticConclusion = 'both_authenticated' | 'php_only_authenticated' | 'current_only_authenticated' | 'both_rejected' | 'inconclusive'
+export type OkpayDiagnosticReason = 'success' | 'auth_failed' | 'signature_failed' | 'invalid_parameters' | 'rate_limited' | 'merchant_invalid' | 'unknown_business_error' | 'network_error' | 'tls_failed' | 'invalid_response'
+export type OkpayDiagnosticConclusion = 'both_authenticated' | 'php_only_authenticated' | 'current_only_authenticated' | 'hmac_only_authenticated' | 'legacy_only_authenticated' | 'both_rejected' | 'inconclusive'
 
 export interface OkpayDiagnosticCheck {
   mode: OkpayDiagnosticMode
   status: OkpayDiagnosticStatus
   message: string
+  reason?: OkpayDiagnosticReason
+  http_status?: number
+  business_code?: string
 }
 
 export interface OkpayDiagnosticResult {

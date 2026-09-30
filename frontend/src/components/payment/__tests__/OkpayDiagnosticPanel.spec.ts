@@ -22,8 +22,9 @@ function resultFixture(id = 42, conclusion: OkpayDiagnosticConclusion = 'both_au
     provider_instance_id: id,
     provider_name: '已保存商户 ' + id,
     checks: [
-      { mode: 'current', status: 'authenticated', message: '当前请求认证通过 ' + id },
-      { mode: 'php_reference', status: 'authenticated', message: '兼容请求认证通过 ' + id },
+      { mode: 'current', status: 'authenticated', reason: 'success', message: '当前请求认证通过 ' + id },
+      { mode: 'php_reference', status: 'authenticated', reason: 'success', message: '兼容请求认证通过 ' + id },
+      { mode: 'hmac_sha256', status: 'authenticated', reason: 'success', message: 'HMAC 请求认证通过 ' + id },
     ],
     conclusion,
   }
@@ -36,8 +37,9 @@ function mountPanel(id = 42) {
 describe('已保存 OKPay 实例认证诊断', () => {
   beforeEach(() => diagnoseOkpayProvider.mockReset())
 
-  it('用户主动点击后显示两种请求结果，不显示响应中的额外敏感数据', async () => {
+  it('用户主动点击后按顺序显示三种请求结果，只显示固定分类和安全状态代码', async () => {
     const response = resultFixture()
+    response.checks[0] = { ...response.checks[0], status: 'rejected', reason: 'auth_failed', http_status: 200, business_code: '20001', message: '不应显示的原始 message' }
     diagnoseOkpayProvider.mockResolvedValue({ data: { ...response, checks: [...response.checks].reverse(), token: '不应显示的密钥', sign: '不应显示的签名', balance: '9876.54321', raw_response: '不应显示的上游正文' } })
     const wrapper = mountPanel()
     expect(diagnoseOkpayProvider).not.toHaveBeenCalled()
@@ -47,17 +49,23 @@ describe('已保存 OKPay 实例认证诊断', () => {
     await flushPromises()
     expect(diagnoseOkpayProvider).toHaveBeenCalledTimes(1)
     expect(diagnoseOkpayProvider).toHaveBeenCalledWith(42)
-    expect(wrapper.get('[data-test="okpay-check-current"]').text()).toContain('当前请求认证通过 42')
-    expect(wrapper.get('[data-test="okpay-check-php_reference"]').text()).toContain('兼容请求认证通过 42')
+    expect(wrapper.get('[data-test="okpay-check-current"]').text()).toContain('身份认证失败')
+    expect(wrapper.get('[data-test="okpay-check-current"]').text()).toContain('HTTP 200')
+    expect(wrapper.get('[data-test="okpay-check-current"]').text()).toContain('业务代码：20001')
+    expect(wrapper.get('[data-test="okpay-check-php_reference"]').text()).toContain('Go 模拟 PHP')
+    expect(wrapper.get('[data-test="okpay-check-hmac_sha256"]').text()).toContain('新版 HMAC-SHA256')
+    expect(wrapper.findAll('[data-test^="okpay-check-"]').map(check => check.attributes('data-test'))).toEqual(['okpay-check-current', 'okpay-check-php_reference', 'okpay-check-hmac_sha256'])
     expect(wrapper.get('[data-test="okpay-diagnostic-conclusion"]').text()).toContain('不能证明创建支付订单正常')
-    for (const hidden of ['不应显示的密钥', '不应显示的签名', '9876.54321', '不应显示的上游正文']) expect(wrapper.text()).not.toContain(hidden)
+    for (const hidden of ['不应显示的密钥', '不应显示的签名', '9876.54321', '不应显示的上游正文', '不应显示的原始 message']) expect(wrapper.text()).not.toContain(hidden)
     wrapper.unmount()
   })
 
   it.each([
-    ['both_authenticated', '两种请求均通过认证'],
-    ['php_only_authenticated', 'PHP 示例兼容请求通过，当前请求未通过'],
-    ['current_only_authenticated', '当前请求通过，PHP 示例兼容请求未通过'],
+    ['both_authenticated', '参与对照的请求均通过认证'],
+    ['php_only_authenticated', 'Go 模拟的旧版 PHP 请求通过'],
+    ['current_only_authenticated', '当前配置请求通过，Go 模拟的旧版 PHP 请求未通过'],
+    ['hmac_only_authenticated', '新版 HMAC-SHA256 通过，旧版 MD5 被拒绝'],
+    ['legacy_only_authenticated', '旧版 MD5 通过，新版 HMAC-SHA256 被拒绝'],
     ['both_rejected', '不能仅凭此结果判定密钥错误'],
     ['inconclusive', '诊断未能得出一致结论'],
   ] as const)('准确解释 %s 结论', async (conclusion, expected) => {
@@ -69,6 +77,57 @@ describe('已保存 OKPay 实例认证诊断', () => {
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-test="okpay-diagnostic-conclusion"]').text()).toContain(expected)
+    wrapper.unmount()
+  })
+
+  it('兼容没有 reason 的旧版两组诊断，仍使用固定说明而不显示原始 message', async () => {
+    const data = resultFixture()
+    data.checks = data.checks.slice(0, 2).map(check => ({ ...check, reason: undefined, message: '旧响应不应显示的正文' }))
+    diagnoseOkpayProvider.mockResolvedValue({ data })
+    const wrapper = mountPanel()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-test^="okpay-check-"]')).toHaveLength(2)
+    expect(wrapper.get('[data-test="okpay-check-current"]').text()).toContain('只读商户认证通过')
+    expect(wrapper.text()).not.toContain('旧响应不应显示的正文')
+    wrapper.unmount()
+  })
+
+  it.each([
+    { field: 'business_code', value: 'token=private-secret' },
+    { field: 'business_code', value: '123456789' },
+    { field: 'business_code', value: '200\n' },
+    { field: 'http_status', value: 200.5 },
+    { field: 'http_status', value: 700 },
+    { field: 'reason', value: 'private-secret' },
+    { field: 'mode', value: 'private-secret' },
+  ])('拒绝不在白名单或范围内的诊断字段 $field=$value', async ({ field, value }) => {
+    const data = resultFixture()
+    Object.assign(data.checks[0], { [field]: value })
+    diagnoseOkpayProvider.mockResolvedValue({ data })
+    const wrapper = mountPanel()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="okpay-diagnostic-result"]').exists()).toBe(false)
+    expect(wrapper.get('[role="alert"]').text()).toContain('不匹配或格式无效')
+    expect(wrapper.text()).not.toContain('private-secret')
+    wrapper.unmount()
+  })
+
+  it.each(['重复模式', '超过三组', '缺少HMAC结果却返回HMAC结论'])('拒绝不完整或重复的协议对照：%s', async variant => {
+    const data = resultFixture()
+    if (variant === '重复模式') data.checks[2] = { ...data.checks[1] }
+    if (variant === '超过三组') data.checks.push({ ...data.checks[2] })
+    if (variant === '缺少HMAC结果却返回HMAC结论') {
+      data.checks = data.checks.slice(0, 2)
+      data.conclusion = 'hmac_only_authenticated'
+    }
+    diagnoseOkpayProvider.mockResolvedValue({ data })
+    const wrapper = mountPanel()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="okpay-diagnostic-result"]').exists()).toBe(false)
+    expect(wrapper.get('[role="alert"]').text()).toContain('不匹配或格式无效')
     wrapper.unmount()
   })
 

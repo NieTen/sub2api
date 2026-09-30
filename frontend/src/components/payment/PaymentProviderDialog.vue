@@ -200,6 +200,8 @@
             <Select
               v-else-if="field.options?.length"
               v-model="config[field.key]"
+              :name="'provider-' + field.key"
+              :aria-label="field.label"
               :options="field.options"
               :searchable="field.options.length > 5"
             />
@@ -499,6 +501,7 @@ const resolvedFields = computed(() => {
   return fields.map(f => ({
     ...f,
     label: f.label || t(`admin.settings.payment.field_${f.key}`),
+    options: f.options?.map(option => ({ ...option, label: option.labelKey ? t(option.labelKey) : option.label })),
   }))
 })
 

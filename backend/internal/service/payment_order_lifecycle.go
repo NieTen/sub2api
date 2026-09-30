@@ -428,7 +428,7 @@ func (s *PaymentService) getOrderProvider(ctx context.Context, o *dbent.PaymentO
 		return nil, fmt.Errorf("load order provider instance: %w", err)
 	}
 	if inst != nil {
-		return s.createProviderFromInstance(ctx, inst)
+		return s.createProviderFromOrderInstance(ctx, inst, o)
 	}
 	if !paymentOrderAllowsRegistryFallback(o) {
 		return nil, fmt.Errorf("order %d provider instance is unresolved", o.ID)
@@ -473,6 +473,10 @@ func paymentOrderFallbackProviderKey(registry *payment.Registry, order *dbent.Pa
 }
 
 func (s *PaymentService) createProviderFromInstance(ctx context.Context, inst *dbent.PaymentProviderInstance) (payment.Provider, error) {
+	return s.createProviderFromOrderInstance(ctx, inst, nil)
+}
+
+func (s *PaymentService) createProviderFromOrderInstance(ctx context.Context, inst *dbent.PaymentProviderInstance, order *dbent.PaymentOrder) (payment.Provider, error) {
 	if inst == nil {
 		return nil, fmt.Errorf("payment provider instance is missing")
 	}
@@ -480,6 +484,20 @@ func (s *PaymentService) createProviderFromInstance(ctx context.Context, inst *d
 	cfg, err := s.loadBalancer.GetInstanceConfig(ctx, int64(inst.ID))
 	if err != nil {
 		return nil, fmt.Errorf("load provider instance config: %w", err)
+	}
+	// 固定订单创建时的签名协议，避免管理员切换协议后拒绝旧订单回调。
+	// 升级前的订单没有该快照字段，仍按附件 PHP 的 MD5 协议处理。
+	if inst.ProviderKey == payment.TypeOKPay && order != nil {
+		orderConfig := make(map[string]string, len(cfg)+1)
+		for key, value := range cfg {
+			orderConfig[key] = value
+		}
+		cfg = orderConfig
+		algorithm := psSnapshotStringValue(order.ProviderSnapshot["signature_algorithm"])
+		if algorithm == "" {
+			algorithm = provider.OKPaySignatureLegacyMD5
+		}
+		cfg["signatureAlgorithm"] = algorithm
 	}
 	if inst.PaymentMode != "" {
 		cfg["paymentMode"] = inst.PaymentMode

@@ -187,7 +187,8 @@ export const adminPaymentAPI = {
 
   /** 使用已保存的 OKPay 配置查询认证，不创建支付订单或发送凭据。 */
   diagnoseOkpayProvider(id: number) {
-    return apiClient.post<OkpayDiagnosticResult>(`/admin/payment/providers/${id}/diagnose-okpay`)
+    // 三组只读探测最多各用十秒，等待时间覆盖服务端的三十五秒总上限。
+    return apiClient.post<OkpayDiagnosticResult>(`/admin/payment/providers/${id}/diagnose-okpay`, undefined, { timeout: 40000 })
   },
 
   /** Create a provider instance */

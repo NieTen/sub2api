@@ -62,6 +62,8 @@ func okpayPHPTruthy(value any) bool {
 		return err == nil && n != 0
 	case okpayArray:
 		return len(value) > 0
+	case okpayJSONArray:
+		return len(value) > 0
 	default:
 		return true
 	}
@@ -69,6 +71,14 @@ func okpayPHPTruthy(value any) bool {
 
 func okpayPHPQuery(pairs *[]string, key string, value any) error {
 	if value == nil {
+		return nil
+	}
+	if values, ok := value.(okpayJSONArray); ok {
+		for index, item := range values {
+			if err := okpayPHPQuery(pairs, key+"["+strconv.Itoa(index)+"]", item); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	if fields, ok := value.(okpayArray); ok {
@@ -198,6 +208,13 @@ func okpayDecodeJSONValue(decoder *json.Decoder, depth int) (any, error) {
 		fields = append(fields, okpayField{key: key, value: value})
 	}
 	_, err = decoder.Token()
+	if delimiter == '[' {
+		values := make(okpayJSONArray, len(fields))
+		for index, field := range fields {
+			values[index] = field.value
+		}
+		return values, err
+	}
 	return fields, err
 }
 
