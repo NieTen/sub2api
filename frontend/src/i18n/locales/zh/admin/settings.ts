@@ -853,6 +853,7 @@ export default {
         trc20PaymentHint: '填写收款地址即可启用公共免费查询，链上确认后自动到账。公共查询可能因限流而延迟到账确认，可选填密钥提高查询稳定性。无需提供钱包私钥，退款需线下处理。',
         field_notifyUrl: '异步通知地址',
         field_returnUrl: '同步跳转地址',
+        okpayReturnUrlPriorityHint: '优先使用本实例已保存的 HTTPS 同步跳转地址，客户端的 HTTP 或 IP 地址不会覆盖它。支持反代子路径，请确认该地址可访问。',
         callbackBaseUrl: '回调基础地址',
         field_privateKey: '私钥',
         field_publicKey: '公钥',

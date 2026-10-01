@@ -858,6 +858,7 @@ export default {
         trc20PaymentHint: 'Enter the receiving address to enable free public checks. Balance is credited after on-chain confirmation. Public rate limits may delay confirmation; an optional key improves reliability. No wallet private key is needed; refunds are handled separately.',
         field_notifyUrl: 'Notify URL',
         field_returnUrl: 'Return URL',
+        okpayReturnUrlPriorityHint: 'This instance’s saved HTTPS return URL takes priority over the client URL, including HTTP or IP-based URLs. Reverse proxy subpaths are supported; make sure the address is reachable.',
         callbackBaseUrl: 'Callback Base URL',
         field_privateKey: 'Private Key',
         field_publicKey: 'Public Key',

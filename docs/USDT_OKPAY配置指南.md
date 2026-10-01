@@ -10,6 +10,8 @@
 
 `v0.2.11.6` 增加 OKPay 实例的临时调试日志。`v0.2.11.7` 补齐下单前的本地校验日志，分别标明返回地址、回调地址、金额或订单号问题，并在编辑实例时校验两个 HTTPS 基础地址。
 
+本次 `v0.2.11.8` 调整 OKPay 返回地址选择：优先使用本次实际选中实例保存的非空 HTTPS `returnUrl`，避免客户端 HTTP/IP 地址覆盖配置；其他服务商不受此调整影响。
+
 ## 配置入口
 
 管理员进入「系统设置 → 支付设置」，打开「启用支付」，在「启用的服务商」中勾选需要的 OKPay 或 USDT（TRC20），保存支付设置。随后在「管理服务商」区域添加对应服务商实例，并启用该实例。
@@ -45,7 +47,9 @@
 
 基础地址留空时使用当前管理页面的 origin；如果通过 HTTP 管理页面保存，需要填写正确的 HTTPS 基础地址。系统不会自动将 HTTP 改为 HTTPS，升级也不会自动修复已有的不合格配置，需要编辑相应实例后保存。
 
-实际同步返回地址优先使用充值页面提交的 `return_url`，该值来自用户浏览器的 `window.location.origin` 加 `/payment/result`；只有请求未传入时才使用实例的 `returnUrl`。因此用户也须通过 HTTPS 充值页面下单，仅修改实例中的同步跳转配置不能覆盖 HTTP 页面提交的地址。常规下单的异步回调取实例的 `notifyUrl`。后端追加订单和恢复参数时保留原协议，不会把 HTTPS 降级为 HTTP。
+`v0.2.11.8` 在生成恢复凭据之前，优先选择本次实际选中 OKPay 实例的非空 `returnUrl`。该管理员配置支持合法 HTTPS 子路径及普通查询参数；非空但无效时明确报错，不静默回退。只有配置为空时，才校验客户端地址是否同源、是否使用规范结果页路径，再作为返回目标。系统保留普通查询参数，移除原有 `order_id`、`out_trade_no`、`resume_token`、`status` 和片段，再生成新的恢复 Token 并追加当前订单参数。客户端 HTTP/IP 地址不会覆盖已保存的 HTTPS 配置，常规异步回调继续取实例的 `notifyUrl`。
+
+这里“支持普通查询参数”指服务端兼容已保存的**完整** `returnUrl`；表单输入的是基础地址，仍由系统拼接固定路径，不能在基础地址内填写查询参数。基础地址输入框留空会生成并保存当前站点地址，不代表实例的完整返回配置为空。
 
 「签名算法」默认选择推荐的 HMAC-SHA256，对应配置 `signatureAlgorithm=hmac_sha256`；服务商配置缺少该字段时也使用新协议。只有明确需要原附件协议时，才选择旧 MD5，对应 `signatureAlgorithm=legacy_md5`。已显式保存的旧协议配置会保留。
 
@@ -57,20 +61,21 @@
 
 2026 年 10 月 1 日，用户提供本机真实只读结果：同一组凭据访问同一余额接口，旧 MD5 表单和 JSON 请求均为 HTTP 200、身份认证失败；HMAC 表单为 HTTP 200、业务代码 `200`、认证成功。随后后台当前配置和 HMAC 认证均通过。曾出现的下单业务代码 `400` 不是上游 HTTP 状态码，也不能证明凭据错误。只读认证通过不代表下单成功，实际支付、查单和回调仍待验证。
 
-`v0.2.11.6` 的「OKPay 返回或回调地址须为 HTTPS 地址」发生在本站签名和 HTTP 请求之前，旧版未记录此处的调试日志；该通用提示不能确定失败的是返回地址还是回调地址。用户提供的 `https://zzzai.pro/` 字面格式正常，仍需核对该次下单实际使用的两个地址及来源，不能据此判断具体配置有误。
+`v0.2.11.6` 的「OKPay 返回或回调地址须为 HTTPS 地址」发生在本站网关签名和 HTTP 请求之前。用户随后提供实例 `#1` 的本地失败日志：HTTP/IP 返回地址覆盖后台 HTTPS 配置，`request_sent=false`；`https://zzzai.pro` 对应的回调地址校验有效。本次修正返回地址选择顺序，实际支付和入账仍需重新验证。
 
 定位此类下单错误时，在「系统设置 → 支付设置 → 管理服务商」编辑实际下单的 OKPay 实例，将「调试日志」从默认的「关闭（默认）」改为「临时开启」（`debugLogging=true`）并保存；若新版表单已提示基础地址无效，先修正对应字段。再发起一次正常支付，到「运维监控 → 系统日志」按对应时间和关键词 `OKPay debug` 搜索，展开失败日志中的「OKPay 调试详情」，查看或复制脱敏 JSON。仅重新运行认证诊断不能复现下单请求。
 
 | 新版日志 | 下一步 |
 | --- | --- |
+| `PAYMENT_PROVIDER_MISCONFIGURED`，提示实例配置的 `returnUrl` 无效 | 服务层在生成恢复 Token 前拒绝配置，查看错误元数据的 `provider`、`instance_id`、`field=return_url`、`source=provider_config`，修正对应实例。服务端常规日志搜索 `[PaymentService] Resolve payment return URL failed`；该错误不会产生 Provider 的 `OKPay debug`。 |
 | `stage=validation`、`result=validation_failed`、`request_sent=false`、`http_status=0` | 本地参数校验失败，尚未签名或发送 HTTP 请求；查看 `validation_field`、`validation_reason`、`validation_message`。 |
 | `validation_field=return_url` 或 `callback_url` | 分别检查 `request.return_url` 或 `request.callback_url` 摘要中的 `scheme`、`valid`、`validation_reason`、`source`，同时核对另一地址。 |
-| 本地失败地址摘要中 `source=request` | 地址来自该次请求；常规返回地址应检查用户充值页面的协议与域名。 |
-| 本地失败地址摘要中 `source=provider_config` | 地址来自实例兜底配置，编辑对应的同步跳转或异步通知基础地址。`source=empty` 表示请求和配置均未提供；不要仅凭空地址的 `valid=false` 推断失败原因。 |
+| Provider 本地失败地址摘要中 `source=request` | 地址来自服务层传给 Provider 的最终请求，可能已经选用了管理员配置，不能据此认定来自浏览器。 |
+| Provider 本地失败地址摘要中 `source=provider_config` | 地址来自 Provider 内部的实例兜底配置，编辑对应的同步跳转或异步通知基础地址。`source=empty` 表示请求和配置均未提供；不要仅凭空地址的 `valid=false` 推断失败原因。 |
 | `validation_field=amount` 或 `unique_id` | 检查金额或商户订单号，依据固定原因处理，不要改动正常的地址或凭据。 |
 | `stage=upstream` | 进入网关请求处理流程，结合 `request_sent`、`http_status`、安全业务代码和脱敏上游说明判断；此阶段不提供地址 `source`。 |
 
-两个地址摘要还包含安全的 `host`、字节长度、路径和查询长度、查询参数数量，以及 `has_userinfo`、`has_control_chars` 标记，不包含完整地址、路径或查询值。若 `return_url.source=request` 且 `scheme=http`，通过本站 HTTPS 充值页面重新下单；若来源为配置，修正对应实例的基础地址后保存。各类原因的完整判读见 [OKPay 认证排查](OKPAY认证排查.md#日志字段判读)。
+两个地址摘要还包含安全的 `host`、字节长度、路径和查询长度、查询参数数量，以及 `has_userinfo`、`has_control_chars` 标记，不包含完整地址、路径或查询值。排查返回地址时先核对实际下单实例的非空 `returnUrl`；只有配置为空才检查客户端来源。`source` 仅描述 Provider 层取值位置，上游阶段不提供该字段。各类原因的完整判读见 [OKPay 认证排查](OKPAY认证排查.md#日志字段判读)。
 
 失败日志使用 `Warn`，可在后台查看；成功日志使用 `Info`，不写入后台系统日志，需通过 `docker logs` 或已启用的文件日志查看。`result=success` 仅表示 HTTP 和业务状态检查通过，不代表已付款或入账。全局 `info` 已足够，不需要开启全局 `debug`。若全局级别为 `error`，在「系统日志 → 运行时日志配置（立即生效）」将「级别」改为 `info`，点击「保存并应用」；查看时不要仅筛选 `error`。详情仅含约定的安全字段，不包含 Token、`sign` 值、完整 URL 或响应 `data`。复现后关闭该实例的调试日志，并恢复临时调整的日志级别。详细证据、排查步骤和本机 PHP 诊断方法见 [OKPay 认证排查](OKPAY认证排查.md)。
 

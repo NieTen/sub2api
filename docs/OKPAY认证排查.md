@@ -18,6 +18,8 @@
 
 `v0.2.11.6` 的「返回或回调地址须为 HTTPS 地址」来自本站 `CreatePayment` 的本地校验，发生在签名和 HTTP 请求之前，不能指明两个地址中的哪一个失败。它也可能由缺少域名、地址格式、内嵌用户名密码或控制字符引起，不能仅按文字断定是 HTTP。旧版调试日志只覆盖后续网关请求流程，因此该错误可能没有对应的 `OKPay debug`。`v0.2.11.7` 补齐此处日志，并分别提示失败字段和固定原因。
 
+随后用户提供实例 `#1` 的日志：返回地址使用了请求传入的 HTTP/IP 地址，`request_sent=false`；实例回调地址 `https://zzzai.pro` 对应的 HTTPS 校验有效。结合当时客户端地址优先的选择顺序，已定位到 HTTP 返回地址覆盖后台 HTTPS 配置，导致本站在发出请求前拒绝下单。本次 `v0.2.11.8` 调整 OKPay 返回地址选择顺序，优先使用本次实际选中实例的非空配置；这不等同于确认实际支付或入账成功。
+
 `payment gateway error: OKPay 返回业务失败状态（身份认证失败……）` 表示程序收到了上游业务拒绝。本站将支付网关失败映射为 HTTP 503，不能据此认定网关不可访问，也不能仅凭提示认定商户 ID 或 Token 填错。
 
 本次协议适配依据用户指定的第三方 Dujiao-Next 参考项目：
@@ -89,7 +91,7 @@
 | 字段或组合 | 含义与处理 |
 | --- | --- |
 | `stage=validation`、`result=validation_failed`、`request_sent=false`、`http_status=0` | 下单在本地校验失败，尚未签名或发送 HTTP 请求。此处 `0` 不是上游返回的状态码，应先修正本地参数。 |
-| `validation_field=return_url` | 实际同步返回地址失败；优先根据 `request.return_url.source` 确认来自本次请求还是服务商配置。 |
+| `validation_field=return_url` | 最终同步返回地址失败；结合实际实例的 `returnUrl` 配置与地址选择顺序排查，不能仅凭 `source=request` 认定来自浏览器。 |
 | `validation_field=callback_url` | 实际异步回调地址失败；常规网页下单使用实例保存的 `notifyUrl`。 |
 | `validation_field=amount` / `unique_id` | 金额或商户订单号校验失败，查看原因与说明；不是地址或余额认证问题。 |
 | `validation_reason` / `validation_message` | 固定原因代码及中文说明，不包含完整地址或请求原文。顶层字段记录首先遇到的失败；两个地址各自的摘要仍可揭示其他地址问题。 |
@@ -98,7 +100,7 @@
 | `request.return_url` / `request.callback_url` | 两个实际地址的安全摘要；包含 `present`、`bytes`、`https`、`host`、`path_bytes`、`query_bytes`、`query_params`，以及以下校验信息，不包含完整 URL、路径或查询值。 |
 | 地址摘要中的 `scheme` / `valid` | `scheme` 分类为 `http`、`https`、`relative` 或 `other`；`valid` 表示非空地址通过当前 HTTPS 校验。空地址的 `valid=false` 本身不代表此次失败，须结合 `present` 和失败字段。 |
 | 地址摘要中的 `validation_reason` | 该地址的固定校验原因；通过校验或地址为空时为空字符串。两个地址都不合格时，可分别查看。 |
-| 地址摘要中的 `source` | **仅本地校验失败日志提供**：`request` 为本次请求传入，`provider_config` 为实例配置兜底，`empty` 为两者均为空。正常网关请求日志不提供此字段。 |
+| 地址摘要中的 `source` | **仅 Provider 层本地校验失败日志提供**：`request` 指服务层传给 Provider 的最终请求，可能已经选用了实例配置，不等于必然来自浏览器；`provider_config` 指 Provider 内部使用实例配置兜底，`empty` 为两者均为空。上游阶段不提供此字段。 |
 | 地址摘要中的 `has_userinfo` / `has_control_chars` | 标记解析出的用户名密码部分，以及被检测到的换行、回车或空字符。解析失败时其他摘要可能不完整，应优先看 `validation_reason`。 |
 
 | `validation_reason` | 处理方法 |
@@ -111,14 +113,18 @@
 
 ### 地址来源与修正
 
-常规充值页面使用当前浏览器的 `window.location.origin` 生成 `/payment/result` 返回地址，作为 `return_url` 提交；它优先于服务商实例保存的 `returnUrl`。后端只在请求返回地址为空时使用实例配置。因此，通过 HTTP 页面下单会提交 HTTP 返回地址，单独修改实例的「同步跳转地址」不能覆盖它。通用返回地址校验允许 HTTP 和 HTTPS；后续添加订单号和恢复参数的 `resume` 拼接保留原协议，不会把 HTTPS 改为 HTTP。
+`v0.2.11.8` 仅调整 OKPay：服务层在生成恢复凭据之前，先选用本次实际选中实例中非空的 `returnUrl`。它是管理员保存的可信返回地址，支持合法 HTTPS 子路径及普通查询参数；配置非空但无效时明确报错，不静默回退。只有配置为空时，才对客户端传入地址执行同源、规范结果页路径校验。
 
-常规下单没有单独传入异步通知地址，OKPay 使用实例保存的 `notifyUrl`。同步返回与异步回调必须分别检查。`https://zzzai.pro/` 这一字面地址符合 HTTPS 要求，但仅凭它无法确定失败请求实际使用的返回地址、回调地址或失败字段，需要对应实例与该次下单的摘要证据。
+确定返回目标后，系统保留普通查询参数，移除原有 `order_id`、`out_trade_no`、`resume_token`、`status` 和片段，再生成新的恢复 Token 并追加当前订单参数。客户端的 HTTP/IP 地址不会再覆盖已保存的 HTTPS 配置，其他服务商的地址选择方式不变。后台表单录入的仍是**基础地址**，由系统拼接固定路径，因此表单基础地址仍不接受查询参数；这与服务端兼容已保存完整 `returnUrl` 的普通查询参数是不同层次的规则。
 
-1. 若日志显示 `return_url.source=request` 且协议不是 HTTPS，使用本站已经启用 HTTPS 的充值页面重新下单，核对浏览器地址栏中的实际域名和协议。
-2. 若显示 `source=provider_config`，进入「系统设置 → 支付设置 → 管理服务商」，编辑对应 OKPay 实例。分别核对「异步通知地址」和「同步跳转地址」的基础地址，例如 `https://zzzai.pro`；右侧固定路径由系统拼接，不要在基础地址中重复填写 `/api/v1/payment/webhook/okpay` 或 `/payment/result`。
-3. `v0.2.11.7` 的编辑表单会分别校验两个基础地址：要求完整 HTTPS 地址，允许已配置的反代子路径，禁止账号密码、查询参数、片段、控制字符和反斜杠。留空时使用当前管理页面的 origin，因此管理页面为 HTTP 时仍不能保存；应填写正确的 HTTPS 基础地址。系统不会自动将 HTTP 改写为 HTTPS，也不会自动修复已保存的旧配置。
-4. 如需基础子路径，例如 `https://example.com/sub2api`，确认反向代理确实将自动拼接后的回调与返回路径转发到本站。表单允许子路径不等于代理路由已配置成功。
+非空配置无效时，服务层返回 `PAYMENT_PROVIDER_MISCONFIGURED`，提示「OKPay 实例配置的返回地址（returnUrl）无效：…」，元数据包含 `provider`、`instance_id`、`field=return_url`、`source=provider_config`。此错误在生成恢复 Token 前发生，不会进入 Provider，也不会生成对应的 `OKPay debug`；应在服务端常规日志搜索 `[PaymentService] Resolve payment return URL failed`，核对提示的实例配置。这里的错误元数据与「日志字段判读」中的 Provider 地址摘要属于不同层次。
+
+常规下单的异步回调继续使用实例保存的 `notifyUrl`。实例 `#1` 本次日志已证明回调地址有效，应重点核对同步返回地址及实际下单实例。
+
+1. 进入「系统设置 → 支付设置 → 管理服务商」，编辑实际下单的 OKPay 实例，确认「同步跳转地址」为本站可访问的 HTTPS 基础地址，例如 `https://zzzai.pro`。右侧固定路径由系统拼接，不要重复填写 `/payment/result`；「异步通知地址」同理不要重复填写 `/api/v1/payment/webhook/okpay`。
+2. 若出现 `PAYMENT_PROVIDER_MISCONFIGURED`，按元数据中的实例编号修正非空的完整 `returnUrl`，并查询上述服务端常规日志；不能期待自动回退到浏览器地址。只有该配置确实为空时，再检查客户端地址是否满足同源及规范结果页校验，并使用本站 HTTPS 页面下单。
+3. 编辑表单会分别校验两个基础地址：要求完整 HTTPS 地址，允许已配置的反代子路径，禁止账号密码、查询参数、片段、控制字符和反斜杠。基础地址输入框留空会使用当前管理页面的 origin 生成并保存配置，不等于最终 `returnUrl` 为空；管理页面为 HTTP 时应手动填写正确的 HTTPS 基础地址。
+4. 如需基础子路径，例如 `https://example.com/sub2api`，确认反向代理确实将拼接后的回调与返回路径转发到本站。保存后重新发起一次正常支付验证；解读后续 `source=request` 时，应按“服务层传给 Provider 的最终请求”理解，不再直接归因于浏览器。
 
 Docker 部署也可读取容器日志。以下使用默认容器名；自定义部署需替换为实际容器名：
 

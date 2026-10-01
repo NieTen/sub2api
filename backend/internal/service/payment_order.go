@@ -455,8 +455,9 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	}
 	subject := s.buildPaymentSubject(plan, subjectAmount, cfg, sel)
 	outTradeNo := order.OutTradeNo
-	canonicalReturnURL, err := CanonicalizeReturnURL(req.ReturnURL, req.SrcHost, req.SrcURL)
+	canonicalReturnURL, err := resolveCreateOrderReturnURL(req, sel)
 	if err != nil {
+		slog.Error("[PaymentService] Resolve payment return URL failed", "provider", sel.ProviderKey, "instance", sel.InstanceID, "error", err)
 		return nil, err
 	}
 	resumeToken := ""

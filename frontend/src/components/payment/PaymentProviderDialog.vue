@@ -241,6 +241,9 @@
               <input v-model="returnBaseUrl" name="provider-return-base" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
               <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.returnUrl }}</span>
             </div>
+            <p v-if="form.provider_key === 'okpay'" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.payment.okpayReturnUrlPriorityHint') }}
+            </p>
           </div>
         </div>
 
