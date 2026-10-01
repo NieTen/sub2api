@@ -73,6 +73,7 @@ export default {
         empty: 'No system logs',
         time: 'Time',
         logDetails: 'Log Details',
+        okpayDebugDetails: 'OKPay debug details',
         loadFailed: 'Failed to load system logs',
         runtimeConfigActive: 'Runtime log configuration is active',
         runtimeConfigLoadFailed: 'Failed to load log configuration. Refresh and try again.',

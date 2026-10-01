@@ -447,7 +447,7 @@ func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpay
 	return o.postWithTransport(ctx, path, fields, okpayTransportCurrent)
 }
 
-func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpayArray, mode string) (okpayArray, error) {
+func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpayArray, mode string) (result okpayArray, err error) {
 	// 诊断可以单独选择协议；正式支付严格使用配置，不因失败自动降级或重复下单。
 	algorithm := o.config["signatureAlgorithm"]
 	if mode == okpayTransportPHPReference {
@@ -455,9 +455,13 @@ func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpay
 	} else if mode == okpayTransportHMAC {
 		algorithm = OKPaySignatureHMACSHA256
 	}
+	var debug *okpayDebugRequest
+	if o.debugLoggingEnabled() {
+		debug = &okpayDebugRequest{started: time.Now(), operation: path, algorithm: algorithm, transport: mode}
+		defer func() { o.logDebugRequest(ctx, debug, err) }()
+	}
 	fields = append(append(okpayArray(nil), fields...), okpayField{key: "id", value: o.config["id"]})
 	var signature string
-	var err error
 	if algorithm == OKPaySignatureHMACSHA256 {
 		nonce, nonceErr := okpayNonce()
 		if nonceErr != nil {
@@ -487,6 +491,13 @@ func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpay
 				return nil, okpayClassifiedFailure(okpayCheckRequestFailed, err)
 			}
 			payload.Set(field.key, value)
+		}
+	}
+	if debug != nil {
+		// 复制最终签名字段，避免 PHP 传输调整 sign 顺序时影响日志中的实际字段摘要。
+		debug.payload = make(url.Values, len(payload))
+		for key, values := range payload {
+			debug.payload[key] = append([]string(nil), values...)
 		}
 	}
 	bodyText := payload.Encode()
@@ -519,19 +530,32 @@ func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpay
 			client = &phpClient
 		}
 	}
+	if debug != nil {
+		debug.requestSent = true
+	}
 	response, err := client.Do(request)
+	if debug != nil && response != nil {
+		debug.httpStatus = response.StatusCode
+	}
 	if err != nil {
 		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, fmt.Errorf("OKPay 请求失败: %w", err))
 	}
 	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, okpayMaxResponseSize+1))
+	if debug != nil {
+		debug.responseBytes = len(body)
+	}
 	if err != nil {
 		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, fmt.Errorf("OKPay 读取响应失败"))
 	}
 	if len(body) > okpayMaxResponseSize {
 		return nil, okpayClassifiedFailure(okpayCheckInvalidResponse, fmt.Errorf("OKPay 响应内容过大"))
 	}
-	result, err := okpayDecodeJSON(string(body))
+	result, err = okpayDecodeJSON(string(body))
+	if debug != nil && err == nil {
+		// 返回 nil,error 会覆盖命名结果，单独保存成功解码的响应供完成日志提取安全消息。
+		debug.response = result
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, okpayUpstreamFailure(okpayCheckRequestFailed, response.StatusCode, result, okpayResponseError(fmt.Sprintf("OKPay HTTP 状态异常: %d", response.StatusCode), result, o.config["id"], o.config["token"], signature), o.config["id"], o.config["token"], signature)
 	}

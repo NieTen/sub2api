@@ -135,6 +135,7 @@ describe('PaymentProviderDialog payment guide', () => {
     const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string> }
     expect(payload.config.notifyUrl).toMatch(/\/api\/v1\/payment\/webhook\/okpay$/)
     expect(payload.config.signatureAlgorithm).toBe('hmac_sha256')
+    expect(payload.config.debugLogging).toBe('false')
   })
 
   it('编辑 OKPay 空 token 保留服务端凭据且纠正旧退款开关', async () => {
@@ -146,6 +147,7 @@ describe('PaymentProviderDialog payment guide', () => {
     const payload = wrapper.emitted('save')?.[0]?.[0] as { config: Record<string, string>; refund_enabled: boolean; allow_user_refund: boolean }
     expect(payload.config).not.toHaveProperty('token')
     expect(payload.config.signatureAlgorithm).toBe('hmac_sha256')
+    expect(payload.config.debugLogging).toBe('false')
     expect(payload.refund_enabled).toBe(false)
     expect(payload.allow_user_refund).toBe(false)
   })
@@ -175,6 +177,62 @@ describe('PaymentProviderDialog payment guide', () => {
     dialog.loadProvider(provider)
     await nextTick()
     expect(selector.props('modelValue')).toBe('hmac_sha256')
+    wrapper.unmount()
+  })
+
+  it('OKPay 调试日志默认关闭，支持保存开关并保留服务端 Token', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    const dialog = wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }
+    dialog.loadProvider(provider)
+    await nextTick()
+    const selector = wrapper.getComponent('[name="provider-debugLogging"]')
+    expect(selector.props('modelValue')).toBe('false')
+    expect(selector.props('options')).toEqual([
+      expect.objectContaining({ value: 'false', label: 'admin.settings.payment.okpayDebugLoggingDisabled' }),
+      expect.objectContaining({ value: 'true', label: 'admin.settings.payment.okpayDebugLoggingEnabled' }),
+    ])
+    expect(selector.attributes('aria-label')).toBe('admin.settings.payment.field_debugLogging')
+    expect(wrapper.text()).toContain('admin.settings.payment.field_okpayDebugLoggingHint')
+
+    for (const enabled of ['true', 'false']) {
+      selector.vm.$emit('update:modelValue', enabled)
+      await nextTick()
+      await wrapper.get('form').trigger('submit.prevent')
+      const payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+      expect(payload.config.debugLogging).toBe(enabled)
+      expect(payload.config).not.toHaveProperty('token')
+      dialog.loadProvider({ ...provider, config: payload.config })
+      await nextTick()
+      expect(selector.props('modelValue')).toBe(enabled)
+    }
+
+    dialog.loadProvider({ ...provider, config: { ...provider.config, debugLogging: 'true' } })
+    await nextTick()
+    expect(selector.props('modelValue')).toBe('true')
+    dialog.loadProvider(provider)
+    await nextTick()
+    expect(selector.props('modelValue')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('切换 OKPay 调试日志不会改写新输入 Token 的空白和特殊字符', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    const token = '  token+%20&=中文  '
+    await wrapper.get('input[name="provider-token"]').setValue(token)
+    const selector = wrapper.getComponent('[name="provider-debugLogging"]')
+
+    for (const enabled of ['true', 'false']) {
+      selector.vm.$emit('update:modelValue', enabled)
+      await nextTick()
+      await wrapper.get('form').trigger('submit.prevent')
+      const payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+      expect(payload.config.debugLogging).toBe(enabled)
+      expect(payload.config.token).toBe(token)
+    }
     wrapper.unmount()
   })
 

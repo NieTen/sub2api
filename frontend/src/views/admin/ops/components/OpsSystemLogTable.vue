@@ -8,9 +8,11 @@ import Pagination from '@/components/common/Pagination.vue'
 import Select from '@/components/common/Select.vue'
 import { useAppStore } from '@/stores'
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { useClipboard } from '@/composables/useClipboard'
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 
 // 与 DataTable 一致：< 768px 切换为卡片视图，避免宽表在移动端被截断。
 const isDesktopViewport = useMediaQuery('(min-width: 768px)')
@@ -125,9 +127,69 @@ const getExtraString = (extra: Record<string, any> | undefined, key: string) => 
   return ''
 }
 
+const isOKPayDebugLog = (row: OpsSystemLog) => row.component === 'payment.okpay' && row.message === 'OKPay debug'
+const okpayRequestFieldNames = new Set([
+  'amount', 'callback_url', 'coin', 'id', 'name', 'nonce', 'return_url', 'sign', 'status', 'timestamp', 'unique_id'
+])
+
+const asLogObject = (value: unknown): Record<string, unknown> => (
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+)
+
+// 逐层筛选诊断契约字段，未知字段和嵌套对象不能随日志进入展示或剪贴板。
+const pickLogScalars = (value: unknown, keys: string[]): Record<string, unknown> => {
+  const source = asLogObject(value)
+  const result: Record<string, unknown> = {}
+  for (const key of keys) {
+    const item = source[key]
+    if (typeof item === 'string' || typeof item === 'boolean' || (typeof item === 'number' && Number.isFinite(item))) {
+      result[key] = item
+    }
+  }
+  return result
+}
+
+const formatOKPayDebugDetail = (row: OpsSystemLog) => {
+  if (!isOKPayDebugLog(row)) return ''
+  const extra = asLogObject(row.extra)
+  const detail: Record<string, unknown> = {
+    ...pickLogScalars(row, ['created_at', 'request_id']),
+    component: row.component,
+    ...pickLogScalars(extra, [
+      'provider', 'instance_id', 'operation', 'signature_algorithm', 'transport',
+      'http_status', 'duration_ms', 'result', 'request_sent', 'response_bytes',
+      'upstream_status', 'business_code'
+    ])
+  }
+  const requestSource = asLogObject(extra.request)
+  const request = pickLogScalars(requestSource, [
+    'field_count', 'amount', 'coin', 'status', 'timestamp', 'name_bytes', 'name_runes',
+    'unique_id_bytes', 'nonce_bytes', 'sign_bytes'
+  ])
+  if (Array.isArray(requestSource.fields)) {
+    request.fields = requestSource.fields.filter(field => typeof field === 'string' && okpayRequestFieldNames.has(field))
+  }
+  for (const key of ['return_url', 'callback_url']) {
+    const summary = pickLogScalars(requestSource[key], ['present', 'bytes', 'https', 'host', 'path_bytes', 'query_bytes', 'query_params'])
+    if (Object.keys(summary).length) request[key] = summary
+  }
+  if (Object.keys(request).length) detail.request = request
+  const messages = asLogObject(extra.upstream_messages)
+  const safeMessages: Record<string, string> = {}
+  for (const key of ['msg', 'message']) {
+    if (typeof messages[key] === 'string') safeMessages[key] = messages[key]
+  }
+  if (Object.keys(safeMessages).length) detail.upstream_messages = safeMessages
+  return JSON.stringify(detail, null, 2)
+}
+
+const okpayDebugDetails = computed(() => new Map(logs.value.map(row => [row.id, formatOKPayDebugDetail(row)])))
+
 const formatSystemLogDetail = (row: OpsSystemLog) => {
   const parts: string[] = []
   const msg = String(row.message || '').trim()
+  // OKPay 诊断只使用专用白名单详情，不读取通用日志里的任意错误文本。
+  if (isOKPayDebugLog(row)) return row.request_id ? `${msg}  req=${row.request_id}` : msg
   if (msg) parts.push(msg)
 
   const extra = row.extra || {}
@@ -559,6 +621,13 @@ onMounted(async () => {
           <div class="whitespace-normal break-all text-xs text-gray-700 dark:text-gray-300">
             {{ formatSystemLogDetail(row) }}
           </div>
+          <details v-if="okpayDebugDetails.get(row.id)" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800" data-testid="okpay-debug-details">
+            <summary class="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.ops.systemLogs.okpayDebugDetails') }}</summary>
+            <div class="mt-2 flex justify-end">
+              <button type="button" class="btn btn-secondary btn-sm" @click="copyToClipboard(okpayDebugDetails.get(row.id) || '')">{{ t('common.copy') }}</button>
+            </div>
+            <pre class="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap break-all rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-800 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-100"><code>{{ okpayDebugDetails.get(row.id) }}</code></pre>
+          </details>
         </div>
       </div>
       <div v-else class="overflow-auto">
@@ -584,6 +653,13 @@ onMounted(async () => {
               </td>
               <td class="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-normal break-all">
                 {{ formatSystemLogDetail(row) }}
+                <details v-if="okpayDebugDetails.get(row.id)" class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800" data-testid="okpay-debug-details">
+                  <summary class="cursor-pointer text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.ops.systemLogs.okpayDebugDetails') }}</summary>
+                  <div class="mt-2 flex justify-end">
+                    <button type="button" class="btn btn-secondary btn-sm" @click="copyToClipboard(okpayDebugDetails.get(row.id) || '')">{{ t('common.copy') }}</button>
+                  </div>
+                  <pre class="mt-2 max-h-[320px] overflow-auto whitespace-pre-wrap break-all rounded-xl border border-gray-200 bg-white p-3 text-xs text-gray-800 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-100"><code>{{ okpayDebugDetails.get(row.id) }}</code></pre>
+                </details>
               </td>
             </tr>
           </tbody>

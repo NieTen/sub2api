@@ -73,6 +73,7 @@ export default {
         empty: '暂无系统日志',
         time: '时间',
         logDetails: '日志详情',
+        okpayDebugDetails: 'OKPay 调试详情',
         loadFailed: '加载系统日志失败',
         runtimeConfigActive: '运行时日志配置已生效',
         runtimeConfigLoadFailed: '日志配置加载失败，请刷新后重试。',

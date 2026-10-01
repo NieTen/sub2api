@@ -146,6 +146,14 @@ export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
         { value: 'legacy_md5', label: 'MD5', labelKey: 'admin.settings.payment.okpaySignatureLegacy' },
       ],
     },
+    {
+      key: 'debugLogging', label: '', sensitive: false, defaultValue: 'false',
+      hintKey: 'admin.settings.payment.field_okpayDebugLoggingHint',
+      options: [
+        { value: 'false', label: '关闭', labelKey: 'admin.settings.payment.okpayDebugLoggingDisabled' },
+        { value: 'true', label: '临时开启', labelKey: 'admin.settings.payment.okpayDebugLoggingEnabled' },
+      ],
+    },
     { key: 'apiBase', label: '', sensitive: false, defaultValue: 'https://api.okaypay.me/shop', hintKey: 'admin.settings.payment.field_okpayApiBaseHint' },
   ],
   usdt_trc20: [

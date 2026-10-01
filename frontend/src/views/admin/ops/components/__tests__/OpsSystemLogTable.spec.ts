@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import OpsSystemLogTable from '../OpsSystemLogTable.vue'
@@ -12,6 +12,11 @@ const mockGetSystemLogSinkHealth = vi.fn()
 const mockGetRuntimeLogConfig = vi.fn()
 const mockUpdateRuntimeLogConfig = vi.fn()
 const mockShowError = vi.fn()
+const mockCopyToClipboard = vi.fn()
+
+vi.mock('@/composables/useClipboard', () => ({
+  useClipboard: () => ({ copyToClipboard: mockCopyToClipboard }),
+}))
 
 vi.mock('@/api/admin/ops', () => ({
   opsAPI: {
@@ -157,6 +162,91 @@ describe('OpsSystemLogTable host support', () => {
   })
 })
 
+
+describe('OKPay 调试日志详情', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockGetSystemLogSinkHealth.mockResolvedValue(sinkHealth)
+    mockGetRuntimeLogConfig.mockResolvedValue(runtimeConfig)
+    mockCopyToClipboard.mockResolvedValue(true)
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([true, false])('桌面模式 %s 仅展示并复制白名单诊断字段，HTML 保持普通文本', async isDesktop => {
+    vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
+      matches: isDesktop, media: query, onchange: null,
+      addListener: vi.fn(), removeListener: vi.fn(),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: () => false,
+    }))
+    const upstreamMessage = '<img src=x onerror=alert(1)><script>alert(1)</script>'
+    const safeExtra = {
+      provider: 'okpay', instance_id: '4', operation: 'payLink',
+      signature_algorithm: 'hmac_sha256', transport: 'current', http_status: 200,
+      duration_ms: 321, result: 'rejected', request_sent: true, response_bytes: 128,
+      upstream_status: 'warning', business_code: '400',
+      request: {
+        field_count: 3, fields: ['amount', 'coin', 'sign'], amount: '0.99', coin: 'USDT',
+        status: '0', timestamp: '1790841600', name_bytes: 12, name_runes: 4,
+        unique_id_bytes: 16, nonce_bytes: 32, sign_bytes: 64,
+        return_url: { present: true, bytes: 100, https: true, host: 'site.example', path_bytes: 15, query_bytes: 20, query_params: 1 },
+        callback_url: { present: false, bytes: 0, https: false, host: '', path_bytes: 0, query_bytes: 0, query_params: 0 },
+      },
+      upstream_messages: { msg: 'amount 必须大于 1 USDT', message: upstreamMessage },
+    }
+    mockListSystemLogs.mockResolvedValue({
+      items: [{
+        id: 1, created_at: '2026-10-01T12:00:00Z', request_id: 'req-okpay-test', host: 'api-node-1', level: 'warn',
+        component: 'payment.okpay', message: 'OKPay debug',
+        extra: {
+          ...safeExtra, token: '应隐藏顶层凭据', error: '应隐藏通用错误', data: { balance: '应隐藏余额' },
+          request: {
+            ...safeExtra.request, token: '应隐藏请求凭据', sign: '应隐藏签名',
+            fields: [...safeExtra.request.fields, '应隐藏任意字段', { token: '应隐藏字段对象' }],
+            return_url: { ...safeExtra.request.return_url, url: '应隐藏完整地址', query: '应隐藏查询内容' },
+          },
+          upstream_messages: { ...safeExtra.upstream_messages, raw: '应隐藏原始响应' },
+        },
+      }], total: 1, page: 1, page_size: 20,
+    })
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } },
+    })
+    await flushPromises()
+    expect(wrapper.find('table').exists()).toBe(isDesktop)
+    const details = wrapper.get('[data-testid="okpay-debug-details"]')
+    expect(details.element.tagName).toBe('DETAILS')
+    expect((details.element as HTMLDetailsElement).open).toBe(false)
+    expect(details.get('summary').text()).toBe('admin.ops.systemLogs.okpayDebugDetails')
+    ;(details.element as HTMLDetailsElement).open = true
+    const json = details.get('pre').text()
+    expect(JSON.parse(json)).toEqual({ created_at: '2026-10-01T12:00:00Z', request_id: 'req-okpay-test', component: 'payment.okpay', ...safeExtra })
+    expect(wrapper.text()).not.toContain('应隐藏')
+    expect(details.find('img').exists()).toBe(false)
+    expect(details.find('script').exists()).toBe(false)
+    expect(details.get('pre').text()).toContain(upstreamMessage)
+    await details.get('button').trigger('click')
+    expect(mockCopyToClipboard).toHaveBeenCalledWith(json)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['app', 'OKPay debug'],
+    ['payment.okpay', '普通支付日志'],
+  ])('不为其他日志 %s / %s 展示专用详情', async (component, message) => {
+    mockListSystemLogs.mockResolvedValue({
+      items: [{ id: 2, created_at: '2026-10-01T12:00:00Z', host: '', level: 'warn', component, message, extra: { upstream_messages: { msg: '不应展开' } } }],
+      total: 1, page: 1, page_size: 20,
+    })
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } },
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="okpay-debug-details"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('不应展开')
+    wrapper.unmount()
+  })
+})
 
 describe('rolling log retention settings', () => {
   const mountTable = () => mount(OpsSystemLogTable, {
