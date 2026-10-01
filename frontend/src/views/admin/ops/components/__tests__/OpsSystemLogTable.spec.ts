@@ -184,13 +184,13 @@ describe('OKPay 调试日志详情', () => {
       provider: 'okpay', instance_id: '4', operation: 'payLink',
       signature_algorithm: 'hmac_sha256', transport: 'current', http_status: 200,
       duration_ms: 321, result: 'rejected', request_sent: true, response_bytes: 128,
-      upstream_status: 'warning', business_code: '400',
+      upstream_status: 'warning', business_code: '400', stage: 'upstream',
       request: {
         field_count: 3, fields: ['amount', 'coin', 'sign'], amount: '0.99', coin: 'USDT',
         status: '0', timestamp: '1790841600', name_bytes: 12, name_runes: 4,
         unique_id_bytes: 16, nonce_bytes: 32, sign_bytes: 64,
-        return_url: { present: true, bytes: 100, https: true, host: 'site.example', path_bytes: 15, query_bytes: 20, query_params: 1 },
-        callback_url: { present: false, bytes: 0, https: false, host: '', path_bytes: 0, query_bytes: 0, query_params: 0 },
+        return_url: { present: true, bytes: 100, https: true, host: 'site.example', path_bytes: 15, query_bytes: 20, query_params: 1, scheme: 'https', valid: true, validation_reason: '', has_userinfo: false, has_control_chars: false, source: 'request' },
+        callback_url: { present: false, bytes: 0, https: false, host: '', path_bytes: 0, query_bytes: 0, query_params: 0, scheme: 'relative', valid: false, validation_reason: '', has_userinfo: false, has_control_chars: false, source: 'empty' },
       },
       upstream_messages: { msg: 'amount 必须大于 1 USDT', message: upstreamMessage },
     }
@@ -225,6 +225,45 @@ describe('OKPay 调试日志详情', () => {
     expect(details.find('img').exists()).toBe(false)
     expect(details.find('script').exists()).toBe(false)
     expect(details.get('pre').text()).toContain(upstreamMessage)
+    await details.get('button').trigger('click')
+    expect(mockCopyToClipboard).toHaveBeenCalledWith(json)
+    wrapper.unmount()
+  })
+
+  it('显示本地地址校验失败及来源，只接受约定 URL 枚举和布尔值', async () => {
+    const callbackSummary = {
+      present: true, bytes: 60, https: false, host: 'site.example', scheme: 'http', valid: false,
+      validation_reason: 'scheme_not_https', has_userinfo: false, has_control_chars: false, source: 'provider_config',
+    }
+    mockListSystemLogs.mockResolvedValue({
+      items: [{
+        id: 3, created_at: '2026-10-01T12:00:00Z', host: '', level: 'warn', component: 'payment.okpay', message: 'OKPay debug',
+        extra: {
+          stage: 'validation', request_sent: false, validation_field: 'callback_url',
+          validation_reason: 'scheme_not_https', validation_message: '回调地址必须使用 HTTPS',
+          request: {
+            callback_url: { ...callbackSummary, raw_url: '应隐藏完整URL' },
+            return_url: {
+              scheme: 'https://应隐藏任意协议', validation_reason: '应隐藏任意原因', source: '应隐藏任意来源',
+              valid: '应隐藏非布尔值', has_userinfo: 'false', has_control_chars: 1,
+            },
+          },
+        },
+      }], total: 1, page: 1, page_size: 20,
+    })
+    const wrapper = mount(OpsSystemLogTable, {
+      global: { stubs: { Select: SelectStub, Pagination: PaginationStub } },
+    })
+    await flushPromises()
+    const details = wrapper.get('[data-testid="okpay-debug-details"]')
+    const json = details.get('pre').text()
+    expect(JSON.parse(json)).toMatchObject({
+      stage: 'validation', request_sent: false, validation_field: 'callback_url',
+      validation_reason: 'scheme_not_https', validation_message: '回调地址必须使用 HTTPS',
+      request: { callback_url: callbackSummary },
+    })
+    expect(JSON.parse(json).request).not.toHaveProperty('return_url')
+    expect(wrapper.text()).not.toContain('应隐藏')
     await details.get('button').trigger('click')
     expect(mockCopyToClipboard).toHaveBeenCalledWith(json)
     wrapper.unmount()

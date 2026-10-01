@@ -1,9 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import PaymentProviderDialog from '@/components/payment/PaymentProviderDialog.vue'
 import { STRIPE_SDK_API_VERSION } from '@/components/payment/providerConfig'
 import type { ProviderInstance } from '@/types/payment'
+
+const mockShowError = vi.fn()
+
+vi.mock('@/stores', () => ({
+  useAppStore: () => ({ showError: mockShowError }),
+}))
 
 const messages: Record<string, string> = {
   'admin.settings.payment.providerConfig': 'Credentials',
@@ -41,7 +47,6 @@ function providerFactory(overrides: Partial<ProviderInstance> = {}): ProviderIns
     id: 1,
     provider_key: 'airwallex',
     name: 'Airwallex',
-    config: {},
     supported_types: ['airwallex'],
     enabled: true,
     payment_mode: '',
@@ -50,6 +55,13 @@ function providerFactory(overrides: Partial<ProviderInstance> = {}): ProviderIns
     limits: '',
     sort_order: 0,
     ...overrides,
+    config: overrides.provider_key === 'okpay'
+      ? {
+          notifyUrl: 'https://site.example.com/api/v1/payment/webhook/okpay',
+          returnUrl: 'https://site.example.com/payment/result',
+          ...overrides.config,
+        }
+      : overrides.config ?? {},
   }
 }
 
@@ -129,6 +141,8 @@ describe('PaymentProviderDialog payment guide', () => {
     await wrapper.find('input[type="text"]').setValue('原生 OKPay')
     await wrapper.get('input[name="provider-id"]').setValue('shop-1')
     await wrapper.get('input[name="provider-token"]').setValue('token-1')
+    await wrapper.get('input[name="provider-notify-base"]').setValue('https://site.example.com')
+    await wrapper.get('input[name="provider-return-base"]').setValue('https://site.example.com')
     expect(wrapper.text()).not.toContain('admin.settings.payment.refundEnabled')
     await wrapper.get('form').trigger('submit.prevent')
     expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ provider_key: 'okpay', payment_mode: 'redirect', supported_types: ['okpay'], refund_enabled: false, allow_user_refund: false, config: { id: 'shop-1', token: 'token-1', apiBase: 'https://api.okaypay.me/shop' } })
@@ -243,6 +257,93 @@ describe('PaymentProviderDialog payment guide', () => {
     await nextTick()
     await wrapper.get('form').trigger('submit.prevent')
     expect(wrapper.emitted('save')).toBeUndefined()
+  })
+
+  it.each([
+    ['notify', 'admin.settings.payment.validationOkpayNotifyBase'],
+    ['return', 'admin.settings.payment.validationOkpayReturnBase'],
+  ])('OKPay 保存时区分 %s 地址错误，不自动修改协议，允许 HTTPS 反代子路径', async (field, errorKey) => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    const input = wrapper.get(`input[name="provider-${field}-base"]`)
+    for (const invalid of [
+      'http://site.example.com/sub', '/relative', '//site.example.com', 'https:///missing-host',
+      'https://user:password@site.example.com', 'https://@site.example.com',
+      'https://site.example.com/sub?token=private', 'https://site.example.com/sub?',
+      'https://site.example.com/sub#section', 'https://site.example.com/sub#',
+      'https://site.example.com\\sub', 'https://site.example.com/%ZZ', 'https://site.example.com/%2', 'https://site.example.com/%',
+    ]) {
+      mockShowError.mockClear()
+      await input.setValue(invalid)
+      await wrapper.get('form').trigger('submit.prevent')
+      await flushPromises()
+      expect(wrapper.emitted('save')).toBeUndefined()
+      expect(mockShowError).toHaveBeenLastCalledWith(errorKey)
+      expect((input.element as HTMLInputElement).value).toBe(invalid)
+    }
+    const configKey = field === 'notify' ? 'notifyUrl' : 'returnUrl'
+    const suffix = field === 'notify' ? '/api/v1/payment/webhook/okpay' : '/payment/result'
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider({
+      ...provider, config: { ...provider.config, [configKey]: 'https://si\tte.example.com' + suffix },
+    })
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(mockShowError).toHaveBeenLastCalledWith(errorKey)
+    await wrapper.get('input[name="provider-notify-base"]').setValue(' https://notify.example.com/proxy/sub/ ')
+    await wrapper.get('input[name="provider-return-base"]').setValue(' https://return.example.com/site/ ')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      config: {
+        notifyUrl: 'https://notify.example.com/proxy/sub/api/v1/payment/webhook/okpay',
+        returnUrl: 'https://return.example.com/site/payment/result',
+      },
+    })
+    wrapper.unmount()
+  })
+
+  it('OKPay 基础地址保留合法百分号转义和中文子路径', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    await wrapper.get('input[name="provider-notify-base"]').setValue('https://site.example.com/proxy%20path/中文/')
+    await wrapper.get('input[name="provider-return-base"]').setValue('https://site.example.com/返回/%20/')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({
+      config: {
+        notifyUrl: 'https://site.example.com/proxy%20path/中文/api/v1/payment/webhook/okpay',
+        returnUrl: 'https://site.example.com/返回/%20/payment/result',
+      },
+    })
+    wrapper.unmount()
+  })
+
+  it('已有 HTTP 回调配置开启调试时仍需先修正地址，空值不能绕过 HTTP 当前站点校验', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: {
+      id: 'shop-1', apiBase: 'https://api.okaypay.me/shop', notifyUrl: 'http://site.example.com/api/v1/payment/webhook/okpay',
+    } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    wrapper.getComponent('[name="provider-debugLogging"]').vm.$emit('update:modelValue', 'true')
+    await nextTick()
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(mockShowError).toHaveBeenLastCalledWith('admin.settings.payment.validationOkpayNotifyBase')
+    expect(window.location.protocol).toBe('http:')
+    await wrapper.get('input[name="provider-notify-base"]').setValue('')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    await wrapper.get('input[name="provider-notify-base"]').setValue('https://site.example.com')
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(wrapper.emitted('save')?.[0]?.[0]).toMatchObject({ config: { debugLogging: 'true', notifyUrl: 'https://site.example.com/api/v1/payment/webhook/okpay' } })
+    wrapper.unmount()
   })
 
   it.each([undefined, 'test-key'])('TRC20 仅必填有效收款地址，支持可选密钥 %s 并隐藏官方节点', async (apiKey) => {

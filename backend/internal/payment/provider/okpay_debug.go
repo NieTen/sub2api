@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"go.uber.org/zap"
@@ -34,19 +35,43 @@ var (
 
 // 请求原值只在本次调用内用于脱敏，任何日志都不得直接序列化此结构。
 type okpayDebugRequest struct {
-	started       time.Time
-	operation     string
-	algorithm     string
-	transport     string
-	payload       url.Values
-	requestSent   bool
-	httpStatus    int
-	responseBytes int
-	response      okpayArray
+	started           time.Time
+	operation         string
+	algorithm         string
+	transport         string
+	payload           url.Values
+	requestSent       bool
+	httpStatus        int
+	responseBytes     int
+	response          okpayArray
+	validationField   string
+	validationReason  string
+	validationMessage string
+	urlSources        map[string]string
 }
 
 func (o *OKPay) debugLoggingEnabled() bool {
 	return o != nil && strings.EqualFold(strings.TrimSpace(o.config["debugLogging"]), "true")
+}
+
+// 本地校验发生在签名和 HTTP 调用前，也必须在调试模式中留下可定位的记录。
+func (o *OKPay) createPaymentValidationError(ctx context.Context, request payment.CreatePaymentRequest, field, reason string, err error) error {
+	if !o.debugLoggingEnabled() {
+		return err
+	}
+	returnURL, returnSource := okpayResolvePaymentURL(request.ReturnURL, o.config["returnUrl"])
+	callbackURL, callbackSource := okpayResolvePaymentURL(request.NotifyURL, o.config["notifyUrl"])
+	debug := &okpayDebugRequest{
+		started: time.Now(), operation: "/payLink", algorithm: o.config["signatureAlgorithm"], transport: okpayTransportCurrent,
+		payload: url.Values{
+			"unique_id": {request.OrderID}, "name": {request.Subject}, "amount": {request.Amount},
+			"coin": {okpayCurrency}, "return_url": {returnURL}, "callback_url": {callbackURL}, "status": {"0"},
+		},
+		validationField: field, validationReason: reason, validationMessage: err.Error(),
+		urlSources: map[string]string{"return_url": returnSource, "callback_url": callbackSource},
+	}
+	o.logDebugRequest(ctx, debug, err)
+	return err
 }
 
 func (o *OKPay) logDebugRequest(ctx context.Context, request *okpayDebugRequest, requestErr error) {
@@ -54,6 +79,7 @@ func (o *OKPay) logDebugRequest(ctx context.Context, request *okpayDebugRequest,
 		return
 	}
 	sensitive := okpayDebugSensitiveValues(o.config, request.payload)
+	stage := "upstream"
 	result := "success"
 	if requestErr != nil {
 		result = okpayCheckRequestFailed
@@ -65,6 +91,17 @@ func (o *OKPay) logDebugRequest(ctx context.Context, request *okpayDebugRequest,
 			}
 		}
 	}
+	if request.validationField != "" {
+		stage, result = "validation", "validation_failed"
+	}
+	summary := okpayDebugRequestSummary(request.payload, sensitive)
+	for _, key := range []string{"return_url", "callback_url"} {
+		if source, exists := request.urlSources[key]; exists {
+			if link, ok := summary[key].(map[string]any); ok {
+				link["source"] = source
+			}
+		}
+	}
 	fields := []zap.Field{
 		zap.String("component", "payment.okpay"),
 		zap.String("provider", "okpay"),
@@ -72,12 +109,20 @@ func (o *OKPay) logDebugRequest(ctx context.Context, request *okpayDebugRequest,
 		zap.String("operation", okpayDebugOperation(request.operation)),
 		zap.String("signature_algorithm", okpayDebugLabel(request.algorithm)),
 		zap.String("transport", okpayDebugLabel(request.transport)),
+		zap.String("stage", stage),
 		zap.Int("http_status", request.httpStatus),
 		zap.Int64("duration_ms", time.Since(request.started).Milliseconds()),
 		zap.String("result", result),
 		zap.Bool("request_sent", request.requestSent),
 		zap.Int("response_bytes", request.responseBytes),
-		zap.Any("request", okpayDebugRequestSummary(request.payload, sensitive)),
+		zap.Any("request", summary),
+	}
+	if request.validationField != "" {
+		fields = append(fields,
+			zap.String("validation_field", request.validationField),
+			zap.String("validation_reason", request.validationReason),
+			zap.String("validation_message", request.validationMessage),
+		)
 	}
 	if status, ok := request.response.get("status"); ok {
 		if text, ok := status.(string); ok {
@@ -166,11 +211,28 @@ func okpayDebugRequestSummary(payload url.Values, sensitive []string) map[string
 }
 
 func okpayDebugURLSummary(raw string, sensitive []string) map[string]any {
-	summary := map[string]any{"present": raw != "", "bytes": len(raw), "https": false, "host": "", "path_bytes": 0, "query_bytes": 0, "query_params": 0}
+	reason := ""
+	if raw != "" {
+		reason = okpayHTTPSURLFailure(raw)
+	}
+	summary := map[string]any{
+		"present": raw != "", "bytes": len(raw), "https": false, "host": "", "path_bytes": 0, "query_bytes": 0, "query_params": 0,
+		"valid": raw != "" && reason == "", "validation_reason": reason, "scheme": "relative",
+		"has_userinfo": false, "has_control_chars": strings.ContainsAny(raw, "\r\n\x00"),
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
+		summary["scheme"] = "other"
 		return summary
 	}
+	switch parsed.Scheme {
+	case "http", "https":
+		summary["scheme"] = parsed.Scheme
+	case "":
+	default:
+		summary["scheme"] = "other"
+	}
+	summary["has_userinfo"] = parsed.User != nil
 	summary["https"] = parsed.Scheme == "https"
 	summary["path_bytes"] = len(parsed.EscapedPath())
 	summary["query_bytes"] = len(parsed.RawQuery)
@@ -208,6 +270,12 @@ func okpayDebugSensitiveValues(config map[string]string, payload url.Values) []s
 			}
 		}
 		if parsed, err := url.Parse(raw); err == nil {
+			if parsed.User != nil {
+				values = append(values, parsed.User.Username())
+				if password, found := parsed.User.Password(); found {
+					values = append(values, password)
+				}
+			}
 			values = append(values, parsed.Fragment, parsed.RawFragment)
 			for _, queryValues := range parsed.Query() {
 				values = append(values, queryValues...)

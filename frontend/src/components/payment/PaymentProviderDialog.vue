@@ -231,14 +231,14 @@
           <div v-if="callbackPaths.notifyUrl">
             <label class="input-label">{{ t('admin.settings.payment.field_notifyUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
-              <input v-model="notifyBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
+              <input v-model="notifyBaseUrl" name="provider-notify-base" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
               <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.notifyUrl }}</span>
             </div>
           </div>
           <div v-if="callbackPaths.returnUrl">
             <label class="input-label">{{ t('admin.settings.payment.field_returnUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
-              <input v-model="returnBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
+              <input v-model="returnBaseUrl" name="provider-return-base" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
               <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.returnUrl }}</span>
             </div>
           </div>
@@ -690,6 +690,21 @@ function serializeLimits(): string {
   return Object.keys(result).length > 0 ? JSON.stringify(result) : ''
 }
 
+function isValidOKPayCallbackBase(value: string): boolean {
+  // URL 构造器会容忍部分控制字符和反斜杠，先拒绝这些会改变实际地址的输入。
+  if ([...value].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) || value.includes('\\')) return false
+  const base = value.trim() || defaultBaseUrl
+  if (!/^https:\/\//i.test(base) || base.includes('?') || base.includes('#') || /%(?![0-9a-f]{2})/i.test(base)) return false
+  const authority = base.slice(base.indexOf('://') + 3).split('/')[0]
+  if (!authority || authority.includes('@')) return false
+  try {
+    const url = new URL(base)
+    return url.protocol === 'https:' && !!url.hostname && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
 function handleSave() {
   // Validate required fields
   if (!form.name.trim()) {
@@ -764,6 +779,16 @@ function handleSave() {
   // If base URL is empty, auto-fill with current domain
   const paths = PROVIDER_CALLBACK_PATHS[form.provider_key]
   if (paths) {
+    if (form.provider_key === 'okpay') {
+      if (!isValidOKPayCallbackBase(notifyBaseUrl.value)) {
+        emitValidationError(t('admin.settings.payment.validationOkpayNotifyBase'))
+        return
+      }
+      if (!isValidOKPayCallbackBase(returnBaseUrl.value)) {
+        emitValidationError(t('admin.settings.payment.validationOkpayReturnBase'))
+        return
+      }
+    }
     const notifyBase = (notifyBaseUrl.value.trim() || defaultBaseUrl).replace(/\/+$/, '')
     const returnBase = (returnBaseUrl.value.trim() || defaultBaseUrl).replace(/\/+$/, '')
     notifyBaseUrl.value = notifyBase

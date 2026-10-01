@@ -91,26 +91,28 @@ func (o *OKPay) MerchantIdentityMetadata() map[string]string {
 
 func (o *OKPay) CreatePayment(ctx context.Context, request payment.CreatePaymentRequest) (*payment.CreatePaymentResponse, error) {
 	if strings.TrimSpace(request.OrderID) == "" {
-		return nil, fmt.Errorf("OKPay 缺少商户订单号")
+		return nil, o.createPaymentValidationError(ctx, request, "unique_id", "missing_order_id", fmt.Errorf("OKPay 缺少商户订单号"))
 	}
 	amount, err := okpayPositiveAmount(request.Amount)
 	if err != nil {
-		return nil, err
+		return nil, o.createPaymentValidationError(ctx, request, "amount", "invalid_amount", err)
 	}
 	if !amount.Equal(amount.Truncate(2)) {
-		return nil, fmt.Errorf("OKPay 下单金额最多两位小数")
+		return nil, o.createPaymentValidationError(ctx, request, "amount", "amount_precision", fmt.Errorf("OKPay 下单金额最多两位小数"))
 	}
-	returnURL := strings.TrimSpace(request.ReturnURL)
-	if returnURL == "" {
-		returnURL = strings.TrimSpace(o.config["returnUrl"])
-	}
-	callbackURL := strings.TrimSpace(request.NotifyURL)
-	if callbackURL == "" {
-		callbackURL = strings.TrimSpace(o.config["notifyUrl"])
-	}
-	for _, link := range []string{returnURL, callbackURL} {
-		if link != "" && !okpayHTTPSURL(link) {
-			return nil, fmt.Errorf("OKPay 返回或回调地址须为 HTTPS 地址")
+	returnURL, _ := okpayResolvePaymentURL(request.ReturnURL, o.config["returnUrl"])
+	callbackURL, _ := okpayResolvePaymentURL(request.NotifyURL, o.config["notifyUrl"])
+	for index, link := range []string{returnURL, callbackURL} {
+		if link == "" {
+			continue
+		}
+		if reason := okpayHTTPSURLFailure(link); reason != "" {
+			field, label := "return_url", "返回地址"
+			if index == 1 {
+				field, label = "callback_url", "回调地址"
+			}
+			err := fmt.Errorf("OKPay %s（%s）无效：%s", label, field, okpayURLValidationMessage(reason))
+			return nil, o.createPaymentValidationError(ctx, request, field, reason, err)
 		}
 	}
 	fields := okpayArray{
@@ -439,8 +441,55 @@ func okpayDataAmount(data okpayArray) (float64, error) {
 }
 
 func okpayHTTPSURL(raw string) bool {
+	return okpayHTTPSURLFailure(raw) == ""
+}
+
+// 返回固定原因而不是 url.Parse 的原始错误，防止错误信息反射完整地址或恢复令牌。
+func okpayHTTPSURLFailure(raw string) string {
+	if strings.ContainsAny(raw, "\r\n\x00") {
+		return "control_characters"
+	}
 	parsed, err := url.Parse(raw)
-	return err == nil && parsed.Scheme == "https" && parsed.Hostname() != "" && parsed.User == nil && !strings.ContainsAny(raw, "\r\n\x00")
+	if err != nil {
+		return "parse_error"
+	}
+	if parsed.Scheme != "https" {
+		return "scheme_not_https"
+	}
+	if parsed.Hostname() == "" {
+		return "missing_host"
+	}
+	if parsed.User != nil {
+		return "userinfo_not_allowed"
+	}
+	return ""
+}
+
+func okpayURLValidationMessage(reason string) string {
+	switch reason {
+	case "control_characters":
+		return "地址包含换行或空字符，请重新填写"
+	case "parse_error":
+		return "地址格式无法解析，请检查转义字符、端口及完整域名"
+	case "scheme_not_https":
+		return "必须使用 https:// 开头的完整地址"
+	case "missing_host":
+		return "地址缺少域名，请填写完整 HTTPS 地址"
+	case "userinfo_not_allowed":
+		return "地址不能包含用户名或密码"
+	default:
+		return "请填写有效 HTTPS 地址"
+	}
+}
+
+func okpayResolvePaymentURL(requestURL, configuredURL string) (string, string) {
+	if value := strings.TrimSpace(requestURL); value != "" {
+		return value, "request"
+	}
+	if value := strings.TrimSpace(configuredURL); value != "" {
+		return value, "provider_config"
+	}
+	return "", "empty"
 }
 
 func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpayArray, error) {

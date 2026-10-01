@@ -131,6 +131,9 @@ const isOKPayDebugLog = (row: OpsSystemLog) => row.component === 'payment.okpay'
 const okpayRequestFieldNames = new Set([
   'amount', 'callback_url', 'coin', 'id', 'name', 'nonce', 'return_url', 'sign', 'status', 'timestamp', 'unique_id'
 ])
+const okpayURLValidationReasons = new Set([
+  '', 'parse_error', 'scheme_not_https', 'missing_host', 'userinfo_not_allowed', 'control_characters'
+])
 
 const asLogObject = (value: unknown): Record<string, unknown> => (
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -158,7 +161,7 @@ const formatOKPayDebugDetail = (row: OpsSystemLog) => {
     ...pickLogScalars(extra, [
       'provider', 'instance_id', 'operation', 'signature_algorithm', 'transport',
       'http_status', 'duration_ms', 'result', 'request_sent', 'response_bytes',
-      'upstream_status', 'business_code'
+      'upstream_status', 'business_code', 'stage', 'validation_field', 'validation_reason', 'validation_message'
     ])
   }
   const requestSource = asLogObject(extra.request)
@@ -170,7 +173,14 @@ const formatOKPayDebugDetail = (row: OpsSystemLog) => {
     request.fields = requestSource.fields.filter(field => typeof field === 'string' && okpayRequestFieldNames.has(field))
   }
   for (const key of ['return_url', 'callback_url']) {
-    const summary = pickLogScalars(requestSource[key], ['present', 'bytes', 'https', 'host', 'path_bytes', 'query_bytes', 'query_params'])
+    const url = asLogObject(requestSource[key])
+    const summary = pickLogScalars(url, ['present', 'bytes', 'https', 'host', 'path_bytes', 'query_bytes', 'query_params'])
+    for (const flag of ['valid', 'has_userinfo', 'has_control_chars']) {
+      if (typeof url[flag] === 'boolean') summary[flag] = url[flag]
+    }
+    if (typeof url.scheme === 'string' && ['http', 'https', 'relative', 'other'].includes(url.scheme)) summary.scheme = url.scheme
+    if (typeof url.source === 'string' && ['request', 'provider_config', 'empty'].includes(url.source)) summary.source = url.source
+    if (typeof url.validation_reason === 'string' && okpayURLValidationReasons.has(url.validation_reason)) summary.validation_reason = url.validation_reason
     if (Object.keys(summary).length) request[key] = summary
   }
   if (Object.keys(request).length) detail.request = request

@@ -816,6 +816,8 @@ export default {
         trc20ClearApiKey: 'Clear the saved key and use free public checks',
         trc20ClearApiKeyHint: 'Takes effect when saved. If unchecked, leaving the input empty keeps the existing key.',
         validationCryptoApiBase: 'Enter a valid HTTPS API URL without credentials, query parameters, or fragments.',
+        validationOkpayNotifyBase: 'The OKPay callback base URL must be a valid public HTTPS URL without credentials, query parameters, fragments, or control characters. Reverse proxy subpaths are supported.',
+        validationOkpayReturnBase: 'The OKPay return base URL must be a valid public HTTPS URL without credentials, query parameters, fragments, or control characters. Reverse proxy subpaths are supported.',
         validationTrc20Address: 'Enter a valid TRON receiving wallet address starting with T.',
         providerOkpay: 'OKPay',
         okpayDiagnostic: {

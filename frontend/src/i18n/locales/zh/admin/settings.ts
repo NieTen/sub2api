@@ -811,6 +811,8 @@ export default {
         trc20ClearApiKey: '清除已保存密钥，改用公共免费查询',
         trc20ClearApiKeyHint: '保存后生效。不勾选时，输入框留空会保留原密钥。',
         validationCryptoApiBase: 'API 地址必须是有效的 HTTPS 地址，且不能包含账号密码、查询参数或片段。',
+        validationOkpayNotifyBase: 'OKPay 回调基础地址必须是有效的 HTTPS 地址，不能包含账号密码、查询参数、片段或控制字符；支持反代子路径，请填写已配置 HTTPS 的公网地址。',
+        validationOkpayReturnBase: 'OKPay 返回基础地址必须是有效的 HTTPS 地址，不能包含账号密码、查询参数、片段或控制字符；支持反代子路径，请填写已配置 HTTPS 的公网地址。',
         validationTrc20Address: '请输入以 T 开头的有效 TRON 收款钱包地址。',
         providerOkpay: 'OKPay',
         okpayDiagnostic: {
