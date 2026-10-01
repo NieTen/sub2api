@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,7 +98,7 @@ func TestOKPayReturnURLIntegrationSavedHTTPSOverridesHTTPOrIPClient(t *testing.T
 			require.Equal(t, []string{strconv.FormatInt(order.ID, 10)}, query["order_id"])
 			require.Equal(t, []string{order.OutTradeNo}, query["out_trade_no"])
 			require.Equal(t, []string{"success"}, query["status"])
-			require.NotEmpty(t, response.ResumeToken)
+			require.Len(t, response.ResumeToken, 102)
 			require.Equal(t, []string{response.ResumeToken}, query["resume_token"])
 			for key, values := range expected.Query() {
 				require.Equal(t, values, query[key], "配置中的普通查询参数必须完整保留")
@@ -107,19 +108,69 @@ func TestOKPayReturnURLIntegrationSavedHTTPSOverridesHTTPOrIPClient(t *testing.T
 			}
 			claims, err := fixture.service.resumeService.ParseToken(response.ResumeToken)
 			require.NoError(t, err)
-			require.Equal(t, tc.canonicalURL, claims.CanonicalReturnURL)
+			require.Empty(t, claims.CanonicalReturnURL, "短令牌不再重复嵌入可信返回地址")
 			require.Equal(t, order.ID, claims.OrderID)
 			require.Equal(t, fixture.userID, claims.UserID)
 			require.Equal(t, fixture.balancer.selection.InstanceID, claims.ProviderInstanceID)
 			require.Equal(t, payment.TypeOKPay, claims.ProviderKey)
 			require.Equal(t, payment.TypeOKPay, claims.PaymentType)
+			legacyClaims := *claims
+			legacyClaims.CanonicalReturnURL = tc.canonicalURL
+			legacyToken, err := fixture.service.resumeService.CreateToken(legacyClaims)
+			require.NoError(t, err)
+			legacyURL, err := buildPaymentReturnURL(tc.canonicalURL, order.ID, order.OutTradeNo, legacyToken)
+			require.NoError(t, err)
+			require.Less(t, len(actual.String()), len(legacyURL)-100, "压缩主体应显著缩短最终链接，同时保留全部恢复查询参数")
+			if tc.canonicalURL == "https://zzzai.pro/payment/result" {
+				// 这里只约束本项目典型链接长度，不代表 OKPay 公开过此长度上限。
+				require.LessOrEqual(t, len(actual.String()), 220)
+			}
 			for _, key := range []string{"order_id", "out_trade_no", "resume_token", "status"} {
 				query.Del(key)
 			}
 			actual.RawQuery = query.Encode()
-			require.Equal(t, claims.CanonicalReturnURL, actual.String(), "恢复令牌必须绑定最终实际返回地址，不能仍绑定客户端的 HTTP 或 IP 地址")
+			require.Equal(t, tc.canonicalURL, actual.String(), "缩短令牌不能改变已经验证的 HTTPS 目标、子路径和普通参数")
 		})
 	}
+}
+
+func TestOKPayReturnURLIntegrationCompactTokenResolvesOnlyMatchingOrder(t *testing.T) {
+	ctx := context.Background()
+	fixture, transport := newOKPayReturnURLIntegrationFixture(t, "https://zzzai.pro/payment/result", []byte("test-payment-resume-signing-key"))
+	response, err := fixture.service.CreateOrder(ctx, CreateOrderRequest{
+		UserID: fixture.userID, Amount: 10, PaymentType: payment.TypeOKPay, OrderType: payment.OrderTypeBalance,
+		SrcHost: "192.0.2.20:8080", ReturnURL: "http://192.0.2.20:8080/payment/result",
+	})
+	require.NoError(t, err)
+	require.Len(t, response.ResumeToken, 102)
+	// 仅修改夹具订单状态，避免查询触发主动对账；本测试不执行付款或余额变更。
+	_, err = fixture.service.entClient.PaymentOrder.UpdateOneID(response.OrderID).SetStatus(OrderStatusCompleted).Save(ctx)
+	require.NoError(t, err)
+	resolved, err := fixture.service.GetPublicOrderByResumeToken(ctx, response.ResumeToken)
+	require.NoError(t, err, "跨域结果页不依赖登录态或浏览器本地缓存即可恢复订单")
+	require.Equal(t, response.OrderID, resolved.ID)
+	require.Equal(t, fixture.userID, resolved.UserID)
+	claims, err := fixture.service.resumeService.ParseToken(response.ResumeToken)
+	require.NoError(t, err)
+	for _, mismatch := range []string{"用户", "实例"} {
+		t.Run(mismatch, func(t *testing.T) {
+			changed := *claims
+			if mismatch == "用户" {
+				changed.UserID++
+			} else {
+				instanceID, err := strconv.ParseInt(changed.ProviderInstanceID, 10, 64)
+				require.NoError(t, err)
+				changed.ProviderInstanceID = strconv.FormatInt(instanceID+1, 10)
+			}
+			token, err := fixture.service.resumeService.CreateOKPayToken(changed)
+			require.NoError(t, err)
+			got, err := fixture.service.GetPublicOrderByResumeToken(ctx, token)
+			require.Error(t, err)
+			require.Nil(t, got)
+			require.Equal(t, "INVALID_RESUME_TOKEN", infraerrors.Reason(err))
+		})
+	}
+	require.Equal(t, 1, transport.calls, "恢复及不匹配校验不能额外创建支付链接")
 }
 
 func TestOKPayReturnURLIntegrationWithoutSigningKeyRemovesStaleToken(t *testing.T) {

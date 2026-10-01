@@ -331,6 +331,11 @@ function okpayDiagnosticSelfTest()
     return ['kind' => 'self_test', 'passed' => $passed];
 }
 
+// 对照工具可仅复用函数；直接运行时仍执行原有余额诊断入口。
+if (defined('OKPAY_DIAGNOSTIC_LIBRARY_ONLY') && OKPAY_DIAGNOSTIC_LIBRARY_ONLY === true) {
+    return;
+}
+
 try {
     if (PHP_SAPI !== 'cli' || !extension_loaded('curl')) {
         throw new RuntimeException('本机 PHP 不可用');

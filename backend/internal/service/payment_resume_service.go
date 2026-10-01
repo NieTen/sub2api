@@ -349,6 +349,9 @@ func (s *PaymentResumeService) ParseToken(token string) (*ResumeTokenClaims, err
 	if err := s.ensureSigningKey(); err != nil {
 		return nil, err
 	}
+	if strings.HasPrefix(token, okpayResumeTokenPrefix) {
+		return s.parseOKPayToken(token)
+	}
 	var claims ResumeTokenClaims
 	if err := s.parseSignedToken(token, &claims); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_RESUME_TOKEN", "resume token payload is invalid")

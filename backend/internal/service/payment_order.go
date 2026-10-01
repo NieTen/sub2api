@@ -463,14 +463,19 @@ func (s *PaymentService) invokeProvider(ctx context.Context, order *dbent.Paymen
 	resumeToken := ""
 	if resume := s.paymentResume(); resume != nil {
 		if canonicalReturnURL != "" && resume.isSigningConfigured() {
-			resumeToken, err = resume.CreateToken(ResumeTokenClaims{
+			claims := ResumeTokenClaims{
 				OrderID:            order.ID,
 				UserID:             order.UserID,
 				ProviderInstanceID: sel.InstanceID,
 				ProviderKey:        sel.ProviderKey,
 				PaymentType:        req.PaymentType,
 				CanonicalReturnURL: canonicalReturnURL,
-			})
+			}
+			if sel.ProviderKey == payment.TypeOKPay {
+				resumeToken, err = resume.CreateOKPayToken(claims)
+			} else {
+				resumeToken, err = resume.CreateToken(claims)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("create payment resume token: %w", err)
 			}

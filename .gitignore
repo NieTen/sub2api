@@ -126,6 +126,8 @@ scripts
 scripts/*
 !scripts/diagnose-okpay.ps1
 !scripts/diagnose-okpay.php
+!scripts/diagnose-okpay-checkout.ps1
+!scripts/diagnose-okpay-checkout.php
 !backend/scripts/
 !backend/scripts/resolve-version.sh
 .code-review-state

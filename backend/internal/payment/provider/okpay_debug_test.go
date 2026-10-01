@@ -76,14 +76,15 @@ func TestOKPayDebugRedactsReflectedCredentialsAndResumeURL(t *testing.T) {
 	const subject = "用户私密标题"
 	const resume = "private-resume+value"
 	const opaqueJWT = "eyJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiMzEyMzQ1Njc4In0.c2lnbmF0dXJl"
-	returnURL := "https://site.example/payment/result?resume_token=" + url.QueryEscape(resume) + "&order_id=" + order
+	compactResume := "op1." + strings.Repeat("A", 54) + "." + strings.Repeat("B", 43)
+	returnURL := "https://site.example/payment/result?resume_token=" + compactResume + "&legacy_resume=" + url.QueryEscape(resume) + "&order_id=" + order
 	var signature, nonce string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
 		signature, nonce = r.PostForm.Get("sign"), r.PostForm.Get("nonce")
 		message := strings.Join([]string{
 			"return_url 参数长度超限", token, url.QueryEscape(token), merchant, signature, strings.ToLower(signature),
-			nonce, order, subject, returnURL, resume, opaqueJWT, "\r\n\x00\u202e",
+			nonce, order, subject, returnURL, resume, compactResume, opaqueJWT, "\r\n\x00\u202e",
 		}, " | ")
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
 			"status": "warning", "code": 400, "msg": message,
@@ -102,7 +103,7 @@ func TestOKPayDebugRedactsReflectedCredentialsAndResumeURL(t *testing.T) {
 	entries := logs.FilterMessage("OKPay debug").All()
 	require.Len(t, entries, 1)
 	encoded := okpayDebugTestJSON(t, entries[0])
-	for _, secret := range []string{token, url.QueryEscape(token), merchant, signature, strings.ToLower(signature), nonce, order, subject, returnURL, resume, opaqueJWT, "9845631.73", "secret-pay-url", `\r`, `\n`, `\u0000`, "\u202e"} {
+	for _, secret := range []string{token, url.QueryEscape(token), merchant, signature, strings.ToLower(signature), nonce, order, subject, returnURL, resume, compactResume, opaqueJWT, "9845631.73", "secret-pay-url", `\r`, `\n`, `\u0000`, "\u202e"} {
 		require.NotEmpty(t, secret)
 		require.NotContains(t, encoded, secret)
 	}
@@ -118,7 +119,7 @@ func TestOKPayDebugRedactsReflectedCredentialsAndResumeURL(t *testing.T) {
 	link := request["return_url"].(map[string]any)
 	require.Equal(t, "site.example", link["host"])
 	require.EqualValues(t, len(returnURL), link["bytes"])
-	require.EqualValues(t, 2, link["query_params"])
+	require.EqualValues(t, 3, link["query_params"])
 	require.NotContains(t, link, "path")
 }
 
