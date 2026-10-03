@@ -12,7 +12,7 @@ import (
 func TestUSDTQuoteUserAndResumeDTOExposeOnlyLockedExchangeDetails(t *testing.T) {
 	order := &dbent.PaymentOrder{
 		ID: 31, UserID: 12, OutTradeNo: "usdt-response-31", PaymentType: payment.TypeOKPay,
-		OrderType: payment.OrderTypeBalance, Amount: 1.4, PayAmount: 1.43,
+		OrderType: payment.OrderTypeBalance, Amount: 1.68, PayAmount: 1.43, BonusAmount: 0.28,
 		ProviderSnapshot: map[string]any{
 			"currency": "USDT", "provider_key": payment.TypeOKPay,
 			"token": "商户密钥不得外泄", "apiKey": "接口密钥不得外泄",
@@ -38,6 +38,9 @@ func TestUSDTQuoteUserAndResumeDTOExposeOnlyLockedExchangeDetails(t *testing.T) 
 			var result map[string]any
 			require.NoError(t, json.Unmarshal(raw, &result))
 			require.Equal(t, "USDT", result["currency"])
+			require.Equal(t, 1.68, result["amount"])
+			require.Equal(t, 0.28, result["bonus_amount"])
+			require.Equal(t, false, result["refund_supported"])
 			detail, ok := result["usdt_exchange"].(map[string]any)
 			require.True(t, ok, "前端必须收到本单锁定报价")
 			require.Equal(t, 7.2, detail["rate"])
@@ -57,6 +60,7 @@ func TestUSDTQuoteUserAndResumeDTOExposeOnlyLockedExchangeDetails(t *testing.T) 
 	public, err := json.Marshal(buildPublicOrderVerifyResult(order))
 	require.NoError(t, err)
 	require.NotContains(t, string(public), "usdt_exchange")
+	require.NotContains(t, string(public), "bonus_amount")
 }
 
 func TestUSDTQuoteUserAndResumeDTOOmitQuoteForLegacyOrders(t *testing.T) {

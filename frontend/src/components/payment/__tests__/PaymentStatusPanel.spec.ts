@@ -77,6 +77,26 @@ describe('PaymentStatusPanel', () => {
     vi.useRealTimers()
   })
 
+  it('USDT 订单成功后区分精确实付与含赠金的 USD 到账额度', async () => {
+    pollOrderStatus.mockResolvedValue({
+      ...orderFactory('COMPLETED'),
+      payment_type: 'usdt_trc20', currency: 'USDT', payment_amount_exact: '1.44',
+      amount: 1.68, bonus_amount: 0.28, pay_amount: 1.43,
+    })
+    const wrapper = mount(PaymentStatusPanel, {
+      props: { orderId: 42, qrCode: '', expiresAt: '2099-01-01T12:30:00Z', paymentType: 'usdt_trc20', orderType: 'balance', currency: 'USDT' },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(3000)
+    await flushPromises()
+    expect(wrapper.text()).toContain('USDT 1.44')
+    expect(wrapper.text()).toContain('$1.68')
+    expect(wrapper.text()).toContain('payment.orders.bonusIncluded')
+    expect(wrapper.emitted('success')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it.each(['88.01', '88.000010'])('TRC20 实际金额 %s 与账单分开展示并原样复制，未确认不显示成功', async (amountExact) => {
     const address = 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE'
     pollOrderStatus.mockResolvedValue(orderFactory('PENDING'))

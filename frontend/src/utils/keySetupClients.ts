@@ -27,7 +27,8 @@ const CLIENT_ORDER: KeySetupClient[] = [
 
 export function getKeySetupClientOptions(context: KeySetupContext): KeySetupClient[] {
   const { platform, claudeCodeOnly, allowMessagesDispatch } = context
-  if (!platform) return []
+  // TypeSafe 只支持 System One，旧的 Claude 限制标记不能开放其他协议。
+  if (!platform || platform === 'typesafe') return []
   if (claudeCodeOnly) return ['claude']
 
   // 保留已有客户端范围；跨平台 Codex、OpenClaw、Hermes 使用本站的兼容网关。
@@ -95,6 +96,7 @@ export function normalizeKeySetupEndpoint(
   platform: GroupPlatform | null | undefined,
   client: KeySetupClient
 ): string {
+  if (platform === 'typesafe') throw new Error('TypeSafe 仅支持 System One 原生配置')
   const root = normalizeKeySetupBaseUrl(baseUrl, platform)
   const nativeRoot = platform === 'antigravity' ? `${root}/antigravity` : root
   switch (client) {

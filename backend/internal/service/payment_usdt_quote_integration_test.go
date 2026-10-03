@@ -236,6 +236,101 @@ func TestUSDTQuoteNativeOrdersLockQuoteAndCreditCNYBalance(t *testing.T) {
 	}
 }
 
+func TestUSDTQuoteRechargePromotionsPreserveLockedPaymentAndFulfillment(t *testing.T) {
+	for _, providerKey := range []string{payment.TypeOKPay, payment.TypeUSDTTRC20} {
+		for _, scenario := range []struct {
+			mode                                    string
+			credited, cnyBase, cnyPay, usdt, rebate float64
+			gatewayAmount, transferAmount           string
+		}{
+			{RechargeBonusModeBonus, 1.68, 10, 10.25, 1.43, 1.4, "1.43", "1.44"},
+			{RechargeBonusModeDiscount, 1.4, 8, 8.2, 1.14, 1.12, "1.14", "1.15"},
+		} {
+			t.Run(providerKey+"/"+scenario.mode, func(t *testing.T) {
+				fixture := newUSDTQuoteIntegrationFixture(t, providerKey, providerKey)
+				fixture.settings.values[SettingRechargeBonusTiers] = `[{"min_amount":10,"bonus_percent":20}]`
+				fixture.settings.values[SettingRechargeBonusMode] = scenario.mode
+				response, order := fixture.create(t)
+				// 输入 10 元命中档位，不能用换汇后不足 10 USDT 的金额判断优惠。
+				require.Equal(t, scenario.credited, order.Amount)
+				require.Equal(t, 0.28, order.BonusAmount)
+				require.Equal(t, scenario.usdt, order.PayAmount)
+				require.Equal(t, order.Amount, response.Amount)
+				require.Equal(t, order.BonusAmount, response.BonusAmount)
+				require.Equal(t, order.PayAmount, response.PayAmount)
+				require.Equal(t, scenario.rebate, affiliateRebateBaseAmount(order), "赠送和折扣产生的免费余额均不参与推广返利")
+				require.Equal(t, []float64{scenario.usdt}, fixture.balancer.amounts)
+				details := PaymentOrderUSDTExchange(order)
+				require.NotNil(t, details)
+				require.Equal(t, scenario.cnyBase, details.CNYBaseAmount)
+				require.Equal(t, scenario.cnyPay, details.CNYPayAmount)
+				require.Equal(t, scenario.cnyPay, paymentOrderDailyLimitAmount(order))
+				require.Equal(t, scenario.usdt, details.USDTPayAmount)
+				if providerKey == payment.TypeOKPay {
+					require.Equal(t, []string{scenario.gatewayAmount}, fixture.transport.amounts)
+				} else {
+					require.Equal(t, scenario.transferAmount, PaymentOrderTransferDetails(order).PaymentAmountExact)
+					require.Equal(t, scenario.usdt, fixture.intents.intents[order.ID].BaseAmount)
+				}
+
+				// 调整活动及行情不重算已建订单；履约只能读取订单金额与原始报价快照。
+				fixture.settings.values[SettingRechargeBonusTiers] = `[{"min_amount":0,"bonus_percent":90}]`
+				fixture.quoteRepo.latest.Rate = 8
+				redeemRepo := &paymentOrderLifecycleRedeemRepo{codesByCode: map[string]*RedeemCode{order.RechargeCode: {ID: 1, Code: order.RechargeCode, Type: RedeemTypeBalance, Value: order.Amount, Status: StatusUnused}}}
+				fixture.service.redeemService = NewRedeemService(redeemRepo, fixture.userRepo, nil, nil, nil, fixture.service.entClient, nil, nil)
+				notification := &payment.PaymentNotification{OrderID: order.OutTradeNo, TradeNo: order.PaymentTradeNo, Amount: scenario.usdt, Status: payment.NotificationStatusSuccess, Metadata: map[string]string{"merchant_id": "123", "currency": "USDT", "unique_id": order.OutTradeNo}}
+				if providerKey == payment.TypeUSDTTRC20 {
+					intent := fixture.intents.intents[order.ID]
+					paidAt := intent.CreatedAt.Add(time.Millisecond)
+					intent.TransactionHash, intent.TransferredAt = strings.Repeat("a", 64), &paidAt
+					notification = trc20Notification(intent)
+				}
+				invalid := *notification
+				invalid.Amount -= 0.01
+				require.Error(t, fixture.service.HandlePaymentNotification(context.Background(), &invalid, providerKey), "优惠不能放宽少付一分的 USDT 金额校验")
+				require.Zero(t, fixture.userRepo.getByIDUser.Balance)
+				require.NoError(t, fixture.service.HandlePaymentNotification(context.Background(), notification, providerKey))
+				require.NoError(t, fixture.service.HandlePaymentNotification(context.Background(), notification, providerKey))
+				require.Equal(t, scenario.credited, fixture.userRepo.getByIDUser.Balance)
+				require.Len(t, redeemRepo.useCalls, 1)
+				reloaded, err := fixture.service.entClient.PaymentOrder.Get(context.Background(), order.ID)
+				require.NoError(t, err)
+				require.Equal(t, OrderStatusCompleted, reloaded.Status)
+				require.Equal(t, order.Amount, reloaded.Amount)
+				require.Equal(t, order.BonusAmount, reloaded.BonusAmount)
+				require.Equal(t, details, PaymentOrderUSDTExchange(reloaded))
+
+				// 即使存量配置错误开启退款，两种 USDT 渠道仍禁止用户和管理员原路退款。
+				instanceID, err := strconv.ParseInt(fixture.balancer.selection.InstanceID, 10, 64)
+				require.NoError(t, err)
+				_, err = fixture.service.entClient.PaymentProviderInstance.UpdateOneID(instanceID).SetRefundEnabled(true).SetAllowUserRefund(true).Save(context.Background())
+				require.NoError(t, err)
+				_, err = fixture.service.validateRefundRequest(context.Background(), order.ID, fixture.userID)
+				require.Equal(t, "USER_REFUND_DISABLED", infraerrors.FromError(err).Reason)
+				_, _, err = fixture.service.PrepareRefund(context.Background(), order.ID, 0, "优惠订单退款", false, true)
+				require.Equal(t, "REFUND_DISABLED", infraerrors.FromError(err).Reason)
+			})
+		}
+	}
+}
+
+func TestUSDTQuoteRechargeDiscountDailyLimitUsesDiscountedCNYWithFee(t *testing.T) {
+	fixture := newUSDTQuoteIntegrationFixture(t, payment.TypeOKPay, payment.TypeOKPay)
+	fixture.settings.values[SettingRechargeBonusTiers] = `[{"min_amount":10,"bonus_percent":20}]`
+	fixture.settings.values[SettingRechargeBonusMode] = RechargeBonusModeDiscount
+	fixture.settings.values[SettingDailyRechargeLimit] = "16.4"
+	_, first := fixture.create(t)
+	_, err := fixture.service.entClient.PaymentOrder.UpdateOneID(first.ID).SetStatus(OrderStatusCompleted).SetPaidAt(time.Now()).Save(context.Background())
+	require.NoError(t, err)
+	_, second := fixture.create(t)
+	_, err = fixture.service.entClient.PaymentOrder.UpdateOneID(second.ID).SetStatus(OrderStatusCompleted).SetPaidAt(time.Now()).Save(context.Background())
+	require.NoError(t, err)
+	_, err = fixture.service.CreateOrder(context.Background(), CreateOrderRequest{UserID: fixture.userID, PaymentType: fixture.method, Amount: 10, OrderType: payment.OrderTypeBalance})
+	require.Error(t, err)
+	require.Equal(t, "DAILY_LIMIT_EXCEEDED", infraerrors.FromError(err).Reason)
+	require.Equal(t, []string{"1.14", "1.14"}, fixture.transport.amounts, "优惠后每单含手续费8.20元，第三单不能按USDT数值绕过每日限额")
+}
+
 func TestUSDTQuoteExpiredFailedAndUnavailableRatesUseExplicitFallback(t *testing.T) {
 	for _, scenario := range []string{"expired", "last_refresh_failed", "repository_failed", "empty"} {
 		t.Run(scenario, func(t *testing.T) {

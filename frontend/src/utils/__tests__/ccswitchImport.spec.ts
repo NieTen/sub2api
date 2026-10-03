@@ -3,7 +3,8 @@ import {
   CC_SWITCH_USAGE_SCRIPT,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
-  buildCcSwitchImportDeeplink
+  buildCcSwitchImportDeeplink,
+  resolveCcSwitchImportConfig
 } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
 import type { CcSwitchTargetApp, KeySetupClient } from '../keySetupClients'
@@ -28,6 +29,13 @@ describe('ccswitchImport utils', () => {
     apiKey: 'sk-test',
     usageScript: 'return true'
   }
+
+  it('TypeSafe 旧入口、显式目标和 Claude 限制均不能生成错误 CCS 协议', () => {
+    expect(() => resolveCcSwitchImportConfig('typesafe', 'claude', baseInput.baseUrl)).toThrow('System One')
+    for (const options of [{}, { client: 'claude' as const }, { targetApp: 'codex' as const }, { claudeCodeOnly: true }]) {
+      expect(() => buildCcSwitchImportDeeplink({ ...baseInput, platform: 'typesafe', ...options })).toThrow('System One')
+    }
+  })
 
   it.each([
     ['https://api.example.com', 'https://api.example.com'],

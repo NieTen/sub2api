@@ -124,6 +124,28 @@ describe('一键接入面板', () => {
     expect(wrapper.emitted('close')).toBeUndefined()
   })
 
+  it('切换 TypeSafe 密钥后提供原生出口，停止模型目录并清除原导入流程', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="setup-open-ccs"]').trigger('click')
+    const key = makeKey('typesafe', { id: 12 })
+    key.group!.claude_code_only = true
+    await wrapper.setProps({ keyInfo: key })
+    expect(wrapper.get('[data-testid="setup-systemone-panel"]').text()).toContain('keys.quickSetup.systemOneOnly')
+    expect(wrapper.find('[data-testid="setup-open-ccs"]').exists()).toBe(false)
+    expect(wrapper.find('#quick-setup-model').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('keys.ccsClientSelect.importRequested')
+    expect(wrapper.html()).not.toContain(key.key)
+    for (const button of wrapper.findAll('[data-testid^="setup-client-"]')) expect(button.attributes('disabled')).toBeDefined()
+    const hookOptions = modelHookMock.mock.calls[0]![0] as KeySetupModelsOptions
+    expect(typeof hookOptions.enabled === 'function' && hookOptions.enabled()).toBe(false)
+    await wrapper.get('[data-testid="setup-open-native"]').trigger('click')
+    expect(wrapper.emitted('open-native')).toHaveLength(1)
+    expect(window.open).toHaveBeenCalledTimes(1)
+    await wrapper.setProps({ keyInfo: makeKey('openai') })
+    expect(wrapper.find('[data-testid="setup-systemone-panel"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="setup-client-codex-app"]').attributes('aria-pressed')).toBe('true')
+  })
+
   it('Codex WebSocket 保留原生配置入口，不伪装成普通 CCS 导入', async () => {
     const wrapper = mountModal({ keyInfo: makeKey('openai') })
     await wrapper.get('[data-testid="setup-client-codex-ws"]').trigger('click')

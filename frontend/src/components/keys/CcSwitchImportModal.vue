@@ -7,7 +7,7 @@
   >
     <div class="space-y-4">
       <p class="text-sm leading-6 text-gray-600 dark:text-dark-300">
-        {{ t('keys.ccsClientSelect.description') }}
+        {{ t(platform === 'typesafe' ? 'keys.quickSetup.systemOneOnly' : 'keys.ccsClientSelect.description') }}
       </p>
 
       <fieldset class="space-y-2">
@@ -153,6 +153,7 @@ const clientOptions = computed(() => {
     label: t(`keys.ccsClientSelect.${label}`),
     description: t(`keys.ccsClientSelect.${description}`)
   })
+  if (props.platform === 'typesafe') return []
   if (props.claudeCodeOnly) return [option('claude', 'claudeCode', 'claudeCodeDesc')]
   if (props.platform === 'openai') return [option('claude', 'codex', 'codexDesc')]
   if (props.platform === 'grok') return [option('claude', 'grokBuild', 'grokBuildDesc')]
@@ -166,7 +167,7 @@ const clientOptions = computed(() => {
   return options
 })
 const isDesktop = computed(() => selectedClient.value === 'claude-desktop')
-const canImport = computed(() => props.show && !!props.apiKey.trim() && !!props.baseUrl.trim())
+const canImport = computed(() => props.show && clientOptions.value.length > 0 && !!props.apiKey.trim() && !!props.baseUrl.trim())
 
 // 换密钥、分组或重新打开时恢复默认，不能沿用另一个密钥的目标和发起提示。
 watch(

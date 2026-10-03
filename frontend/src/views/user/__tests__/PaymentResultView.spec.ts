@@ -122,6 +122,22 @@ describe('PaymentResultView', () => {
     wrapper.unmount()
   })
 
+  it('USDT 结果同时保留精确付款金额和含赠金的 USD 到账金额', async () => {
+    routeState.query = { resume_token: 'resume-trc20-bonus' }
+    resolveOrderPublicByResumeToken.mockResolvedValue({ data: {
+      ...orderFactory('COMPLETED'),
+      payment_type: 'usdt_trc20', currency: 'USDT', payment_amount_exact: '1.44',
+      amount: 1.68, bonus_amount: 0.28, pay_amount: 1.43,
+    } })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('USDT 1.44')
+    expect(wrapper.text()).toContain('+$0.28')
+    expect(wrapper.text()).toContain('$1.68')
+    expect(wrapper.text()).toContain('payment.result.success')
+    wrapper.unmount()
+  })
+
   it('renders a pending state instead of a failure state when the restored order is still pending', async () => {
     routeState.query = {
       resume_token: 'resume-42',

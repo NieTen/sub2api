@@ -75,6 +75,7 @@ export function resolveCcSwitchImportConfig(
   clientType: CcSwitchClientType,
   baseUrl: string
 ): CcSwitchImportConfig {
+  if (platform === 'typesafe') throw new Error('TypeSafe 仅支持 System One 原生配置，无法导入 CC Switch')
   // CC Switch v3.20.4 尚未开放 Desktop 深链，先导入 Claude，再由应用内迁移到 Desktop。
   // 不能直接发送 app=claude-desktop，否则会在协议入口被拒绝。
   switch (platform || 'anthropic') {
@@ -139,6 +140,7 @@ function resolveExplicitCcSwitchConfig(input: CcSwitchImportDeeplinkInput): CcSw
 }
 
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
+  if (input.platform === 'typesafe') throw new Error('TypeSafe 仅支持 System One 原生配置，无法导入 CC Switch')
   const explicitTarget = input.client !== undefined || input.targetApp !== undefined || input.claudeCodeOnly === true
   const config = explicitTarget
     ? resolveExplicitCcSwitchConfig(input.claudeCodeOnly && !input.client && !input.targetApp

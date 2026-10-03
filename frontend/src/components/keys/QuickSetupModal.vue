@@ -34,6 +34,11 @@
         <main class="setup-main">
           <div v-if="!keyInfo?.group" class="setup-notice" role="status">{{ t('keys.useKeyModal.noGroupDescription') }}</div>
           <div v-else-if="keyInfo.status !== 'active'" class="setup-notice" role="status">{{ t('keys.quickSetup.inactiveKey') }}</div>
+          <section v-else-if="platform === 'typesafe'" class="space-y-4" data-testid="setup-systemone-panel">
+            <h4 class="text-xl font-semibold text-gray-950 dark:text-white">System One · TypeSafe / Jev</h4>
+            <p class="setup-notice" role="status">{{ t('keys.quickSetup.systemOneOnly') }}</p>
+            <button type="button" class="btn btn-primary min-h-11" data-testid="setup-open-native" @click="emit('open-native')">{{ t('keys.quickSetup.openSystemOne') }}</button>
+          </section>
           <template v-else>
             <header class="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div><p class="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary-700 dark:text-primary-300">{{ t('keys.quickSetup.workspace') }}</p><h4 class="text-xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ activeCard?.label }}</h4></div>
@@ -156,7 +161,7 @@ import { generateKeySetupNative } from '@/utils/keySetupNative'
 import { buildCcSwitchImportDeeplink, CC_SWITCH_DESKTOP_GUIDE_URL, CC_SWITCH_USAGE_SCRIPT } from '@/utils/ccswitchImport'
 
 const props = withDefaults(defineProps<{ show: boolean; keyInfo: ApiKey | null; keys: ApiKey[]; baseUrl: string; siteName?: string; hideCcsImport?: boolean }>(), { siteName: 'Sub2API', hideCcsImport: false })
-const emit = defineEmits<{ (event: 'close'): void; (event: 'select-key', id: number): void }>()
+const emit = defineEmits<{ (event: 'close'): void; (event: 'select-key', id: number): void; (event: 'open-native'): void }>()
 const { t, locale } = useI18n()
 const { copyToClipboard } = useClipboard()
 type SetupMode = 'install' | 'import' | 'native'
@@ -171,7 +176,7 @@ const platform = computed(() => props.keyInfo?.group?.platform || null)
 const context = computed(() => ({ platform: platform.value, claudeCodeOnly: !!props.keyInfo?.group?.claude_code_only, allowMessagesDispatch: !!props.keyInfo?.group?.allow_messages_dispatch }))
 const availableClients = computed(() => getKeySetupClientOptions(context.value))
 const keyChoices = computed(() => props.keyInfo && !props.keys.some(key => key.id === props.keyInfo?.id) ? [props.keyInfo, ...props.keys] : props.keys)
-const { models, loading: modelsLoading, error: modelsError, refresh: refreshModels, selectedModel } = useKeySetupModels({ keyId: () => props.keyInfo?.id, platform, enabled: () => props.show && props.keyInfo?.status === 'active' })
+const { models, loading: modelsLoading, error: modelsError, refresh: refreshModels, selectedModel } = useKeySetupModels({ keyId: () => props.keyInfo?.id, platform, enabled: () => props.show && props.keyInfo?.status === 'active' && platform.value !== 'typesafe' })
 const clientCards = computed(() => [
   { id: 'codex-app', label: 'Codex App', icon: 'chatBubble', kind: 'desktop' },
   { id: 'claude', label: 'Claude Code', icon: 'terminal', kind: 'cli' },

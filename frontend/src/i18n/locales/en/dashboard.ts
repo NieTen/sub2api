@@ -156,6 +156,8 @@ export default {
     lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
     quickSetup: {
+      systemOneOnly: 'TypeSafe / Jev only supports the native /v1/systemone endpoint. CC Switch import and chat clients such as Claude and Codex are unsupported. Use the System One request configuration.',
+      openSystemOne: 'Open System One native configuration',
       currentKey: 'Current key · switch anytime',
       noGroup: 'No group',
       copyKey: 'Copy full API key',
@@ -258,7 +260,13 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        systemOne: 'System One',
         opencode: 'OpenCode',
+      },
+      typesafe: {
+        cmdUnsupported: 'This key or model contains characters that Windows CMD cannot pass safely. Switch to PowerShell.',
+        description: 'Call Jev through the native TypeSafe System One endpoint.',
+        note: 'System One is non-streaming and is not compatible with Chat Completions, Responses, Claude Code, or Codex clients.',
       },
       antigravity: {
         description: 'Configure API access for Antigravity group. Select the configuration method based on your client.',

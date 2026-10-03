@@ -374,7 +374,8 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const copiedIndex = ref<number | null>(null)
 const setupMode = ref<'import' | 'commands'>('import')
-const setupModes = computed(() => props.hideCcsImport ? ['commands'] as const : ['import', 'commands'] as const)
+const ccsImportUnavailable = computed(() => props.hideCcsImport || props.platform === 'typesafe')
+const setupModes = computed(() => ccsImportUnavailable.value ? ['commands'] as const : ['import', 'commands'] as const)
 const normalizedBaseRoot = computed(() => {
   try {
     return normalizeKeySetupBaseUrl(props.baseUrl || window.location.origin, props.platform)
@@ -388,8 +389,8 @@ const connectionBaseUrl = computed(() => {
   return props.platform === 'antigravity' ? `${baseUrl}/antigravity` : baseUrl
 })
 // 重新打开或更换密钥时重置接入方式，避免显示上一条密钥的复制状态。
-watch(() => [props.show, props.apiKey, props.hideCcsImport], () => {
-  setupMode.value = props.hideCcsImport ? 'commands' : 'import'
+watch(() => [props.show, props.apiKey, ccsImportUnavailable.value], () => {
+  setupMode.value = ccsImportUnavailable.value ? 'commands' : 'import'
   copiedIndex.value = null
 }, { immediate: true })
 const activeTab = ref<string>('unix')
@@ -434,6 +435,7 @@ const codexManifestContext = computed(() => {
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
+  if (props.platform === 'typesafe') return 'systemone'
   if (props.claudeCodeOnly) return 'claude'
   switch (props.platform) {
     case 'openai':
@@ -534,6 +536,9 @@ const SparkleIcon = {
 
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
+  if (props.platform === 'typesafe') {
+    return [{ id: 'systemone', label: t('keys.useKeyModal.cliTabs.systemOne'), icon: TerminalIcon }]
+  }
   if (props.claudeCodeOnly) {
     return [{ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon }]
   }
@@ -617,7 +622,9 @@ const currentTabs = computed(() => {
 // 外部面板只能选择当前分组支持的客户端；旧入口仍由内部页签控制。
 watch([() => props.selectedClient, clientTabs], () => {
   const supported = clientTabs.value.map(tab => tab.id)
-  if (props.claudeCodeOnly) {
+  if (props.platform === 'typesafe') {
+    activeClientTab.value = 'systemone'
+  } else if (props.claudeCodeOnly) {
     activeClientTab.value = 'claude'
   } else if (props.selectedClient !== undefined) {
     activeClientTab.value = supported.includes(props.selectedClient)
@@ -647,6 +654,9 @@ const configurationError = computed(() => {
   if (Array.from(model).length > 256 || invalidCharacter) return t('keys.quickSetup.invalidModel')
   // CMD 的变量展开无法在交互式与批处理环境中统一转义，提示切换安全的 Shell。
   if (activeTab.value === 'cmd' && /[%!\"]/.test(model)) return t('keys.quickSetup.invalidModelCmd')
+  if (props.platform === 'typesafe' && activeTab.value === 'cmd' && (/[&|<>^()]/.test(model) || /[\r\n%!"&|<>^()\\]/.test(props.apiKey))) {
+    return t('keys.useKeyModal.typesafe.cmdUnsupported')
+  }
   if (!normalizedBaseRoot.value || (activeTab.value === 'cmd' && /[%!\"]/.test(normalizedBaseRoot.value))) {
     return t('keys.quickSetup.invalidEndpoint')
   }
@@ -670,7 +680,7 @@ function environmentLine(name: string, value: string, shell = activeTab.value): 
 }
 
 const platformDescription = computed(() => {
-  if (props.claudeCodeOnly) return t('keys.useKeyModal.description')
+  if (props.claudeCodeOnly && props.platform !== 'typesafe') return t('keys.useKeyModal.description')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -709,13 +719,15 @@ const platformDescription = computed(() => {
       return activeClientTab.value === 'codex'
         ? t('keys.useKeyModal.composite.codexDescription')
         : t('keys.useKeyModal.composite.description')
+    case 'typesafe':
+      return t('keys.useKeyModal.typesafe.description')
     default:
       return t('keys.useKeyModal.description')
   }
 })
 
 const platformNote = computed(() => {
-  if (props.claudeCodeOnly) return t('keys.useKeyModal.note')
+  if (props.claudeCodeOnly && props.platform !== 'typesafe') return t('keys.useKeyModal.note')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -767,6 +779,8 @@ const platformNote = computed(() => {
       return activeClientTab.value === 'codex'
         ? t('keys.useKeyModal.composite.codexNote')
         : t('keys.useKeyModal.note')
+    case 'typesafe':
+      return t('keys.useKeyModal.typesafe.note')
     default:
       return t('keys.useKeyModal.note')
   }
@@ -860,6 +874,7 @@ const currentFiles = computed((): FileConfig[] => {
   if (configurationError.value) return []
   const apiKey = props.apiKey
   const baseRoot = normalizedBaseRoot.value
+  if (props.platform === 'typesafe') return [generateSystemOneCurl(baseRoot, apiKey)]
   const ensureV1 = (value: string) => {
     const trimmed = value.replace(/\/+$/, '')
     return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
@@ -954,6 +969,47 @@ const currentFiles = computed((): FileConfig[] => {
       return generateAnthropicFiles(baseRoot, apiKey)
   }
 })
+
+function generateSystemOneCurl(baseUrl: string, apiKey: string): FileConfig {
+  const endpoint = `${baseUrl}/v1/systemone`
+  const body = {
+    model: customModel.value || 'jev-latest',
+    state: 'Text to evaluate',
+    questions: {
+      safety: {
+        type: 'noul',
+        instructions: 'Evaluate whether the text is unsafe'
+      }
+    }
+  }
+  const payload = JSON.stringify(body, null, 2)
+  if (activeTab.value === 'powershell') {
+    return {
+      path: 'PowerShell',
+      content: `$headers = @{ Authorization = ${quoteShellValue(`Bearer ${apiKey}`)} }
+$body = @'
+${payload}
+'@
+Invoke-RestMethod -Method Post -Uri ${quoteShellValue(endpoint)} -Headers $headers -ContentType "application/json" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))`
+    }
+  }
+  if (activeTab.value === 'cmd') {
+    return {
+      path: 'Command Prompt',
+      content: `curl -X POST "${endpoint}" ^
+  -H "Authorization: Bearer ${apiKey}" ^
+  -H "Content-Type: application/json" ^
+  --data "${JSON.stringify(body).replace(/(\\*)"/g, '$1$1\\"')}"`
+    }
+  }
+  return {
+    path: 'Terminal',
+    content: `curl -X POST ${quoteShellValue(endpoint)} \\
+  -H ${quoteShellValue(`Authorization: Bearer ${apiKey}`)} \\
+  -H "Content-Type: application/json" \\
+  --data ${quoteShellValue(payload)}`
+  }
+}
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   let path: string
@@ -1432,6 +1488,7 @@ function generateRoutedCodexFiles(
     deepseek: 'DeepSeek',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
+    typesafe: 'TypeSafe / Jev',
     composite: 'Composite'
   }
   const label = labels[platform]

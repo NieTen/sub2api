@@ -403,11 +403,11 @@ function rateQuote(overrides: Partial<UsdtCnyQuote> = {}): UsdtCnyQuote {
   return { rate: 7.2, source: 'okx', observed_at: new Date().toISOString(), fetched_at: new Date().toISOString(), sample_count: 10, sample_prices: [7.2], aggregation: 'median_first_10_sell', ...overrides }
 }
 
-async function mountUsdtRecharge(method: Partial<MethodLimit> = {}, checkout: Partial<CheckoutInfoResponse> = {}) {
+async function mountUsdtRecharge(method: Partial<MethodLimit> = {}, checkout: Partial<CheckoutInfoResponse> = {}, paymentType = 'usdt_trc20') {
   routeState.path = '/purchase'
   routeState.query = {}
   window.localStorage.clear()
-  getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({ balance_recharge_multiplier: 0.14, methods: { usdt_trc20: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'USDT', input_currency: 'CNY', usdt_exchange: rateQuote(), ...method } }, ...checkout }))
+  getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({ balance_recharge_multiplier: 0.14, methods: { [paymentType]: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'USDT', input_currency: 'CNY', usdt_exchange: rateQuote(), ...method } }, ...checkout }))
   const wrapper = shallowMount(PaymentView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, UsdtExchangePreview: false, Teleport: true, Transition: false } } })
   await flushPromises()
   return wrapper
@@ -415,6 +415,104 @@ async function mountUsdtRecharge(method: Partial<MethodLimit> = {}, checkout: Pa
 
 describe('PaymentView 人民币换算与 USDT 限额', () => {
   afterEach(() => vi.useRealTimers())
+
+  it.each(['usdt_trc20', 'okpay'])('%s 按原始人民币命中折扣，折后加手续费再换算并按实际 USDT 校验限额', async paymentType => {
+    const tiers = [{ min_amount: 10, bonus_percent: 20 }]
+    const wrapper = await mountUsdtRecharge({ single_max: 1.14 }, {
+      recharge_bonus_tiers: tiers,
+      recharge_bonus_mode: 'discount',
+      recharge_fee_rate: 2.5,
+    }, paymentType)
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 10)
+    await flushPromises()
+
+    expect(wrapper.getComponent(AmountInput).props()).toMatchObject({
+      currency: 'CNY', bonusTiers: tiers, bonusMode: 'discount', multiplier: 0.14,
+    })
+    expect(wrapper.get('[data-testid="recharge-discount-row"]').text()).toContain('-¥2.00')
+    expect(wrapper.text()).toContain('¥0.20')
+    expect(wrapper.text()).toContain('¥8.20')
+    expect(wrapper.get('[data-test="usdt-preview-pay-amount"]').text()).toBe('USDT 1.14')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$1.40')
+    expect(wrapper.find('[data-testid="recharge-bonus-row"]').exists()).toBe(false)
+    expect(translate).toHaveBeenCalledWith('payment.rechargeRatePreview', { currency: 'CNY', usd: '0.14' })
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')).toEqual([
+      expect.objectContaining({ type: paymentType, available: true }),
+    ])
+    const button = wrapper.findAll('button').find(item => item.text().includes('payment.createOrder'))!
+    expect(button.attributes('disabled')).toBeUndefined()
+    // 仅模拟请求，不创建真实订单；服务端必须收到原始输入，避免重复打折。
+    createOrder.mockReset().mockRejectedValue(new Error('本地测试停止下单'))
+    await button.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ amount: 10, payment_type: paymentType, order_type: 'balance' }))
+    wrapper.unmount()
+  })
+
+  it('赠金提高 USD 到账额度而不降低人民币本金、手续费和 USDT 实付', async () => {
+    const wrapper = await mountUsdtRecharge({}, {
+      recharge_bonus_tiers: [{ min_amount: 10, bonus_percent: 20 }],
+      recharge_bonus_mode: 'bonus',
+      recharge_fee_rate: 2.5,
+    })
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 10)
+    await flushPromises()
+    expect(wrapper.text()).toContain('¥0.25')
+    expect(wrapper.get('[data-test="usdt-preview-pay-amount"]').text()).toBe('USDT 1.43')
+    expect(wrapper.get('[data-testid="recharge-bonus-row"]').text()).toContain('+$0.28')
+    expect(wrapper.get('[data-testid="recharge-credited-row"]').text()).toContain('$1.68')
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('充值折扣不会降低订阅套餐价格', async () => {
+    const wrapper = await mountSubscriptionConfirm({
+      method: { currency: 'USDT', input_currency: 'CNY', usdt_exchange: rateQuote() },
+      checkout: { subscription_usd_to_cny_rate: 7.2, recharge_bonus_tiers: [{ min_amount: 0, bonus_percent: 50 }], recharge_bonus_mode: 'discount' },
+      plan: { price: 10 },
+    })
+    expect(wrapper.text()).toContain('¥72.00')
+    expect(wrapper.text()).toContain('USDT 10.00')
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('折后金额符合渠道上限时，不用上限隐藏原始金额快捷按钮', async () => {
+    const wrapper = await mountUsdtRecharge({ currency: 'CNY', input_currency: undefined, usdt_exchange: undefined, single_max: 80 }, {
+      recharge_bonus_tiers: [{ min_amount: 100, bonus_percent: 20 }], recharge_bonus_mode: 'discount',
+    })
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    expect(wrapper.getComponent(AmountInput).props('max')).toBe(0)
+    expect(wrapper.get('[data-testid="recharge-discount-row"]').text()).toContain('-¥20.00')
+    const button = wrapper.findAll('button').find(item => item.text().includes('payment.createOrder'))!
+    expect(button.attributes('disabled')).toBeUndefined()
+    expect(button.text()).toContain('¥80.00')
+    wrapper.unmount()
+  })
+
+  it('不同币种的候选渠道独立计算折扣精度，不能沿用当前 JPY 渠道的整数金额', async () => {
+    const baseMethod = checkoutInfoFixture().data.methods.wxpay
+    const wrapper = await mountUsdtRecharge({}, {
+      recharge_bonus_tiers: [{ min_amount: 10, bonus_percent: 15 }], recharge_bonus_mode: 'discount',
+      methods: {
+        stripe: { ...baseMethod, currency: 'JPY' },
+        okpay: { ...baseMethod, currency: 'USDT', input_currency: 'CNY', usdt_exchange: rateQuote(), single_max: 1.2 },
+      },
+    })
+    wrapper.getComponent(PaymentMethodSelector).vm.$emit('select', 'stripe')
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 10)
+    await flushPromises()
+    expect(wrapper.getComponent(AmountInput).props('currency')).toBe('JPY')
+    expect(wrapper.getComponent(PaymentMethodSelector).props('methods')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'okpay', available: true }),
+    ]))
+    wrapper.getComponent(PaymentMethodSelector).vm.$emit('select', 'okpay')
+    await flushPromises()
+    expect(wrapper.get('[data-test="usdt-preview-pay-amount"]').text()).toBe('USDT 1.19')
+    expect(wrapper.findAll('button').find(item => item.text().includes('payment.createOrder'))!.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
 
   it('7 元 1% 手续费是 0.07 元，在 7.07 费率下应付恰好 1U', async () => {
     const wrapper = await mountUsdtRecharge({ usdt_exchange: rateQuote({ rate: 7.07 }), single_max: 1 }, { recharge_fee_rate: 1 })
@@ -473,7 +571,9 @@ describe('PaymentView 人民币换算与 USDT 限额', () => {
   it('报价超过三十分钟会刷新，刷新失败时不继续展示或提交旧金额', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-09-30T12:00:00Z'))
-    const wrapper = await mountUsdtRecharge({ usdt_exchange: rateQuote({ fetched_at: '2026-09-30T11:31:00Z', observed_at: '2026-09-30T11:31:00Z' }) })
+    const wrapper = await mountUsdtRecharge({ usdt_exchange: rateQuote({ fetched_at: '2026-09-30T11:31:00Z', observed_at: '2026-09-30T11:31:00Z' }) }, {
+      recharge_bonus_tiers: [{ min_amount: 10, bonus_percent: 20 }], recharge_bonus_mode: 'discount',
+    })
     wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 10)
     await flushPromises()
     getCheckoutInfo.mockRejectedValue(new Error('暂时不可用'))

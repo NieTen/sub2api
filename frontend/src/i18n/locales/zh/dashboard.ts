@@ -156,6 +156,8 @@ export default {
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
     quickSetup: {
+      systemOneOnly: 'TypeSafe / Jev 仅支持 /v1/systemone 原生接口，无法导入 CC Switch，也不支持 Claude、Codex 等聊天客户端。请使用 System One 请求配置。',
+      openSystemOne: '打开 System One 原生配置',
       currentKey: '当前密钥 · 可切换',
       noGroup: '未分组',
       copyKey: '复制完整密钥',
@@ -259,7 +261,13 @@ export default {
         codexCli: 'Codex CLI',
         codexCliWs: 'Codex CLI (WebSocket)',
         grokCli: 'Grok CLI',
+        systemOne: 'System One',
         opencode: 'OpenCode'
+      },
+      typesafe: {
+        cmdUnsupported: '此密钥或模型包含 Windows CMD 无法安全传递的字符，请切换到 PowerShell。',
+        description: '通过 TypeSafe 原生 System One 端点调用 Jev。',
+        note: 'System One 不支持流式请求，也不兼容 Chat Completions、Responses、Claude Code 或 Codex 客户端。'
       },
       antigravity: {
         description: '为 Antigravity 分组配置 API 访问。请根据您使用的客户端选择对应的配置方式。',

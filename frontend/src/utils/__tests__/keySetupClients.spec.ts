@@ -15,6 +15,11 @@ const platforms: GroupPlatform[] = [
 ]
 
 describe('接入客户端限制', () => {
+  it.each([false, true])('TypeSafe 原生协议优先于仅 Claude 标记 %s', claudeCodeOnly => {
+    expect(getKeySetupClientOptions({ platform: 'typesafe', claudeCodeOnly, allowMessagesDispatch: true })).toEqual([])
+    expect(() => normalizeKeySetupEndpoint('https://example.test/sub/v1', 'typesafe', 'claude')).toThrow('System One')
+    expect(() => normalizeKeySetupEndpoint('https://example.test/sub/v1', 'typesafe', 'openclaw')).toThrow('System One')
+  })
   it('未分组时不展示可用客户端', () => {
     expect(getKeySetupClientOptions({})).toEqual([])
     expect(getKeySetupClientOptions({ platform: null, claudeCodeOnly: true })).toEqual([])

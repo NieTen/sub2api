@@ -6,7 +6,7 @@
 vA.B.C.D
 ```
 
-- `A.B.C` 是母版本号，取自本次已经合并的源仓库 `backend/cmd/server/VERSION`。
+- `A.B.C` 是母版本号，取自本次已经合并的源仓库正式发布标签。上游流水线可能在打标签后才更新 `backend/cmd/server/VERSION`，此时以正式发布标签为准，不为了补齐版本文件而合入发布后的提交。
 - `D` 是子版本号，表示 `NieTen/sub2api` 在该母版本上的定制发布次数。
 - Git 标签固定使用小写 `v`，程序内的 `VERSION` 文件不带 `v`。
 
@@ -21,7 +21,7 @@ vA.B.C.D
 
 ## 合并与发布顺序
 
-1. 使用 `--no-tags` 获取并合并 `Wei-Shaw/sub2api:main`，避免源仓库与本仓库同名标签互相覆盖。
+1. 查询 `Wei-Shaw/sub2api` 最新非预发布、非草稿的正式 Release，仅获取并合并对应标签指向的提交。使用 `--no-tags` 将指定标签取到独立的 `refs/remotes/upstream/releases/版本号` 引用，避免源仓库与本仓库同名标签互相覆盖，也不合入 `main` 上尚未发布的提交。
 2. 解决冲突并确认现有定制功能仍然存在。
 3. 按上面的规则确定版本，并先把 `backend/cmd/server/VERSION` 改为完整的四段版本。
 4. 完成测试和构建，将合并结果与版本文件提交到 `main`。

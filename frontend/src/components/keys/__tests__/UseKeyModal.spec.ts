@@ -48,6 +48,54 @@ describe('嵌入接入配置', () => {
     saveAsMock.mockClear()
   })
 
+  it('TypeSafe 始终使用 System One，包括旧 Claude 限制与嵌入客户端选择', async () => {
+    const wrapper = create({ platform: 'typesafe', claudeCodeOnly: true, selectedClient: 'claude', baseUrl: 'https://example.test/site/v1/' })
+    const content = wrapper.get('pre').text()
+    expect(content).toContain('https://example.test/site/v1/systemone')
+    expect(content).toContain('"model": "jev-latest"')
+    expect(content).not.toContain('ANTHROPIC_')
+    await wrapper.setProps({ embedded: false, quickSetup: true })
+    expect(wrapper.find('[data-testid="setup-open-ccs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="setup-mode-import"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('keys.useKeyModal.typesafe.note')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cliTabs.systemOne')
+    wrapper.unmount()
+  })
+
+  it('System One Unix 与 PowerShell 安全转义地址和密钥，并保留 JSON 模型', async () => {
+    const apiKey = "sk-$(whoami)'quoted'"
+    const baseUrl = "https://example.test/$(whoami)/'quoted'"
+    const model = 'vendor/模型 "$HOME"'
+    const wrapper = create({ platform: 'typesafe', baseUrl, apiKey, selectedModel: model })
+    expect(wrapper.get('pre').text()).toContain(`curl -X POST 'https://example.test/$(whoami)/'"'"'quoted'"'"'/v1/systemone'`)
+    expect(wrapper.get('pre').text()).toContain(`'Authorization: Bearer sk-$(whoami)'"'"'quoted'"'"''`)
+    await wrapper.setProps({ selectedShell: 'powershell' })
+    const content = wrapper.get('pre').text()
+    expect(content).toContain('$headers = @{ Authorization = "Bearer sk-`$(whoami)\'quoted\'" }')
+    expect(content).toContain('-Uri "https://example.test/`$(whoami)/\'quoted\'/v1/systemone"')
+    expect(content).toContain('[System.Text.Encoding]::UTF8.GetBytes($body)')
+    expect(JSON.parse(content.split("$body = @'\n")[1]!.split("\n'@")[0]!).model).toBe(model)
+    await wrapper.setProps({ apiKey: 'sk-safe-key', maskSecrets: true })
+    expect(wrapper.get('pre').text()).not.toContain('sk-safe-key')
+    await wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.copy')!.trigger('click')
+    expect(copyToClipboardMock.mock.calls.at(-1)![0]).toContain('sk-safe-key')
+    wrapper.unmount()
+  })
+
+  it('System One CMD 保留 curl JSON 引号，特殊模型和密钥须切换 PowerShell', async () => {
+    const wrapper = create({ platform: 'typesafe', selectedShell: 'cmd' })
+    expect(wrapper.get('pre').text()).toContain('--data "{\\"model\\":\\"jev-latest\\"')
+    await wrapper.setProps({ selectedModel: 'model&whoami' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.useKeyModal.typesafe.cmdUnsupported')
+    expect(wrapper.find('pre').exists()).toBe(false)
+    await wrapper.setProps({ selectedModel: '', apiKey: 'sk-%PATH%' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.useKeyModal.typesafe.cmdUnsupported')
+    await wrapper.setProps({ selectedShell: 'powershell' })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.get('pre').text()).toContain('sk-%PATH%')
+    wrapper.unmount()
+  })
+
   it('直接展示配置并保留 Codex 高级项，隐藏内部导航和弹窗', () => {
     const wrapper = create({ quickSetup: true })
     expect(wrapper.find('[data-testid="dialog"]').exists()).toBe(false)

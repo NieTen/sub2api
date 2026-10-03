@@ -12,7 +12,7 @@ import (
 func TestUSDTQuoteAdminDTOExposesLockedExchangeWithoutMerchantCredentials(t *testing.T) {
 	order := &dbent.PaymentOrder{
 		ID: 31, UserID: 12, OutTradeNo: "usdt-response-31", PaymentType: payment.TypeUSDTTRC20,
-		OrderType: payment.OrderTypeBalance, Amount: 1.4, PayAmount: 1.43,
+		OrderType: payment.OrderTypeBalance, Amount: 1.68, PayAmount: 1.43, BonusAmount: 0.28,
 		ProviderSnapshot: map[string]any{
 			"currency": "USDT", "provider_key": payment.TypeUSDTTRC20,
 			"token": "商户密钥不得外泄", "apiKey": "接口密钥不得外泄",
@@ -28,6 +28,9 @@ func TestUSDTQuoteAdminDTOExposesLockedExchangeWithoutMerchantCredentials(t *tes
 		require.NoError(t, err)
 		var result map[string]any
 		require.NoError(t, json.Unmarshal(raw, &result))
+		require.Equal(t, 1.68, result["amount"])
+		require.Equal(t, 0.28, result["bonus_amount"])
+		require.Equal(t, false, result["refund_supported"])
 		detail, ok := result["usdt_exchange"].(map[string]any)
 		require.True(t, ok)
 		require.Equal(t, 7.2, detail["rate"])

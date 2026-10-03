@@ -166,4 +166,14 @@ describe('CC Switch 目标选择', () => {
     wrapper.findComponent({ name: 'BaseDialog' }).vm.$emit('close')
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
+
+  it.each([false, true])('TypeSafe 不因 Claude 限制 %s 生成错误导入链接', async claudeCodeOnly => {
+    const wrapper = mountModal({ platform: 'typesafe', claudeCodeOnly })
+    expect(wrapper.findAll('input[type="radio"]')).toHaveLength(0)
+    expect(wrapper.text()).toContain('keys.quickSetup.systemOneOnly')
+    expect(wrapper.get('[data-testid="ccs-import-submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
+    expect(window.open).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 })

@@ -408,7 +408,7 @@
               <button type="button" class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-primary-50 hover:text-primary-600 dark:hover:bg-primary-900/20 dark:hover:text-primary-400" data-testid="key-manual-config" @click="openUseKeyModal(row)"><Icon name="terminal" size="sm" /><span class="text-xs">{{ t('keys.quickSetup.manualConfig') }}</span></button>
               <!-- Import to CC Switch Button -->
               <button
-                v-if="!publicSettings?.hide_ccs_import_button"
+                v-if="!publicSettings?.hide_ccs_import_button && row.group?.platform !== 'typesafe'"
                 @click="importToCcswitch(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
               >
@@ -1086,7 +1086,7 @@
       @close="closeUseKeyModal"
     />
 
-    <QuickSetupModal :show="showQuickSetup" :key-info="selectedKey" :keys="apiKeys" :base-url="resolvedApiBaseUrl" :site-name="publicSettings?.site_name || 'Sub2API'" :hide-ccs-import="publicSettings?.hide_ccs_import_button || false" @close="closeQuickSetup" @select-key="selectQuickSetupKey" />
+    <QuickSetupModal :show="showQuickSetup" :key-info="selectedKey" :keys="apiKeys" :base-url="resolvedApiBaseUrl" :site-name="publicSettings?.site_name || 'Sub2API'" :hide-ccs-import="publicSettings?.hide_ccs_import_button || false" @close="closeQuickSetup" @select-key="selectQuickSetupKey" @open-native="openQuickSetupNative" />
 
     <CcSwitchImportModal
       :show="showCcsClientSelect"
@@ -1234,7 +1234,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
   { key: 'id', label: t('keys.id'), sortable: true },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
-  { key: 'group', label: t('keys.group'), sortable: false },
+  { key: 'group', label: t('keys.group'), sortable: true },
   { key: 'current_concurrency', label: t('keys.currentConcurrency'), sortable: true },
   { key: 'usage', label: t('keys.usage'), sortable: false },
   { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
@@ -1643,6 +1643,10 @@ const closeUseKeyModal = () => {
 }
 
 const openQuickSetup = (key: ApiKey) => {
+  if (key.group?.platform === 'typesafe') {
+    openUseKeyModal(key)
+    return
+  }
   selectedKey.value = key
   showQuickSetup.value = true
 }
@@ -1656,6 +1660,12 @@ const openGlobalQuickSetup = () => {
 const selectQuickSetupKey = (id: number) => {
   const key = apiKeys.value.find(item => item.id === id)
   if (key) selectedKey.value = key
+}
+
+const openQuickSetupNative = () => {
+  if (!selectedKey.value) return
+  showQuickSetup.value = false
+  openUseKeyModal(selectedKey.value)
 }
 
 const closeQuickSetup = () => {
@@ -2001,6 +2011,10 @@ const resetRateLimitUsage = async () => {
 }
 
 const importToCcswitch = (row: ApiKey) => {
+  if (row.group?.platform === 'typesafe') {
+    openUseKeyModal(row)
+    return
+  }
   pendingCcsRow.value = row
   showCcsClientSelect.value = true
 }
