@@ -330,6 +330,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Select from '@/components/common/Select.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
+import { normalizePaymentMethodIconUrl } from './paymentMethodIcon'
 import type { ProviderInstance } from '@/types/payment'
 import type { EasyPayCustomMethod, TypeOption } from './providerConfig'
 import {
@@ -713,6 +714,14 @@ function handleSave() {
   if (!form.name.trim()) {
     emitValidationError(t('admin.settings.payment.validationNameRequired'))
     return
+  }
+  if (form.provider_key === 'okpay' && config.iconUrl?.trim()) {
+    const iconUrl = normalizePaymentMethodIconUrl(config.iconUrl)
+    if (!iconUrl) {
+      emitValidationError(t('admin.settings.payment.validationOkpayIconUrl'))
+      return
+    }
+    config.iconUrl = iconUrl
   }
   if (form.provider_key === 'okpay' || form.provider_key === 'usdt_trc20') {
     // 两个 USDT 通道固定各自的付款模式，并排除沿用旧配置启用自动退款的情况。

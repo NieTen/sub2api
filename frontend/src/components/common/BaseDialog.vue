@@ -11,7 +11,7 @@
         @click.self="handleClose"
       >
         <!-- Modal panel -->
-        <div ref="dialogRef" :class="['modal-content', widthClasses]" @click.stop>
+        <div ref="dialogRef" :class="['modal-content', widthClasses, panelClass]" @click.stop>
           <!-- Header -->
           <div class="modal-header">
             <h3 :id="dialogId" class="modal-title">
@@ -28,7 +28,7 @@
           </div>
 
           <!-- Body -->
-          <div ref="modalBodyRef" class="modal-body">
+          <div ref="modalBodyRef" :class="['modal-body', bodyClass]">
             <slot></slot>
           </div>
 
@@ -69,6 +69,9 @@ interface Props {
   closeOnClickOutside?: boolean
   showCloseButton?: boolean
   zIndex?: number
+  panelClass?: string
+  bodyClass?: string
+  trapFocus?: boolean
 }
 
 interface Emits {
@@ -111,6 +114,19 @@ const handleClose = () => {
 }
 
 const handleEscape = (event: KeyboardEvent) => {
+  // 复杂配置弹窗可选择约束 Tab 焦点，避免键盘操作落到遮罩后的页面。
+  if (props.show && props.trapFocus && event.key === 'Tab' && dialogRef.value) {
+    const elements = Array.from(dialogRef.value.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+    )).filter(element => element.getClientRects().length > 0 && element.getAttribute('aria-hidden') !== 'true')
+    const first = elements[0]
+    const last = elements[elements.length - 1]
+    const active = document.activeElement
+    if (first && (event.shiftKey ? active === first || !dialogRef.value.contains(active) : active === last || !dialogRef.value.contains(active))) {
+      event.preventDefault()
+      ;(event.shiftKey ? last : first)?.focus()
+    }
+  }
   if (props.show && props.closeOnEscape && event.key === 'Escape') {
     emit('close')
   }

@@ -24,6 +24,7 @@ vi.mock('file-saver', () => ({
 }))
 
 import UseKeyModal from '../UseKeyModal.vue'
+import type { GroupPlatform } from '@/types'
 
 function readBlobAsText(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -34,10 +35,257 @@ function readBlobAsText(blob: Blob): Promise<string> {
   })
 }
 
+describe('嵌入接入配置', () => {
+  const create = (props: Partial<InstanceType<typeof UseKeyModal>['$props']> = {}) => mount(UseKeyModal, {
+    props: {
+      show: true, embedded: true, apiKey: 'sk-local-preview-only',
+      baseUrl: 'https://example.test/site/', platform: 'openai', ...props
+    },
+    global: { stubs: { BaseDialog: { template: '<section data-testid="dialog"><slot /><slot name="footer" /></section>' }, Icon: true } }
+  })
+  afterEach(() => {
+    copyToClipboardMock.mockClear()
+    saveAsMock.mockClear()
+  })
+
+  it('直接展示配置并保留 Codex 高级项，隐藏内部导航和弹窗', () => {
+    const wrapper = create({ quickSetup: true })
+    expect(wrapper.find('[data-testid="dialog"]').exists()).toBe(false)
+    expect(wrapper.find('nav').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="setup-connection"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="setup-import-panel"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('common.close')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.openai.description')
+    expect(wrapper.find('[data-testid="codex-auth-mode-api-key"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(true)
+    expect(wrapper.findAll('pre')).toHaveLength(2)
+    wrapper.unmount()
+  })
+
+  it('外部切换 Shell 与客户端仍遵守分组限制', async () => {
+    const wrapper = create({ selectedClient: 'codex-ws', selectedShell: 'windows' })
+    expect(wrapper.text()).toContain('%userprofile%\\.codex\\config.toml')
+    expect(wrapper.find('pre').text()).toContain('supports_websockets = true')
+    await wrapper.setProps({ platform: 'gemini', selectedClient: 'grok', selectedShell: 'powershell' })
+    expect(wrapper.find('pre').text()).toContain('$env:GEMINI_API_KEY=')
+    await wrapper.setProps({ claudeCodeOnly: true, selectedClient: 'codex' })
+    expect(wrapper.find('pre').text()).toContain('$env:ANTHROPIC_AUTH_TOKEN=')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.gemini.note')
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.note')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['openai', 'codex'], ['openai', 'codex-ws'], ['grok', 'codex'], ['composite', 'codex']
+  ])('%s/%s 保留自定义模型并转义 TOML', (platform, selectedClient) => {
+    const model = 'vendor/model "custom"\\path'
+    const wrapper = create({ platform: platform as GroupPlatform, selectedClient, selectedModel: model })
+    const content = wrapper.findAll('pre').map(block => block.text()).join('\n')
+    expect(content).toContain('model = "vendor/model \\"custom\\"\\\\path"')
+    expect(content).not.toContain('model = "gpt-5.5"')
+    wrapper.unmount()
+  })
+
+  it('Claude JSON 与 Shell 都保留可打印特殊字符模型，空值恢复默认', async () => {
+    const model = 'vendor/模型 "$HOME" `echo hi` \\path'
+    const wrapper = create({ platform: 'anthropic', selectedModel: model })
+    expect(JSON.parse(wrapper.findAll('pre')[1]!.text()).env.ANTHROPIC_MODEL).toBe(model)
+    expect(wrapper.find('pre').text()).toContain(`export ANTHROPIC_MODEL='vendor/模型 "$HOME" \`echo hi\` \\path'`)
+    await wrapper.setProps({ selectedShell: 'powershell' })
+    expect(wrapper.find('pre').text()).toContain('$env:ANTHROPIC_MODEL="vendor/模型 `"`$HOME`" ``echo hi`` \\path"')
+    await wrapper.setProps({ selectedModel: '' })
+    expect(JSON.parse(wrapper.findAll('pre')[1]!.text()).env.ANTHROPIC_MODEL).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Gemini 高亮预览与实际复制均使用转义后的模型', async () => {
+    const wrapper = create({ platform: 'gemini', selectedModel: 'model/$USER"' })
+    const content = wrapper.find('pre').text()
+    expect(content).toContain(`GEMINI_MODEL='model/$USER"'`)
+    const copy = wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.copy')!
+    await copy.trigger('click')
+    expect(copyToClipboardMock).toHaveBeenLastCalledWith(content, 'keys.copied')
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['anthropic', 'claude', 'ANTHROPIC_BASE_URL', ''],
+    ['gemini', 'gemini', 'GOOGLE_GEMINI_BASE_URL', ''],
+    ['antigravity', 'claude', 'ANTHROPIC_BASE_URL', '/antigravity'],
+    ['grok', 'claude', 'ANTHROPIC_BASE_URL', ''],
+    ['grok', 'grok', 'GROK_MODELS_BASE_URL', '/v1']
+  ])('%s/%s 地址中的命令替换与单引号不会进入可展开的 Shell 字符串', async (platform, selectedClient, variable, suffix) => {
+    const wrapper = create({
+      platform: platform as GroupPlatform, selectedClient,
+      baseUrl: "https://example.test/$(whoami)/$HOME/'quoted'!"
+    })
+    const expected = `export ${variable}='https://example.test/$(whoami)/$HOME/'"'"'quoted'"'"'!${suffix}'`
+    const preview = wrapper.find('pre').text()
+    expect(preview.split('\n')[0]).toBe(expected)
+    const copy = wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.copy')!
+    await copy.trigger('click')
+    expect(copyToClipboardMock.mock.calls.at(-1)![0].split('\n')[0]).toBe(expected)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['anthropic', 'claude', 'ANTHROPIC_BASE_URL', 'powershell', ''],
+    ['gemini', 'gemini', 'GOOGLE_GEMINI_BASE_URL', 'powershell', ''],
+    ['grok', 'grok', 'GROK_MODELS_BASE_URL', 'windows', '/v1']
+  ])('%s/%s PowerShell 地址禁用变量和表达式求值', (platform, selectedClient, variable, selectedShell, suffix) => {
+    const wrapper = create({
+      platform: platform as GroupPlatform, selectedClient, selectedShell,
+      baseUrl: 'https://example.test/$(whoami)/$HOME'
+    })
+    expect(wrapper.find('pre').text().split('\n')[0]).toBe(`$env:${variable}="https://example.test/\`$(whoami)/\`$HOME${suffix}"`)
+    expect(wrapper.text()).not.toContain('keys.useKeyModal.note')
+    wrapper.unmount()
+  })
+
+  it('Unix 模型和密钥中的历史展开、反引号和单引号被完整保留为字面值', async () => {
+    const model = "custom!/$HOME/$(whoami)/`uname`/'quoted'"
+    const apiKey = "sk-!$(whoami)`uname`'tail"
+    const wrapper = create({ platform: 'anthropic', selectedModel: `  ${model}  `, apiKey })
+    const content = wrapper.find('pre').text()
+    expect(content).toContain('export ANTHROPIC_MODEL=\'custom!/$HOME/$(whoami)/`uname`/\'"\'"\'quoted\'"\'"\'\'')
+    expect(content).toContain('export ANTHROPIC_AUTH_TOKEN=\'sk-!$(whoami)`uname`\'"\'"\'tail\'')
+    expect(JSON.parse(wrapper.findAll('pre')[1]!.text()).env.ANTHROPIC_MODEL).toBe(model)
+    await wrapper.setProps({ maskSecrets: true })
+    expect(wrapper.find('pre').text()).toContain('<API_KEY>')
+    expect(wrapper.find('pre').text()).not.toContain('sk-!')
+    wrapper.unmount()
+  })
+
+  it('CMD 地址不能触发变量或历史展开，并支持安全字符的带引号赋值', async () => {
+    const wrapper = create({ platform: 'gemini', selectedShell: 'cmd', baseUrl: 'https://example.test/$()', selectedModel: 'a&b' })
+    expect(wrapper.find('pre').text()).toContain('set "GOOGLE_GEMINI_BASE_URL=https://example.test/$()"')
+    expect(wrapper.find('pre').text()).toContain('set "GEMINI_MODEL=a&b"')
+    await wrapper.setProps({ baseUrl: 'https://example.test/%PATH%/!USER!' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.quickSetup.invalidEndpoint')
+    expect(wrapper.find('pre').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('模型长度按 Unicode 码点计算且空白选择回默认', async () => {
+    const model = '😀'.repeat(256)
+    const wrapper = create({ selectedClient: 'opencode', selectedModel: model })
+    expect(JSON.parse(wrapper.find('pre').text()).model).toBe(`openai/${model}`)
+    await wrapper.setProps({ selectedModel: `${model}😀` })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.quickSetup.invalidModel')
+    await wrapper.setProps({ selectedModel: '  ' })
+    expect(JSON.parse(wrapper.find('pre').text()).model).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('Grok 自定义模型有对应定义且设为默认，保留旧模型目录', () => {
+    const wrapper = create({ platform: 'grok', selectedModel: 'custom/"quoted"' })
+    const content = wrapper.findAll('pre')[1]!.text()
+    expect(content).toContain('[model."custom/\\"quoted\\""]')
+    expect(content).toContain('default = "custom/\\"quoted\\""')
+    expect(content).toContain('[model."grok-build-0.1"]')
+    wrapper.unmount()
+  })
+
+  it('OpenCode 新模型同时生成顶层选择和定义，并防原型属性冲突', async () => {
+    const wrapper = create({ selectedClient: 'opencode', selectedModel: 'vendor/model' })
+    const config = () => JSON.parse(wrapper.find('pre').text())
+    expect(config().model).toBe('openai/vendor/model')
+    expect(config().provider.openai.models['vendor/model']).toEqual({ name: 'vendor/model' })
+    expect(config().provider.openai.models['gpt-5.5']).toBeDefined()
+    await wrapper.setProps({ selectedModel: '__proto__' })
+    expect(Object.hasOwn(config().provider.openai.models, '__proto__')).toBe(true)
+    await wrapper.setProps({ selectedModel: '' })
+    expect(config().model).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('非法模型显式报错且没有可复制下载的配置，CMD 特殊输入可以切换 Shell', async () => {
+    const wrapper = create({ selectedModel: 'model\nnext' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.quickSetup.invalidModel')
+    expect(wrapper.find('pre').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="download-setup-file"]').exists()).toBe(false)
+    await wrapper.setProps({ platform: 'anthropic', selectedShell: 'cmd', selectedModel: 'model%PATH%' })
+    expect(wrapper.get('[role="alert"]').text()).toBe('keys.quickSetup.invalidModelCmd')
+    await wrapper.setProps({ selectedShell: 'powershell' })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('pre').text()).toContain('model%PATH%')
+    wrapper.unmount()
+  })
+
+  it('预览遮罩不影响复制和安全文件名下载，终端命令不能下载', async () => {
+    const wrapper = create({ platform: 'gemini', maskSecrets: true })
+    expect(wrapper.find('pre').text()).toContain('<API_KEY>')
+    expect(wrapper.html()).not.toContain('sk-local-preview-only')
+    expect(wrapper.find('[data-testid="download-setup-file"]').exists()).toBe(false)
+    await wrapper.setProps({ platform: 'anthropic' })
+    expect(wrapper.findAll('[data-testid="download-setup-file"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="download-setup-file"]').trigger('click')
+    expect(saveAsMock).toHaveBeenCalledWith(expect.any(Blob), 'settings.json')
+    const downloaded = await readBlobAsText(saveAsMock.mock.calls[0]![0])
+    expect(JSON.parse(downloaded).env.ANTHROPIC_AUTH_TOKEN).toBe('sk-local-preview-only')
+    const copy = wrapper.findAll('button').find(button => button.text() === 'keys.useKeyModal.copy')!
+    await copy.trigger('click')
+    expect(copyToClipboardMock.mock.calls.at(-1)![0]).toContain('sk-local-preview-only')
+    await wrapper.setProps({ maskSecrets: false })
+    expect(wrapper.find('pre').text()).toContain('sk-local-preview-only')
+    wrapper.unmount()
+  })
+
+  it.each(['https://example.test/site/', 'https://example.test/site/v1/', 'https://example.test/site/antigravity/v1/'])('Antigravity 归一化 %s 并保持摘要一致', async baseUrl => {
+    const wrapper = create({ baseUrl, platform: 'antigravity', embedded: false, quickSetup: true })
+    expect(wrapper.get('[data-testid="setup-connection"]').text()).toContain('https://example.test/site/antigravity')
+    await wrapper.get('[data-testid="setup-mode-commands"]').trigger('click')
+    expect(wrapper.find('pre').text()).toContain('ANTHROPIC_BASE_URL="https://example.test/site/antigravity"')
+    await wrapper.setProps({ selectedClient: 'gemini' })
+    expect(wrapper.find('pre').text()).toContain('GOOGLE_GEMINI_BASE_URL="https://example.test/site/antigravity"')
+    wrapper.unmount()
+  })
+})
+
 describe('UseKeyModal', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     saveAsMock.mockClear()
+  })
+
+  it('一键接入默认隐藏完整密钥，支持复制和切换配置命令', async () => {
+    const apiKey = 'sk-local-setup-test-key-123456'
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, quickSetup: true, keyName: '本地密钥', groupName: 'Claude', apiKey, baseUrl: 'https://api.example.test', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } },
+    })
+    expect(wrapper.get('[data-testid="setup-connection"]').text()).toContain('本地密钥')
+    expect(wrapper.get('[data-testid="setup-masked-key"]').text()).not.toContain(apiKey)
+    expect(wrapper.find('pre code').exists()).toBe(false)
+    await wrapper.get('[data-testid="copy-setup-key"]').trigger('click')
+    expect(copyToClipboardMock).toHaveBeenLastCalledWith(apiKey, 'keys.copied')
+    await wrapper.get('[data-testid="copy-setup-endpoint"]').trigger('click')
+    expect(copyToClipboardMock).toHaveBeenLastCalledWith('https://api.example.test', 'keys.copied')
+    await wrapper.setProps({ platform: 'antigravity' })
+    await wrapper.get('[data-testid="copy-setup-endpoint"]').trigger('click')
+    expect(copyToClipboardMock).toHaveBeenLastCalledWith('https://api.example.test/antigravity', 'keys.copied')
+    await wrapper.setProps({ platform: 'anthropic' })
+    await wrapper.get('[data-testid="setup-open-ccs"]').trigger('click')
+    expect(wrapper.emitted('ccs-import')).toHaveLength(1)
+    await wrapper.get('[data-testid="setup-mode-commands"]').trigger('click')
+    expect(wrapper.find('pre code').text()).toContain('ANTHROPIC_BASE_URL')
+    expect(wrapper.find('pre code').text()).toContain(apiKey)
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true, apiKey: 'sk-another-local-fixture' })
+    expect(wrapper.find('[data-testid="setup-import-panel"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain(apiKey)
+    wrapper.unmount()
+  })
+
+  it('管理员隐藏 CCS 时一键接入仅显示配置命令', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, quickSetup: true, hideCcsImport: true, apiKey: 'sk-local-only', baseUrl: '', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } },
+    })
+    expect(wrapper.find('[data-testid="setup-mode-import"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="setup-open-ccs"]').exists()).toBe(false)
+    expect(wrapper.find('pre code').text()).toContain(window.location.origin)
+    wrapper.unmount()
   })
 
   it('shows only Claude Code for Claude Code-only groups', async () => {
@@ -76,6 +324,19 @@ describe('UseKeyModal', () => {
     expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.codexCli')
     expect(clientTabs()).not.toContain('keys.useKeyModal.cliTabs.opencode')
     expect(wrapper.find('pre code').text()).toContain('ANTHROPIC_BASE_URL')
+  })
+
+  it.each(['openai', 'gemini', 'grok', 'antigravity'] as const)('仅允许 Claude Code 的 %s 分组生成对应 Anthropic 配置', (platform) => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-local-fixture', baseUrl: 'https://api.example.test/v1/', platform, claudeCodeOnly: true },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } },
+    })
+    const expectedBase = platform === 'antigravity' ? 'https://api.example.test/antigravity' : 'https://api.example.test'
+    const code = wrapper.findAll('pre code').map((block) => block.text()).join('\n')
+    expect(code).toContain(`ANTHROPIC_BASE_URL="${expectedBase}"`)
+    expect(code).not.toContain('GOOGLE_GEMINI_BASE_URL')
+    expect(code).not.toContain('grok-4.5')
+    wrapper.unmount()
   })
 
   it('omits the attribution override from every standard Claude Code setup form', async () => {

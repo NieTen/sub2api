@@ -33,6 +33,7 @@ func (s *PaymentConfigService) GetAvailableMethodLimits(ctx context.Context) (*M
 		}
 		ml := pcAggregateMethodLimits(pt, insts)
 		ml.DisplayName = s.pcAggregateMethodDisplayName(pt, insts)
+		ml.IconURL = s.pcAggregateMethodIconURL(pt, insts)
 		ml.Currency = currency
 		if currency == "USDT" {
 			ml.InputCurrency = "CNY"
@@ -100,6 +101,7 @@ func (s *PaymentConfigService) GetMethodLimits(ctx context.Context, types []stri
 		}
 		ml := pcAggregateMethodLimits(pt, matching)
 		ml.DisplayName = s.pcAggregateMethodDisplayName(pt, matching)
+		ml.IconURL = s.pcAggregateMethodIconURL(pt, matching)
 		ml.Currency = currency
 		if currency == "USDT" {
 			ml.InputCurrency = "CNY"

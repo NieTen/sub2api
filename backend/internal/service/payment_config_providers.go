@@ -201,6 +201,9 @@ func (s *PaymentConfigService) CreateProviderInstance(ctx context.Context, req C
 	if err := validateProviderRequest(req.ProviderKey, req.Name, typesStr); err != nil {
 		return nil, err
 	}
+	if err := validatePaymentMethodIcon(req.ProviderKey, req.Config); err != nil {
+		return nil, err
+	}
 	if req.ProviderKey == payment.TypeEasyPay {
 		if err := validateEasyPayCustomMethods(req.Config, typesStr); err != nil {
 			return nil, err
@@ -385,6 +388,9 @@ func (s *PaymentConfigService) UpdateProviderInstance(ctx context.Context, id in
 		if err != nil {
 			return nil, fmt.Errorf("decrypt existing config: %w", err)
 		}
+	}
+	if err := validatePaymentMethodIcon(current.ProviderKey, configToValidate); err != nil {
+		return nil, err
 	}
 	if current.ProviderKey == payment.TypeEasyPay {
 		if err := validateEasyPayCustomMethods(configToValidate, nextSupportedTypes); err != nil {

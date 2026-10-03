@@ -129,6 +129,7 @@ type MethodLimits struct {
 	BalanceCreditMultiplier float64                   `json:"balance_credit_multiplier,omitempty"`
 	PaymentType             string                    `json:"payment_type"`
 	DisplayName             string                    `json:"display_name,omitempty"`
+	IconURL                 string                    `json:"icon_url,omitempty"`
 	Currency                string                    `json:"currency"`
 	FeeRate                 float64                   `json:"fee_rate"`
 	DailyLimit              float64                   `json:"daily_limit"`

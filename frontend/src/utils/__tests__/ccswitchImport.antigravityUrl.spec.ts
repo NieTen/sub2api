@@ -6,7 +6,9 @@ describe('Antigravity CC Switch endpoint', () => {
     ['https://api.example.com', 'https://api.example.com/antigravity'],
     ['https://api.example.com/', 'https://api.example.com/antigravity'],
     ['https://api.example.com///', 'https://api.example.com/antigravity'],
-    ['https://api.example.com/sub2api/', 'https://api.example.com/sub2api/antigravity']
+    ['https://api.example.com/sub2api/', 'https://api.example.com/sub2api/antigravity'],
+    ['https://api.example.com/sub2api/v1/', 'https://api.example.com/sub2api/antigravity'],
+    ['https://api.example.com/sub2api/antigravity/v1/', 'https://api.example.com/sub2api/antigravity']
   ])('joins the platform path onto %s for both clients', (baseUrl, endpoint) => {
     for (const clientType of ['claude', 'gemini'] as const) {
       const url = new URL(buildCcSwitchImportDeeplink({

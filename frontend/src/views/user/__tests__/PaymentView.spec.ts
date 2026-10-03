@@ -361,6 +361,21 @@ describe('PaymentView help text', () => {
 })
 
 describe('PaymentView USDT 充值倍率', () => {
+  it('充值和订阅入口都透传 OKPay 图标', async () => {
+    const icon_url = 'https://images.example/okpay.png'
+    const method = { ...checkoutInfoFixture().data.methods.wxpay, currency: 'USDT', input_currency: 'CNY', usdt_exchange: rateQuote(), icon_url }
+    routeState.path = '/purchase'
+    routeState.query = {}
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods: { okpay: method } }))
+    const recharge = shallowMount(PaymentView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } } })
+    await flushPromises()
+    expect(recharge.getComponent(PaymentMethodSelector).props('methods')).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'okpay', icon_url })]))
+    recharge.unmount()
+    const subscription = await mountSubscriptionConfirm({ checkout: { methods: { okpay: method } } })
+    expect(subscription.getComponent(PaymentMethodSelector).props('methods')).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'okpay', icon_url })]))
+    subscription.unmount()
+  })
+
   it('原生 USDT 按人民币输入并沿用全局到账倍率，其他通道保持原逻辑', async () => {
     routeState.path = '/purchase'
     routeState.query = {}

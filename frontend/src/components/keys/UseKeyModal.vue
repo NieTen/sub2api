@@ -1,8 +1,7 @@
 <template>
-  <BaseDialog
-    :show="show"
-    :title="t('keys.useKeyModal.title')"
-    width="wide"
+  <component
+    :is="embedded ? 'div' : BaseDialog"
+    v-bind="embedded ? {} : { show, title: t(quickSetup ? 'keys.oneClickSetup.title' : 'keys.useKeyModal.title'), width: 'wide' }"
     @close="emit('close')"
   >
     <div class="space-y-4">
@@ -23,13 +22,56 @@
 
       <!-- Platform-specific content -->
       <template v-else>
+        <template v-if="quickSetup && !embedded">
+          <section class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-800" data-testid="setup-connection">
+            <div class="mb-3 flex flex-wrap items-center gap-2">
+              <span class="font-medium text-gray-900 dark:text-white">{{ keyName || t('keys.apiKey') }}</span>
+              <span v-if="groupName" class="rounded-md bg-white px-2 py-0.5 text-xs text-gray-600 ring-1 ring-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:ring-dark-600">{{ groupName }}</span>
+            </div>
+            <dl class="space-y-3 text-sm">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <dt class="w-20 shrink-0 text-gray-500 dark:text-gray-400">{{ t('keys.oneClickSetup.endpoint') }}</dt>
+                <dd class="flex min-w-0 flex-1 items-center gap-2">
+                  <code class="min-w-0 flex-1 break-all text-gray-800 dark:text-gray-200">{{ connectionBaseUrl }}</code>
+                  <button type="button" class="btn btn-secondary btn-sm shrink-0" data-testid="copy-setup-endpoint" @click="copyContent(connectionBaseUrl, -1)">{{ t(copiedIndex === -1 ? 'keys.useKeyModal.copied' : 'keys.useKeyModal.copy') }}</button>
+                </dd>
+              </div>
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                <dt class="w-20 shrink-0 text-gray-500 dark:text-gray-400">API Key</dt>
+                <dd class="flex min-w-0 flex-1 items-center gap-2">
+                  <code class="min-w-0 flex-1 break-all text-gray-800 dark:text-gray-200" data-testid="setup-masked-key">{{ maskApiKey(apiKey) }}</code>
+                  <button type="button" class="btn btn-secondary btn-sm shrink-0" :disabled="!apiKey" data-testid="copy-setup-key" @click="copyContent(apiKey, -2)">{{ t(copiedIndex === -2 ? 'keys.useKeyModal.copied' : 'keys.useKeyModal.copy') }}</button>
+                </dd>
+              </div>
+            </dl>
+          </section>
+          <div class="grid grid-cols-2 gap-1 rounded-xl bg-gray-100 p-1 dark:bg-dark-700" role="group" :aria-label="t('keys.oneClickSetup.method')">
+            <button v-for="mode in setupModes" :key="mode" type="button" :data-testid="`setup-mode-${mode}`" :aria-pressed="setupMode === mode" :class="['rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500', setupMode === mode ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white']" @click="setupMode = mode">{{ t(`keys.oneClickSetup.${mode}`) }}</button>
+          </div>
+          <section v-if="setupMode === 'import'" class="rounded-xl border border-gray-200 p-5 dark:border-dark-600" data-testid="setup-import-panel">
+            <div class="flex items-start gap-3">
+              <span class="rounded-lg bg-primary-50 p-2 text-primary-600 dark:bg-primary-900/20 dark:text-primary-400"><Icon name="upload" size="lg" /></span>
+              <div class="min-w-0">
+                <h4 class="font-medium text-gray-900 dark:text-white">{{ t('keys.oneClickSetup.importTitle') }}</h4>
+                <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('keys.oneClickSetup.importDescription') }}</p>
+              </div>
+            </div>
+            <div class="mt-5 flex flex-wrap items-center gap-3">
+              <button type="button" class="btn btn-primary" :disabled="!apiKey" data-testid="setup-open-ccs" @click="emit('ccs-import')">{{ t('keys.oneClickSetup.chooseClient') }}</button>
+              <a href="https://github.com/farion1231/cc-switch/releases" target="_blank" rel="noopener noreferrer" class="text-sm text-primary-600 underline underline-offset-4 dark:text-primary-400">{{ t('keys.oneClickSetup.downloadCcs') }}</a>
+            </div>
+            <p class="mt-4 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('keys.oneClickSetup.importHint') }}</p>
+          </section>
+        </template>
+        <template v-if="embedded || !quickSetup || setupMode === 'commands'">
+        <p v-if="quickSetup && !embedded" class="text-sm text-gray-500 dark:text-gray-400">{{ t('keys.oneClickSetup.commandsHint') }}</p>
         <!-- Description -->
-        <p class="text-sm text-gray-600 dark:text-gray-400">
+        <p v-if="!embedded" class="text-sm text-gray-600 dark:text-gray-400">
           {{ platformDescription }}
         </p>
 
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+        <div v-if="!embedded && clientTabs.length" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" aria-label="Client">
             <button
               v-for="tab in clientTabs"
@@ -111,7 +153,7 @@
         </div>
 
         <!-- OS/Shell Tabs -->
-        <div v-if="showShellTabs" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+        <div v-if="!embedded && showShellTabs" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex min-w-max gap-4" aria-label="Tabs">
             <button
               v-for="tab in currentTabs"
@@ -133,6 +175,8 @@
           </nav>
         </div>
 
+        <p v-if="configurationError" role="alert" data-testid="setup-configuration-error" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ configurationError }}</p>
+        <p v-if="embedded && currentFiles.length" class="text-xs text-gray-500 dark:text-gray-400">{{ t('keys.quickSetup.secretExportHint') }}</p>
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -149,6 +193,7 @@
               <!-- Code Header -->
               <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
                 <span class="min-w-0 truncate text-xs text-gray-400 font-mono">{{ file.path }}</span>
+                <button v-if="embedded && downloadableFileName(file.path)" type="button" class="ml-auto mr-2 shrink-0 text-xs text-gray-300 hover:text-white" data-testid="download-setup-file" @click="downloadConfigFile(file)">{{ t('keys.quickSetup.downloadFile') }}</button>
                 <button
                   type="button"
                   @click="copyContent(file.content, index)"
@@ -167,7 +212,7 @@
                 </button>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
+              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted && !maskSecrets" v-html="file.highlighted"></code><code v-else v-text="previewContent(file.content)"></code></pre>
             </div>
           </div>
         </div>
@@ -250,10 +295,11 @@
             {{ platformNote }}
           </p>
         </div>
+        </template>
       </template>
     </div>
 
-    <template #footer>
+    <template v-if="!embedded" #footer>
       <div class="flex justify-end">
         <button
           @click="emit('close')"
@@ -263,7 +309,7 @@
         </button>
       </div>
     </template>
-  </BaseDialog>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -273,6 +319,8 @@ import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
+import { maskApiKey } from '@/utils/maskApiKey'
+import { normalizeKeySetupBaseUrl } from '@/utils/keySetupClients'
 import { buildCodexModelCatalogUrl, fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
 import {
@@ -289,10 +337,20 @@ interface Props {
   platform: GroupPlatform | null
   claudeCodeOnly?: boolean
   allowMessagesDispatch?: boolean
+  quickSetup?: boolean
+  keyName?: string
+  groupName?: string
+  hideCcsImport?: boolean
+  embedded?: boolean
+  selectedClient?: string
+  selectedShell?: string
+  selectedModel?: string
+  maskSecrets?: boolean
 }
 
 interface Emits {
   (e: 'close'): void
+  (e: 'ccs-import'): void
 }
 
 interface TabConfig {
@@ -315,6 +373,25 @@ const { t } = useI18n()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
 const copiedIndex = ref<number | null>(null)
+const setupMode = ref<'import' | 'commands'>('import')
+const setupModes = computed(() => props.hideCcsImport ? ['commands'] as const : ['import', 'commands'] as const)
+const normalizedBaseRoot = computed(() => {
+  try {
+    return normalizeKeySetupBaseUrl(props.baseUrl || window.location.origin, props.platform)
+  } catch {
+    return ''
+  }
+})
+const connectionBaseUrl = computed(() => {
+  const baseUrl = normalizedBaseRoot.value
+  if (!baseUrl) return ''
+  return props.platform === 'antigravity' ? `${baseUrl}/antigravity` : baseUrl
+})
+// 重新打开或更换密钥时重置接入方式，避免显示上一条密钥的复制状态。
+watch(() => [props.show, props.apiKey, props.hideCcsImport], () => {
+  setupMode.value = props.hideCcsImport ? 'commands' : 'import'
+  copiedIndex.value = null
+}, { immediate: true })
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 type CodexAuthMode = 'legacy' | 'api-key'
@@ -335,6 +412,7 @@ let codexModelManifestRequestID = 0
 
 const showCodexModelCatalog = computed(() =>
   props.show &&
+  (props.embedded || !props.quickSetup || setupMode.value === 'commands') &&
   (activeClientTab.value === 'codex' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
@@ -389,11 +467,6 @@ watch(codexManifestContext, (context, previousContext) => {
   if (context !== previousContext) {
     resetCodexModelManifest()
   }
-})
-
-// Reset shell tab when client changes
-watch(activeClientTab, () => {
-  activeTab.value = 'unix'
 })
 
 // Icon components
@@ -541,7 +614,63 @@ const currentTabs = computed(() => {
   return shellTabs
 })
 
+// 外部面板只能选择当前分组支持的客户端；旧入口仍由内部页签控制。
+watch([() => props.selectedClient, clientTabs], () => {
+  const supported = clientTabs.value.map(tab => tab.id)
+  if (props.claudeCodeOnly) {
+    activeClientTab.value = 'claude'
+  } else if (props.selectedClient !== undefined) {
+    activeClientTab.value = supported.includes(props.selectedClient)
+      ? props.selectedClient
+      : defaultClientTab.value
+  } else if (!supported.includes(activeClientTab.value)) {
+    activeClientTab.value = defaultClientTab.value
+  }
+}, { immediate: true })
+
+watch([() => props.selectedShell, currentTabs, activeClientTab], () => {
+  const supported = currentTabs.value.map(tab => tab.id)
+  if (props.selectedShell !== undefined) {
+    activeTab.value = supported.includes(props.selectedShell) ? props.selectedShell : 'unix'
+  } else {
+    activeTab.value = 'unix'
+  }
+}, { immediate: true })
+
+const customModel = computed(() => props.selectedModel?.trim() || '')
+const configurationError = computed(() => {
+  const model = customModel.value
+  const invalidCharacter = Array.from(model).some(char => {
+    const code = char.codePointAt(0) || 0
+    return code < 32 || (code >= 127 && code <= 159) || (code >= 0xd800 && code <= 0xdfff)
+  })
+  if (Array.from(model).length > 256 || invalidCharacter) return t('keys.quickSetup.invalidModel')
+  // CMD 的变量展开无法在交互式与批处理环境中统一转义，提示切换安全的 Shell。
+  if (activeTab.value === 'cmd' && /[%!\"]/.test(model)) return t('keys.quickSetup.invalidModelCmd')
+  if (!normalizedBaseRoot.value || (activeTab.value === 'cmd' && /[%!\"]/.test(normalizedBaseRoot.value))) {
+    return t('keys.quickSetup.invalidEndpoint')
+  }
+  return ''
+})
+
+function quoteShellValue(value: string, shell = activeTab.value): string {
+  if (shell === 'powershell' || shell === 'windows') {
+    return `"${value.replace(/[`"$]/g, '`$&')}"`
+  }
+  // 普通值保持旧配置外观；其余值用单引号禁用变量、命令替换和交互式历史展开。
+  if (/^[a-zA-Z0-9_./:@+=,-]*$/.test(value)) return `"${value}"`
+  return `'${value.replace(/'/g, "'\"'\"'")}'`
+}
+
+function environmentLine(name: string, value: string, shell = activeTab.value): string {
+  if (shell === 'cmd') {
+    return /[&|<>^() ]/.test(value) ? `set "${name}=${value}"` : `set ${name}=${value}`
+  }
+  return `${shell === 'powershell' || shell === 'windows' ? '$env:' : 'export '}${name}=${quoteShellValue(value, shell)}`
+}
+
 const platformDescription = computed(() => {
+  if (props.claudeCodeOnly) return t('keys.useKeyModal.description')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -586,6 +715,7 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (props.claudeCodeOnly) return t('keys.useKeyModal.note')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -642,7 +772,7 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() => !props.embedded && activeClientTab.value !== 'opencode')
 
 function resetCodexModelManifest() {
   codexModelManifestController?.abort()
@@ -697,6 +827,7 @@ const codexCatalogModelSlugs = computed(() =>
 )
 
 function selectCodexCatalogModel(preferredModel: string): string {
+  if (customModel.value) return customModel.value
   if (codexCatalogModelSlugs.value.includes(preferredModel)) return preferredModel
   return codexCatalogModelSlugs.value[0] || preferredModel
 }
@@ -726,9 +857,9 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  const baseUrl = props.baseUrl || window.location.origin
+  if (configurationError.value) return []
   const apiKey = props.apiKey
-  const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
+  const baseRoot = normalizedBaseRoot.value
   const ensureV1 = (value: string) => {
     const trimmed = value.replace(/\/+$/, '')
     return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
@@ -743,6 +874,11 @@ const currentFiles = computed((): FileConfig[] => {
     const trimmed = baseRoot.replace(/\/+$/, '')
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
+
+  // 仅允许 Claude Code 的分组必须同时限制配置内容，不能只切换页签名称。
+  if (props.claudeCodeOnly) {
+    return generateAnthropicFiles(props.platform === 'antigravity' ? `${baseRoot}/antigravity` : baseRoot, apiKey)
+  }
 
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
@@ -779,15 +915,15 @@ const currentFiles = computed((): FileConfig[] => {
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'gemini')
       }
-      return [generateGeminiCliContent(baseUrl, apiKey)]
+      return [generateGeminiCliContent(baseRoot, apiKey)]
     case 'antigravity':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'antigravity')
       }
       if (activeClientTab.value === 'gemini') {
-        return [generateGeminiCliContent(`${baseUrl}/antigravity`, apiKey)]
+        return [generateGeminiCliContent(`${baseRoot}/antigravity`, apiKey)]
       }
-      return generateAnthropicFiles(`${baseUrl}/antigravity`, apiKey)
+      return generateAnthropicFiles(`${baseRoot}/antigravity`, apiKey)
     case 'grok':
       if (activeClientTab.value === 'claude') {
         return generateGrokClaudeFiles(baseRoot, apiKey)
@@ -815,7 +951,7 @@ const currentFiles = computed((): FileConfig[] => {
       if (activeClientTab.value === 'codex' && props.platform) {
         return generateRoutedCodexFiles(apiBase, apiKey, props.platform)
       }
-      return generateAnthropicFiles(baseUrl, apiKey)
+      return generateAnthropicFiles(baseRoot, apiKey)
   }
 })
 
@@ -826,20 +962,20 @@ function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export ANTHROPIC_BASE_URL="${baseUrl}"
-export ANTHROPIC_AUTH_TOKEN="${apiKey}"
+      content = `${environmentLine('ANTHROPIC_BASE_URL', baseUrl)}
+${environmentLine('ANTHROPIC_AUTH_TOKEN', apiKey)}
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `set ANTHROPIC_BASE_URL=${baseUrl}
-set ANTHROPIC_AUTH_TOKEN=${apiKey}
+      content = `${environmentLine('ANTHROPIC_BASE_URL', baseUrl)}
+${environmentLine('ANTHROPIC_AUTH_TOKEN', apiKey)}
 set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:ANTHROPIC_BASE_URL="${baseUrl}"
-$env:ANTHROPIC_AUTH_TOKEN="${apiKey}"
+      content = `${environmentLine('ANTHROPIC_BASE_URL', baseUrl)}
+${environmentLine('ANTHROPIC_AUTH_TOKEN', apiKey)}
 $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
       break
     default:
@@ -851,14 +987,16 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
     ? '~/.claude/settings.json'
     : '%USERPROFILE%\\.claude\\settings.json'
 
-  const vscodeContent = `{
-  "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "env": {
-    "ANTHROPIC_BASE_URL": "${baseUrl}",
-    "ANTHROPIC_AUTH_TOKEN": "${apiKey}",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  }
-}`
+  if (customModel.value) content += `\n${environmentLine('ANTHROPIC_MODEL', customModel.value)}`
+  const vscodeContent = JSON.stringify({
+    $schema: 'https://json.schemastore.org/claude-code-settings.json',
+    env: {
+      ANTHROPIC_BASE_URL: baseUrl,
+      ANTHROPIC_AUTH_TOKEN: apiKey,
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      ...(customModel.value ? { ANTHROPIC_MODEL: customModel.value } : {})
+    }
+  }, null, 2)
 
   return [
     { path, content },
@@ -871,15 +1009,16 @@ $env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`
 }
 
 function generateGrokClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const model = customModel.value || 'grok-4.5'
   const environment = {
     ANTHROPIC_BASE_URL: baseUrl,
     ANTHROPIC_AUTH_TOKEN: apiKey,
-    ANTHROPIC_MODEL: 'grok-4.5',
-    ANTHROPIC_DEFAULT_OPUS_MODEL: 'grok-4.5',
-    ANTHROPIC_DEFAULT_SONNET_MODEL: 'grok-4.5',
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'grok-4.5',
-    ANTHROPIC_DEFAULT_FABLE_MODEL: 'grok-4.5',
-    CLAUDE_CODE_SUBAGENT_MODEL: 'grok-4.5',
+    ANTHROPIC_MODEL: model,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: model,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: model,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: model,
+    ANTHROPIC_DEFAULT_FABLE_MODEL: model,
+    CLAUDE_CODE_SUBAGENT_MODEL: model,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
   }
   let path: string
@@ -889,19 +1028,19 @@ function generateGrokClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] 
     case 'unix':
       path = 'Terminal'
       content = Object.entries(environment)
-        .map(([name, value]) => `export ${name}="${value}"`)
+        .map(([name, value]) => environmentLine(name, value))
         .join('\n')
       break
     case 'cmd':
       path = 'Command Prompt'
       content = Object.entries(environment)
-        .map(([name, value]) => `set ${name}=${value}`)
+        .map(([name, value]) => environmentLine(name, value))
         .join('\n')
       break
     case 'powershell':
       path = 'PowerShell'
       content = Object.entries(environment)
-        .map(([name, value]) => `$env:${name}="${value}"`)
+        .map(([name, value]) => environmentLine(name, value))
         .join('\n')
       break
     default:
@@ -927,7 +1066,7 @@ function generateGrokClaudeFiles(baseUrl: string, apiKey: string): FileConfig[] 
 }
 
 function generateGeminiCliContent(baseUrl: string, apiKey: string): FileConfig {
-  const model = 'gemini-2.0-flash'
+  const model = customModel.value || 'gemini-2.0-flash'
   const modelComment = t('keys.useKeyModal.gemini.modelComment')
   let path: string
   let content: string
@@ -936,31 +1075,30 @@ function generateGeminiCliContent(baseUrl: string, apiKey: string): FileConfig {
   switch (activeTab.value) {
     case 'unix':
       path = 'Terminal'
-      content = `export GOOGLE_GEMINI_BASE_URL="${baseUrl}"
-export GEMINI_API_KEY="${apiKey}"
-export GEMINI_MODEL="${model}"  # ${modelComment}`
-      highlighted = `${keyword('export')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('export')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
+      content = `${environmentLine('GOOGLE_GEMINI_BASE_URL', baseUrl)}
+${environmentLine('GEMINI_API_KEY', apiKey)}
+${environmentLine('GEMINI_MODEL', model)}  # ${modelComment}`
+      highlighted = `${keyword('export')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(quoteShellValue(baseUrl))}
+${keyword('export')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(quoteShellValue(apiKey))}
+${keyword('export')} ${variable('GEMINI_MODEL')}${operator('=')}${string(quoteShellValue(model))}  ${comment(`# ${modelComment}`)}`
       break
     case 'cmd':
       path = 'Command Prompt'
-      content = `set GOOGLE_GEMINI_BASE_URL=${baseUrl}
-set GEMINI_API_KEY=${apiKey}
-set GEMINI_MODEL=${model}`
-      highlighted = `${keyword('set')} ${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(baseUrl)}
-${keyword('set')} ${variable('GEMINI_API_KEY')}${operator('=')}${string(apiKey)}
-${keyword('set')} ${variable('GEMINI_MODEL')}${operator('=')}${string(model)}
-${comment(`REM ${modelComment}`)}`
+      content = `${environmentLine('GOOGLE_GEMINI_BASE_URL', baseUrl)}
+${environmentLine('GEMINI_API_KEY', apiKey)}
+${environmentLine('GEMINI_MODEL', model)}`
+      highlighted = `${string(environmentLine('GOOGLE_GEMINI_BASE_URL', baseUrl))}
+${string(environmentLine('GEMINI_API_KEY', apiKey))}
+${string(environmentLine('GEMINI_MODEL', model))}`
       break
     case 'powershell':
       path = 'PowerShell'
-      content = `$env:GOOGLE_GEMINI_BASE_URL="${baseUrl}"
-$env:GEMINI_API_KEY="${apiKey}"
-$env:GEMINI_MODEL="${model}"  # ${modelComment}`
-      highlighted = `${keyword('$env:')}${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(`"${baseUrl}"`)}
-${keyword('$env:')}${variable('GEMINI_API_KEY')}${operator('=')}${string(`"${apiKey}"`)}
-${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model}"`)}  ${comment(`# ${modelComment}`)}`
+      content = `${environmentLine('GOOGLE_GEMINI_BASE_URL', baseUrl)}
+${environmentLine('GEMINI_API_KEY', apiKey)}
+${environmentLine('GEMINI_MODEL', model)}  # ${modelComment}`
+      highlighted = `${keyword('$env:')}${variable('GOOGLE_GEMINI_BASE_URL')}${operator('=')}${string(quoteShellValue(baseUrl))}
+${keyword('$env:')}${variable('GEMINI_API_KEY')}${operator('=')}${string(quoteShellValue(apiKey))}
+${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(quoteShellValue(model))}  ${comment(`# ${modelComment}`)}`
       break
     default:
       path = 'Terminal'
@@ -980,8 +1118,8 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
   // config.toml content
   const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
+model = "${escapeTomlBasicString(model)}"
+review_model = "${escapeTomlBasicString(model)}"
 ${reasoningEffortLine}disable_response_storage = true
 ${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -1015,7 +1153,7 @@ function buildOpenAICodexFileConfigs(
 ): FileConfig[] {
   const files: FileConfig[] = [
     {
-      path: `${configDir}/config.toml`,
+      path: joinConfigPath(configDir, 'config.toml', activeTab.value === 'windows'),
       content: configContent,
       hint: t('keys.useKeyModal.openai.configTomlHint')
     }
@@ -1023,7 +1161,7 @@ function buildOpenAICodexFileConfigs(
 
   if (codexAuthMode.value === 'legacy') {
     files.push({
-      path: `${configDir}/auth.json`,
+      path: joinConfigPath(configDir, 'auth.json', activeTab.value === 'windows'),
       content: JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
     })
   }
@@ -1041,6 +1179,16 @@ function escapeTomlBasicString(value: string): string {
 }
 
 function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
+  const model = customModel.value || 'grok-4.5'
+  const builtInModels = ['grok-4.5', 'grok-build-0.1', 'grok-4.20-multi-agent-0309', 'grok-4.3']
+  // 自定义模型只声明路由必需项，不猜测上下文长度或额外能力。
+  const selectedModelDefinition = builtInModels.includes(model) ? '' : `
+[model."${escapeTomlBasicString(model)}"]
+model = "${escapeTomlBasicString(model)}"
+name = "${escapeTomlBasicString(model)}"
+env_key = "XAI_API_KEY"
+api_backend = "responses"
+`
   // Prefer unix/cmd/powershell when shell tabs are shown; fall back to windows tab.
   const shell = activeTab.value
   const isWindowsPath = shell === 'windows' || shell === 'cmd' || shell === 'powershell'
@@ -1051,19 +1199,19 @@ function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (shell) {
     case 'cmd':
       envPath = 'Command Prompt'
-      envContent = `set GROK_MODELS_BASE_URL=${baseUrl}
-set XAI_API_KEY=${apiKey}`
+      envContent = `${environmentLine('GROK_MODELS_BASE_URL', baseUrl)}
+${environmentLine('XAI_API_KEY', apiKey)}`
       break
     case 'powershell':
     case 'windows':
       envPath = 'PowerShell'
-      envContent = `$env:GROK_MODELS_BASE_URL="${baseUrl}"
-$env:XAI_API_KEY="${apiKey}"`
+      envContent = `${environmentLine('GROK_MODELS_BASE_URL', baseUrl)}
+${environmentLine('XAI_API_KEY', apiKey)}`
       break
     default:
       envPath = 'Terminal'
-      envContent = `export GROK_MODELS_BASE_URL="${baseUrl}"
-export XAI_API_KEY="${apiKey}"`
+      envContent = `${environmentLine('GROK_MODELS_BASE_URL', baseUrl)}
+${environmentLine('XAI_API_KEY', apiKey)}`
   }
 
   // Shape follows Grok Build user guide (~/.grok/docs + custom-models) and production-ready Sub2API setups.
@@ -1146,9 +1294,10 @@ supports_backend_search = true
 # context_window = 1000000
 # supports_backend_search = true
 
+${selectedModelDefinition}
 [models]
 # xAI recommends grok-build* for coding/agent sessions; use grok-4.5 for general chat.
-default = "grok-4.5"
+default = "${escapeTomlBasicString(model)}"
 web_search = "grok-4.5"                     # client-side web_search tool model (must exist as [model.*])
 image_description = "grok-4.5"              # vision/describe-image helper model
 # Optional environment-wide sampling defaults (per-model values win):
@@ -1195,16 +1344,16 @@ function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
   switch (shell) {
     case 'cmd':
       envPath = 'Command Prompt'
-      envContent = `set SUB2API_API_KEY=${apiKey}`
+      envContent = environmentLine('SUB2API_API_KEY', apiKey)
       break
     case 'powershell':
     case 'windows':
       envPath = 'PowerShell'
-      envContent = `$env:SUB2API_API_KEY="${apiKey}"`
+      envContent = environmentLine('SUB2API_API_KEY', apiKey)
       break
     default:
       envPath = 'Terminal'
-      envContent = `export SUB2API_API_KEY="${apiKey}"`
+      envContent = environmentLine('SUB2API_API_KEY', apiKey)
   }
 
   const configContent = `# Codex CLI → Sub2API Grok group
@@ -1214,9 +1363,9 @@ function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
 # Switch model: grok-4.5 | grok-4.3 | grok-build-0.1 | grok-4.20-multi-agent-0309 (text / web_search)
 
 model_provider = "sub2api"
-model = "${model}"
+model = "${escapeTomlBasicString(model)}"
 ${codexLocalCatalogToml.value}# Optional:
-# review_model = "${model}"
+# review_model = "${escapeTomlBasicString(model)}"
 # model_reasoning_effort = "medium"
 # model_context_window = 500000
 # disable_response_storage = true
@@ -1286,14 +1435,12 @@ function generateRoutedCodexFiles(
     composite: 'Composite'
   }
   const label = labels[platform]
-  const envContent = isWindows
-    ? `$env:SUB2API_API_KEY="${apiKey}"`
-    : `export SUB2API_API_KEY="${apiKey}"`
+  const envContent = environmentLine('SUB2API_API_KEY', apiKey)
 
   const configContent = `# Codex CLI -> Sub2API ${label} group
 model_provider = "sub2api"
-model = "${model}"
-review_model = "${model}"
+model = "${escapeTomlBasicString(model)}"
+review_model = "${escapeTomlBasicString(model)}"
 disable_response_storage = true
 ${codexLocalCatalogToml.value}
 [model_providers.sub2api]
@@ -1326,8 +1473,8 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
   // config.toml content with WebSocket v2
   const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
+model = "${escapeTomlBasicString(model)}"
+review_model = "${escapeTomlBasicString(model)}"
 ${reasoningEffortLine}disable_response_storage = true
 ${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -2002,9 +2149,17 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
         }
       : undefined
 
+  if (customModel.value && !Object.prototype.hasOwnProperty.call(provider[platform].models, customModel.value)) {
+    provider[platform].models = {
+      ...provider[platform].models,
+      [customModel.value]: { name: customModel.value }
+    }
+  }
+
   const content = JSON.stringify(
     {
       provider,
+      ...(customModel.value ? { model: `${platform}/${customModel.value}` } : {}),
       ...(agent ? { agent } : {}),
       $schema: 'https://opencode.ai/config.json'
     },
@@ -2019,7 +2174,33 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   }
 }
 
+function previewContent(content: string): string {
+  if (!props.maskSecrets || !props.apiKey) return content
+  // JSON/TOML 或 Shell 可能转义了密钥，先遮住这些形式，再处理原文。
+  const representations = [
+    props.apiKey,
+    JSON.stringify(props.apiKey).slice(1, -1),
+    escapeTomlBasicString(props.apiKey),
+    quoteShellValue(props.apiKey, 'unix').slice(1, -1),
+    quoteShellValue(props.apiKey, 'powershell').slice(1, -1)
+  ].sort((a, b) => b.length - a.length)
+  return representations.reduce((preview, secret) => preview.split(secret).join('<API_KEY>'), content)
+}
+
+function downloadableFileName(path: string): string | null {
+  const withoutLabel = path.replace(/\s+\([^)]*\)$/, '')
+  const basename = withoutLabel.split(/[\\/]/).pop() || ''
+  return /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(json|toml)$/i.test(basename) ? basename : null
+}
+
+function downloadConfigFile(file: FileConfig) {
+  const filename = downloadableFileName(file.path)
+  if (!filename || configurationError.value) return
+  saveAs(new Blob([file.content], { type: 'text/plain;charset=utf-8' }), filename)
+}
+
 const copyContent = async (content: string, index: number) => {
+  if (index >= 0 && configurationError.value) return
   const success = await clipboardCopy(content, t('keys.copied'))
   if (success) {
     copiedIndex.value = index

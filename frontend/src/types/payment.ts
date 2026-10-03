@@ -48,6 +48,7 @@ export interface MethodLimit {
   exchange_rate_error?: string
   balance_credit_multiplier?: number
   display_name?: string
+  icon_url?: string
   daily_limit: number
   daily_used: number
   daily_remaining: number

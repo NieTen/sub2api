@@ -136,6 +136,7 @@ export const PROVIDER_CALLBACK_PATHS: Record<string, CallbackPaths> = {
 /** Per-provider config fields (excludes notifyUrl/returnUrl which are handled separately). */
 export const PROVIDER_CONFIG_FIELDS: Record<string, ConfigFieldDef[]> = {
   okpay: [
+    { key: 'iconUrl', label: '', sensitive: false, optional: true, clearable: true, hintKey: 'admin.settings.payment.field_okpayIconUrlHint' },
     { key: 'id', label: '', sensitive: false },
     { key: 'token', label: '', sensitive: true },
     {

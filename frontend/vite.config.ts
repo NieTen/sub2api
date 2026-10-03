@@ -166,6 +166,10 @@ export default defineConfig(({ mode }) => {
           target: backendUrl,
           changeOrigin: true
         },
+        '/antigravity': {
+          target: backendUrl,
+          changeOrigin: true
+        },
         '/setup': {
           target: backendUrl,
           changeOrigin: true

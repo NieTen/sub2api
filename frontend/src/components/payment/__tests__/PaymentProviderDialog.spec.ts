@@ -108,6 +108,36 @@ function mountDialog(options: { editing?: ProviderInstance | null } = {}) {
 }
 
 describe('PaymentProviderDialog callback URLs', () => {
+  it('OKPay 图标可编辑和清空，清空不会覆盖已保存 Token', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop', iconUrl: 'https://images.example/old.png' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    const input = wrapper.get('input[name="provider-iconUrl"]')
+    expect((input.element as HTMLInputElement).value).toBe(provider.config.iconUrl)
+    for (const iconUrl of [' https://images.example/new.png ', '/images/okpay.png', '']) {
+      await input.setValue(iconUrl)
+      await wrapper.get('form').trigger('submit.prevent')
+      const payload = wrapper.emitted('save')?.at(-1)?.[0] as { config: Record<string, string> }
+      expect(payload.config.iconUrl).toBe(iconUrl.trim())
+      expect(payload.config).not.toHaveProperty('token')
+    }
+    wrapper.unmount()
+  })
+
+  it('OKPay 保存前拒绝无效图标地址', async () => {
+    const provider = providerFactory({ provider_key: 'okpay', name: 'OKPay', config: { id: 'shop-1', apiBase: 'https://api.okaypay.me/shop' } })
+    const wrapper = mountDialog({ editing: provider })
+    ;(wrapper.vm as unknown as { loadProvider: (value: ProviderInstance) => void }).loadProvider(provider)
+    await nextTick()
+    await wrapper.get('input[name="provider-iconUrl"]').setValue('javascript:alert(1)')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(wrapper.emitted('save')).toBeUndefined()
+    expect(mockShowError).toHaveBeenLastCalledWith('admin.settings.payment.validationOkpayIconUrl')
+    wrapper.unmount()
+  })
+
   it.each([
     ['https://notify.example.com/', 'https://return.example.com///', 'https://notify.example.com', 'https://return.example.com'],
     [' https://notify.example.com/sub/ ', ' https://return.example.com/site/ ', 'https://notify.example.com/sub', 'https://return.example.com/site'],

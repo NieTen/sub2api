@@ -693,6 +693,7 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
     return {
       type,
       display_name: ml?.display_name,
+      icon_url: ml?.icon_url,
       fee_rate: ml?.fee_rate ?? 0,
       available: ml?.available !== false && amountFitsMethod(validAmount.value, type) && (!isUsdtCnyMethod(ml) || freshUsdtQuote(ml.usdt_exchange, quoteNow.value)),
     }
@@ -770,6 +771,7 @@ const subMethodOptions = computed<PaymentMethodOption[]>(() => {
     return {
       type,
       display_name: ml?.display_name,
+      icon_url: ml?.icon_url,
       fee_rate: ml?.fee_rate ?? 0,
       available: ml?.available !== false && amountFitsMethod(subscriptionTotalAmountForCurrency(price, currency), type, true) && (!isUsdtCnyMethod(ml) || freshUsdtQuote(ml.usdt_exchange, quoteNow.value)),
     }

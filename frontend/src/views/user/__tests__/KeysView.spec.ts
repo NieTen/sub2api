@@ -238,6 +238,8 @@ const mountView = async () => {
         SearchInput: SearchInputStub,
         Icon: IconStub,
         UseKeyModal: true,
+        QuickSetupModal: true,
+        CcSwitchImportModal: true,
         BulkEditKeysModal: true,
         EndpointPopover: true,
         GroupBadge: true,
@@ -294,6 +296,39 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('一键接入、原有配置与独立 CCS 使用当前密钥和默认接口地址', async () => {
+    const wrapper = await mountView()
+    const quickSetup = wrapper.findComponent({ name: 'QuickSetupModal' })
+    const manual = wrapper.findComponent({ name: 'UseKeyModal' })
+    const ccs = wrapper.findComponent({ name: 'CcSwitchImportModal' })
+    await wrapper.get('[data-testid="key-quick-setup"]').trigger('click')
+    expect(quickSetup.props()).toMatchObject({ show: true, keyInfo: { key: 'sk-test-key' }, baseUrl: window.location.origin })
+    quickSetup.vm.$emit('close')
+    await nextTick()
+    await wrapper.get('[data-testid="key-manual-config"]').trigger('click')
+    expect(manual.props()).toMatchObject({ show: true, apiKey: 'sk-test-key', baseUrl: window.location.origin })
+    manual.vm.$emit('close')
+    await nextTick()
+    await getButtonByText(wrapper, 'keys.importToCcSwitch').trigger('click')
+    expect(ccs.props()).toMatchObject({ show: true, apiKey: 'sk-test-key', baseUrl: window.location.origin })
+    ccs.vm.$emit('close')
+    await nextTick()
+    expect(quickSetup.props('show')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('隐藏 CCS 的公开配置同时限制密钥菜单和快捷弹窗入口', async () => {
+    getPublicSettings.mockResolvedValueOnce({ hide_ccs_import_button: true, api_base_url: 'https://gateway.example.test' })
+    const wrapper = await mountView()
+    expect(wrapper.findAll('button').some((button) => button.text().includes('keys.importToCcSwitch'))).toBe(false)
+    await wrapper.get('[data-testid="key-quick-setup"]').trigger('click')
+    const quickSetup = wrapper.findComponent({ name: 'QuickSetupModal' })
+    expect(quickSetup.props()).toMatchObject({ hideCcsImport: true, baseUrl: 'https://gateway.example.test' })
+    await nextTick()
+    expect(wrapper.findComponent({ name: 'CcSwitchImportModal' }).props('show')).toBe(false)
+    wrapper.unmount()
   })
 
   it.each([

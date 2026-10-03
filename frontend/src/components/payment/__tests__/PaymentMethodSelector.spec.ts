@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
+import okpayIcon from '@/assets/icons/okpay.svg'
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -9,6 +10,26 @@ vi.mock('vue-i18n', () => ({
 }))
 
 describe('PaymentMethodSelector', () => {
+  it('使用自定义 OKPay 图标，失败回退默认且更换地址后重新加载', async () => {
+    const method = { type: 'okpay', icon_url: 'https://images.example/okpay.png', fee_rate: 0, available: true }
+    const wrapper = mount(PaymentMethodSelector, { props: { selected: 'okpay', methods: [method] } })
+    expect(wrapper.get('img').attributes('src')).toBe(method.icon_url)
+    expect(wrapper.get('img').attributes('referrerpolicy')).toBe('no-referrer')
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.get('img').attributes('src')).toBe(okpayIcon)
+    await wrapper.get('img').trigger('error')
+    expect(wrapper.get('img').attributes('src')).toBe(okpayIcon)
+    await wrapper.setProps({ methods: [{ ...method, icon_url: '/images/updated.png' }] })
+    expect(wrapper.get('img').attributes('src')).toBe('/images/updated.png')
+    await wrapper.setProps({ methods: [{ ...method, icon_url: '' }] })
+    expect(wrapper.get('img').attributes('src')).toBe(okpayIcon)
+  })
+
+  it.each(['javascript:alert(1)', 'data:image/svg+xml,test', '//images.example/icon.png', 'http://images.example/icon.png', 'https://user:pass@images.example/icon.png', 'https://@images.example/icon.png', '/\\images.example/icon.png'])('不加载无效自定义图标 %s', icon_url => {
+    const wrapper = mount(PaymentMethodSelector, { props: { selected: 'okpay', methods: [{ type: 'okpay', icon_url, fee_rate: 0, available: true }] } })
+    expect(wrapper.get('img').attributes('src')).toBe(okpayIcon)
+  })
+
   it('原生 OKPay 和 TRC20 入口显示图标并能选择', async () => {
     const wrapper = mount(PaymentMethodSelector, { props: { selected: 'okpay', methods: [{ type: 'okpay', fee_rate: 0, available: true }, { type: 'usdt_trc20', fee_rate: 0, available: true }] } })
     const buttons = wrapper.findAll('button')

@@ -1,9 +1,20 @@
 import type { GroupPlatform } from '@/types'
+import {
+  isKeySetupClientSupported,
+  normalizeKeySetupEndpoint,
+  resolveKeySetupCcSwitchTarget,
+  type CcSwitchTargetApp,
+  type KeySetupClient
+} from './keySetupClients'
+
+export type { CcSwitchTargetApp } from './keySetupClients'
 
 export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-5.5'
 export const GROK_CC_SWITCH_MODEL = 'grok-4.5'
 
-export type CcSwitchClientType = 'claude' | 'gemini'
+export type CcSwitchClientType = 'claude' | 'claude-desktop' | 'gemini'
+
+export const CC_SWITCH_DESKTOP_GUIDE_URL = 'https://github.com/farion1231/cc-switch/blob/v3.20.4/docs/user-manual/zh/2-providers/2.6-claude-desktop.md'
 
 export interface CcSwitchImportConfig {
   app: string
@@ -14,7 +25,12 @@ export interface CcSwitchImportConfig {
 export interface CcSwitchImportDeeplinkInput {
   baseUrl: string
   platform?: GroupPlatform | null
-  clientType: CcSwitchClientType
+  clientType?: CcSwitchClientType
+  client?: KeySetupClient
+  targetApp?: CcSwitchTargetApp
+  model?: string
+  claudeCodeOnly?: boolean
+  allowMessagesDispatch?: boolean
   providerName: string
   apiKey: string
   usageScript: string
@@ -59,17 +75,18 @@ export function resolveCcSwitchImportConfig(
   clientType: CcSwitchClientType,
   baseUrl: string
 ): CcSwitchImportConfig {
+  // CC Switch v3.20.4 尚未开放 Desktop 深链，先导入 Claude，再由应用内迁移到 Desktop。
+  // 不能直接发送 app=claude-desktop，否则会在协议入口被拒绝。
   switch (platform || 'anthropic') {
     case 'antigravity':
       return {
         app: clientType === 'gemini' ? 'gemini' : 'claude',
-        endpoint: `${baseUrl.replace(/\/+$/, '')}/antigravity`
+        endpoint: normalizeKeySetupEndpoint(baseUrl, platform, clientType)
       }
     case 'openai':
       return {
         app: 'codex',
-        // CC Switch's Codex provider appends the OpenAI-compatible path itself.
-        // Passing /v1 here can make the client request /v1/v1/....
+        // 保留旧入口传入的路径；新显式客户端入口统一使用 /v1。
         endpoint: withoutTrailingSlashes(baseUrl),
         model: OPENAI_CC_SWITCH_CODEX_MODEL
       }
@@ -92,8 +109,44 @@ export function resolveCcSwitchImportConfig(
   }
 }
 
+const CC_SWITCH_TARGET_CLIENTS: Record<CcSwitchTargetApp, KeySetupClient> = {
+  claude: 'claude',
+  codex: 'codex',
+  gemini: 'gemini',
+  grokbuild: 'grok',
+  opencode: 'opencode',
+  openclaw: 'openclaw',
+  hermes: 'hermes'
+}
+
+function resolveExplicitCcSwitchConfig(input: CcSwitchImportDeeplinkInput): CcSwitchImportConfig {
+  const client = input.client || (input.targetApp && CC_SWITCH_TARGET_CLIENTS[input.targetApp])
+  if (!client || !isKeySetupClientSupported(client, input)) {
+    throw new Error('当前分组不支持此客户端')
+  }
+  const target = resolveKeySetupCcSwitchTarget(client)
+  if (!target || (input.targetApp && input.targetApp !== target)) {
+    throw new Error('CC Switch 不支持此客户端的直接导入，请使用原生配置')
+  }
+  // 官方 CCS v3.20.4 的 OpenCode 导入固定使用 openai-compatible SDK，
+  // 必须使用本站 Chat Completions 网关，而非原生 Gemini / Anthropic 路径。
+  const endpointClient = target === 'opencode' ? 'hermes' : client
+  return {
+    app: target,
+    endpoint: normalizeKeySetupEndpoint(input.baseUrl, input.platform, endpointClient),
+    ...(input.model?.trim() ? { model: input.model.trim() } : {})
+  }
+}
+
 export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput): string {
-  const config = resolveCcSwitchImportConfig(input.platform, input.clientType, input.baseUrl)
+  const explicitTarget = input.client !== undefined || input.targetApp !== undefined || input.claudeCodeOnly === true
+  const config = explicitTarget
+    ? resolveExplicitCcSwitchConfig(input.claudeCodeOnly && !input.client && !input.targetApp
+      ? { ...input, client: 'claude' }
+      : input)
+    : resolveCcSwitchImportConfig(input.platform, input.clientType || 'claude', input.baseUrl)
+  // 显式传入模型优先；空字符串表示不携带模型，旧调用不传时保留既有默认值。
+  if (input.model !== undefined) config.model = input.model.trim() || undefined
   const entries: [string, string][] = [
     ['resource', 'provider'],
     ['app', config.app],

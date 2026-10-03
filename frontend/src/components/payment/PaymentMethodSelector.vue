@@ -24,7 +24,7 @@
         @click="method.available && emit('select', method.type)"
       >
         <span class="flex w-full min-w-0 items-center justify-center gap-2">
-          <img :src="methodIcon(method.type)" :alt="methodLabel(method)" class="h-7 w-7 shrink-0 object-contain" />
+          <img :src="methodIcon(method)" :alt="methodLabel(method)" class="h-7 w-7 shrink-0 object-contain" referrerpolicy="no-referrer" @error="handleIconError(method)" />
           <span class="flex min-w-0 flex-col items-start leading-none">
             <span data-testid="payment-method-label" class="block w-full truncate text-base font-semibold">
               {{ methodLabel(method) }}
@@ -43,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { METHOD_ORDER, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from './providerConfig'
 import alipayIcon from '@/assets/icons/alipay.svg'
@@ -53,10 +53,12 @@ import airwallexIcon from '@/assets/icons/airwallex.svg'
 import paymentIcon from '@/assets/icons/payment.svg'
 import okpayIcon from '@/assets/icons/okpay.svg'
 import usdtIcon from '@/assets/icons/usdt.svg'
+import { normalizePaymentMethodIconUrl } from './paymentMethodIcon'
 
 export interface PaymentMethodOption {
   type: string
   display_name?: string
+  icon_url?: string
   fee_rate: number
   available: boolean
 }
@@ -71,6 +73,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const failedIconUrls = ref(new Set<string>())
 
 const METHOD_ICONS: Record<string, string> = {
   alipay: alipayIcon,
@@ -91,11 +94,19 @@ const sortedMethods = computed(() => {
   })
 })
 
-function methodIcon(type: string): string {
+function methodIcon(method: PaymentMethodOption): string {
+  const type = method.type
+  const customIcon = type === 'okpay' ? normalizePaymentMethodIconUrl(method.icon_url) : ''
+  if (customIcon && !failedIconUrls.value.has(customIcon)) return customIcon
   if (isBuiltInAlipayMethod(type)) return METHOD_ICONS.alipay
   if (isBuiltInWxpayMethod(type)) return METHOD_ICONS.wxpay
   if (type === 'airwallex') return METHOD_ICONS.airwallex
   return METHOD_ICONS[type] || paymentIcon
+}
+
+function handleIconError(method: PaymentMethodOption): void {
+  const customIcon = method.type === 'okpay' ? normalizePaymentMethodIconUrl(method.icon_url) : ''
+  if (customIcon) failedIconUrls.value.add(customIcon)
 }
 
 function methodLabel(method: PaymentMethodOption): string {
