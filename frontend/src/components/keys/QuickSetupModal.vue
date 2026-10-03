@@ -46,7 +46,7 @@
             </header>
 
             <div class="setup-modes" :style="{ gridTemplateColumns: `repeat(${modes.length}, minmax(0, 1fr))` }" role="group" :aria-label="t('keys.oneClickSetup.method')">
-              <button v-for="item in modes" :key="item.id" type="button" :data-testid="`setup-mode-${item.id}`" :aria-pressed="mode === item.id" :class="['setup-mode', { 'setup-mode-active': mode === item.id }]" @click="mode = item.id"><Icon :name="item.icon" size="sm" /><span>{{ t(`keys.quickSetup.modes.${item.id}`) }}</span></button>
+              <button v-for="item in modes" :key="item.id" type="button" :data-testid="`setup-mode-${item.id}`" :aria-pressed="mode === item.id" :class="['setup-mode', { 'setup-mode-active': mode === item.id }]" @click="mode = item.id"><Icon :name="item.icon" size="sm" /><span>{{ t(client === 'claude-desktop' && item.id !== 'install' ? 'keys.desktopSetup.tab' : `keys.quickSetup.modes.${item.id}`) }}</span></button>
             </div>
 
             <div class="mt-4 grid gap-4 xl:grid-cols-[1fr_1.1fr]">
@@ -81,22 +81,20 @@
               </div>
             </section>
 
-            <section v-if="mode !== 'native'" class="setup-step" data-testid="setup-import-panel">
+            <section v-if="client === 'claude-desktop'" class="setup-step" data-testid="setup-desktop-panel">
+              <ClaudeDesktopSetup :api-key="keyInfo?.key || ''" :base-url="baseUrl" :platform="platform" :provider-name="providerName" :model="selectedModel" />
+            </section>
+
+            <section v-else-if="mode !== 'native'" class="setup-step" data-testid="setup-import-panel">
               <div class="setup-step-heading"><span v-if="mode === 'install'" class="setup-step-number">02</span><h5>{{ t('keys.quickSetup.connectClient') }}</h5></div>
               <template v-if="hideCcsImport || client === 'codex-ws'">
                 <p class="setup-description">{{ t('keys.quickSetup.useNativeHint') }}</p><button type="button" class="btn btn-primary mt-3" @click="mode = 'native'">{{ t('keys.quickSetup.openNative') }}<Icon name="chevronRight" size="sm" class="ml-2" /></button>
               </template>
               <template v-else>
                 <p class="setup-description">{{ t('keys.quickSetup.importDescription') }}</p>
-                <div v-if="client === 'claude-desktop'" class="setup-notice mt-3" data-testid="ccs-desktop-guide">
-                  <p class="font-medium">{{ t('keys.ccsClientSelect.desktopCompatibility') }}</p>
-                  <ol class="mt-2 list-decimal space-y-1 pl-4"><li>{{ t('keys.ccsClientSelect.desktopStepImport') }}</li><li>{{ t('keys.ccsClientSelect.desktopStepMigrate') }}</li><li>{{ t('keys.ccsClientSelect.desktopStepRestart') }}</li></ol>
-                  <p class="mt-2">{{ t('keys.ccsClientSelect.desktopExistingProviders') }}</p>
-                  <a :href="CC_SWITCH_DESKTOP_GUIDE_URL" target="_blank" rel="noopener noreferrer" class="setup-link mt-2">{{ t('keys.ccsClientSelect.desktopGuide') }}<Icon name="externalLink" size="sm" /></a>
-                </div>
                 <p v-if="ccsTarget === 'codex'" class="mt-3 text-xs leading-5 text-amber-700 dark:text-amber-300">{{ t('keys.quickSetup.codexReasoningHint') }}</p>
                 <div class="mt-3 flex flex-wrap items-center gap-3">
-                  <button type="button" class="btn btn-primary inline-flex min-h-11 items-center gap-2" :disabled="!canConfigure" data-testid="setup-open-ccs" @click="launchImport"><Icon name="externalLink" size="md" />{{ t(client === 'claude-desktop' ? 'keys.quickSetup.desktopImport' : 'keys.quickSetup.importAction') }}</button>
+                  <button type="button" class="btn btn-primary inline-flex min-h-11 items-center gap-2" :disabled="!canConfigure" data-testid="setup-open-ccs" @click="launchImport"><Icon name="externalLink" size="md" />{{ t('keys.quickSetup.importAction') }}</button>
                   <button type="button" class="setup-link min-h-11" @click="mode = 'native'">{{ t('keys.quickSetup.openNative') }}<Icon name="chevronRight" size="sm" /></button>
                 </div>
                 <p v-if="launchState === 'requested'" class="mt-3 text-sm text-primary-700 dark:text-primary-300" role="status">{{ t('keys.ccsClientSelect.importRequested') }}</p>
@@ -105,14 +103,10 @@
               </template>
             </section>
 
-            <section v-if="mode === 'native'" class="setup-step" data-testid="setup-native-panel">
+            <section v-if="mode === 'native' && client !== 'claude-desktop'" class="setup-step" data-testid="setup-native-panel">
               <div class="setup-step-heading"><Icon name="document" size="md" class="text-primary-600" /><h5>{{ t('keys.quickSetup.nativeTitle') }}</h5><button type="button" class="setup-link ml-auto text-xs" :aria-pressed="!maskSecrets" @click="maskSecrets = !maskSecrets"><Icon :name="maskSecrets ? 'eye' : 'eyeOff'" size="sm" />{{ t(maskSecrets ? 'keys.quickSetup.showSecrets' : 'keys.quickSetup.hideSecrets') }}</button></div>
               <p class="setup-description mb-4">{{ t('keys.quickSetup.mergeHint') }}</p>
               <div v-if="!canConfigure" class="setup-notice">{{ t('keys.quickSetup.chooseModelFirst') }}</div>
-              <template v-else-if="client === 'claude-desktop'">
-                <p class="setup-description">{{ t('keys.quickSetup.desktopNativeHint') }}</p><button type="button" class="btn btn-primary mt-3" :disabled="hideCcsImport" @click="mode = 'import'">{{ t('keys.quickSetup.desktopImport') }}</button>
-                <a :href="CC_SWITCH_DESKTOP_GUIDE_URL" target="_blank" rel="noopener noreferrer" class="setup-link ml-3">{{ t('keys.ccsClientSelect.desktopGuide') }}<Icon name="externalLink" size="sm" /></a>
-              </template>
               <template v-else-if="customNative">
                 <p v-for="(line, index) in customNative.instructions" :key="index" class="setup-description mb-2">{{ localize(line) }}</p>
                 <div v-for="file in customNative.files" :key="file.path" class="mb-4 space-y-2"><SetupCodeBlock :label="file.path" :content="file.content" :secret="keyInfo?.key" :mask="maskSecrets" /><button type="button" class="setup-link text-xs" @click="downloadFile(file.path, file.content)"><Icon name="download" size="sm" />{{ t('keys.quickSetup.downloadFile') }}</button></div>
@@ -152,13 +146,14 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UseKeyModal from './UseKeyModal.vue'
 import SetupCodeBlock from './SetupCodeBlock.vue'
+import ClaudeDesktopSetup from './ClaudeDesktopSetup.vue'
 import { maskApiKey } from '@/utils/maskApiKey'
 import { useClipboard } from '@/composables/useClipboard'
 import { useKeySetupModels } from '@/composables/useKeySetupModels'
 import { getKeySetupClientOptions, normalizeKeySetupEndpoint, normalizeKeySetupBaseUrl, resolveKeySetupCcSwitchTarget, type KeySetupClient } from '@/utils/keySetupClients'
 import { getKeySetupGuide, type KeySetupOS, type KeySetupText } from '@/utils/keySetupGuides'
 import { generateKeySetupNative } from '@/utils/keySetupNative'
-import { buildCcSwitchImportDeeplink, CC_SWITCH_DESKTOP_GUIDE_URL, CC_SWITCH_USAGE_SCRIPT } from '@/utils/ccswitchImport'
+import { buildCcSwitchImportDeeplink, CC_SWITCH_USAGE_SCRIPT } from '@/utils/ccswitchImport'
 
 const props = withDefaults(defineProps<{ show: boolean; keyInfo: ApiKey | null; keys: ApiKey[]; baseUrl: string; siteName?: string; hideCcsImport?: boolean }>(), { siteName: 'Sub2API', hideCcsImport: false })
 const emit = defineEmits<{ (event: 'close'): void; (event: 'select-key', id: number): void; (event: 'open-native'): void }>()
@@ -193,7 +188,7 @@ const activeCard = computed(() => clientCards.value.find(item => item.id === cli
 const systems: { id: KeySetupOS; label: string }[] = [{ id: 'macos', label: 'macOS' }, { id: 'windows', label: 'Windows' }, { id: 'linux', label: 'Linux / WSL' }]
 const modes = computed(() => [
   { id: 'install' as const, icon: 'bolt' as const },
-  ...(!props.hideCcsImport ? [{ id: 'import' as const, icon: 'externalLink' as const }] : []),
+  ...(!props.hideCcsImport && client.value !== 'claude-desktop' ? [{ id: 'import' as const, icon: 'externalLink' as const }] : []),
   { id: 'native' as const, icon: 'terminal' as const }
 ])
 const guide = computed(() => getKeySetupGuide(client.value, os.value))
@@ -207,7 +202,7 @@ const modelValid = computed(() => {
   // 原生配置和导入链接各自转义内容；这里只排除无法编码的残缺字符。
   try { encodeURIComponent(value); return true } catch { return false }
 })
-const ccsTarget = computed(() => client.value === 'claude-desktop' ? 'claude' : resolveKeySetupCcSwitchTarget(client.value))
+const ccsTarget = computed(() => resolveKeySetupCcSwitchTarget(client.value))
 const endpoint = computed(() => {
   try {
     // CCS 的 OpenCode 导入器使用 OpenAI 兼容协议；原生配置保留各分组协议。
@@ -229,6 +224,7 @@ watch(() => [props.show, props.keyInfo?.id, platform.value, context.value.claude
   providerName.value = [props.siteName, props.keyInfo?.group?.name, props.keyInfo?.name].filter(Boolean).join(' · ').slice(0, 100)
 }, { immediate: true })
 watch(() => [client.value, selectedModel.value, props.baseUrl, providerName.value], () => { launchState.value = 'idle'; copied.value = '' })
+watch(client, value => { if (value === 'claude-desktop' && mode.value === 'import') mode.value = 'native' })
 watch(() => props.hideCcsImport, hidden => { if (hidden && mode.value === 'import') mode.value = 'native' })
 
 function localize(value?: KeySetupText) { return value ? (locale.value.startsWith('zh') ? value.zh : value.en) : '' }
@@ -238,7 +234,7 @@ function downloadFile(path: string, content: string) { saveAs(new Blob([content]
 function launchImport() {
   if (!canConfigure.value || props.hideCcsImport || !ccsTarget.value) return
   try {
-    const link = buildCcSwitchImportDeeplink({ baseUrl: props.baseUrl, platform: platform.value, ...(client.value === 'claude-desktop' ? { targetApp: 'claude' as const } : { client: client.value }), claudeCodeOnly: context.value.claudeCodeOnly, allowMessagesDispatch: context.value.allowMessagesDispatch, providerName: providerName.value.trim() || props.siteName, apiKey: props.keyInfo?.key || '', model: selectedModel.value.trim(), usageScript: CC_SWITCH_USAGE_SCRIPT })
+    const link = buildCcSwitchImportDeeplink({ baseUrl: props.baseUrl, platform: platform.value, client: client.value, claudeCodeOnly: context.value.claudeCodeOnly, allowMessagesDispatch: context.value.allowMessagesDispatch, providerName: providerName.value.trim() || props.siteName, apiKey: props.keyInfo?.key || '', model: selectedModel.value.trim(), usageScript: CC_SWITCH_USAGE_SCRIPT })
     window.open(link, '_self')
     launchState.value = 'requested'
   } catch { launchState.value = 'failed' }

@@ -32,7 +32,7 @@ describe('ccswitchImport utils', () => {
 
   it('TypeSafe 旧入口、显式目标和 Claude 限制均不能生成错误 CCS 协议', () => {
     expect(() => resolveCcSwitchImportConfig('typesafe', 'claude', baseInput.baseUrl)).toThrow('System One')
-    for (const options of [{}, { client: 'claude' as const }, { targetApp: 'codex' as const }, { claudeCodeOnly: true }]) {
+    for (const options of [{}, { client: 'claude' as const }, { targetApp: 'codex' as const }, { claudeCodeOnly: true }, { clientType: 'claude-desktop' as const }]) {
       expect(() => buildCcSwitchImportDeeplink({ ...baseInput, platform: 'typesafe', ...options })).toThrow('System One')
     }
   })
@@ -110,19 +110,13 @@ describe('ccswitchImport utils', () => {
     expect(params.has('model')).toBe(false)
   })
 
-  it.each([
-    ['anthropic', 'https://api.example.com'],
-    ['antigravity', 'https://api.example.com/antigravity']
-  ] as const)('Desktop 为 %s 生成可用的 Claude 兼容导入，不生成不受支持的目标', (platform, endpoint) => {
-    const params = paramsFromDeeplink(buildCcSwitchImportDeeplink({
+  it.each(['anthropic', 'antigravity', 'openai', 'gemini', 'grok', null, undefined] as const)('旧 Desktop 参数在 %s 平台不会静默生成其他客户端链接', platform => {
+    expect(() => resolveCcSwitchImportConfig(platform, 'claude-desktop', baseInput.baseUrl)).toThrow('CC Switch 不支持 Claude Desktop')
+    expect(() => buildCcSwitchImportDeeplink({
       ...baseInput,
       platform,
       clientType: 'claude-desktop'
-    }))
-    expect(params.get('app')).toBe('claude')
-    expect(params.get('endpoint')).toBe(endpoint)
-    expect(params.get('apiKey')).toBe(baseInput.apiKey)
-    expect(params.has('model')).toBe(false)
+    })).toThrow('CC Switch 不支持 Claude Desktop')
   })
 })
 
@@ -211,6 +205,22 @@ describe('显式客户端 CC Switch 导入', () => {
 
   it.each(['claude-desktop', 'codex-ws'] as KeySetupClient[])('不为 %s 生成不能表达目标配置的链接', client => {
     expect(() => buildCcSwitchImportDeeplink({ ...baseInput, platform: 'openai', allowMessagesDispatch: true, client })).toThrow('CC Switch 不支持')
+  })
+
+  it.each([
+    { client: 'claude' as const },
+    { targetApp: 'claude' as const },
+    { client: 'claude' as const, targetApp: 'claude' as const },
+    { targetApp: 'codex' as const },
+    { claudeCodeOnly: true },
+    { client: 'claude' as const, claudeCodeOnly: true }
+  ])('Desktop 旧参数不能被显式客户端或限制标记覆盖：%j', options => {
+    expect(() => buildCcSwitchImportDeeplink({ ...baseInput, clientType: 'claude-desktop', ...options })).toThrow('CC Switch 不支持 Claude Desktop')
+  })
+
+  it('显式 Desktop 不能被旧 CLI 参数或 Claude 目标覆盖', () => {
+    expect(() => buildCcSwitchImportDeeplink({ ...baseInput, client: 'claude-desktop', clientType: 'claude' })).toThrow('CC Switch 不支持')
+    expect(() => buildCcSwitchImportDeeplink({ ...baseInput, client: 'claude-desktop', targetApp: 'claude' })).toThrow('CC Switch 不支持')
   })
 
   it('拒绝冲突或未知目标，不静默降级为另一个客户端', () => {

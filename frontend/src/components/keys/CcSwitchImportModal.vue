@@ -1,8 +1,8 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('keys.ccsClientSelect.title')"
-    width="normal"
+    :title="t(isDesktop ? 'keys.desktopSetup.title' : 'keys.ccsClientSelect.title')"
+    :width="isDesktop ? 'wide' : 'normal'"
     @close="emit('close')"
   >
     <div class="space-y-4">
@@ -37,33 +37,13 @@
         </label>
       </fieldset>
 
-      <div
-        v-if="isDesktop"
-        data-testid="ccs-desktop-guide"
-        class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950/20"
-      >
-        <div class="flex items-start gap-2 text-amber-900 dark:text-amber-100">
-          <Icon name="exclamationCircle" size="md" class="mt-0.5 shrink-0" />
-          <p class="leading-6">{{ t('keys.ccsClientSelect.desktopCompatibility') }}</p>
-        </div>
-        <ol class="mt-3 list-decimal space-y-2 pl-5 text-xs leading-5 text-amber-900 dark:text-amber-100">
-          <li>{{ t('keys.ccsClientSelect.desktopStepImport') }}</li>
-          <li>{{ t('keys.ccsClientSelect.desktopStepMigrate') }}</li>
-          <li>{{ t('keys.ccsClientSelect.desktopStepRestart') }}</li>
-        </ol>
-        <p class="mt-3 text-xs leading-5 text-amber-800 dark:text-amber-200">
-          {{ t('keys.ccsClientSelect.desktopExistingProviders') }}
-        </p>
-        <a
-          :href="CC_SWITCH_DESKTOP_GUIDE_URL"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-primary-700 underline underline-offset-2 dark:text-primary-300"
-        >
-          {{ t('keys.ccsClientSelect.desktopGuide') }}
-          <Icon name="externalLink" size="sm" />
-        </a>
-      </div>
+      <ClaudeDesktopSetup
+        v-if="isDesktop && show"
+        :api-key="apiKey"
+        :base-url="baseUrl"
+        :platform="platform"
+        :provider-name="providerName"
+      />
 
       <div
         v-if="launchState === 'requested'"
@@ -81,7 +61,7 @@
       >
         {{ t('keys.ccsClientSelect.launchFailed') }}
       </p>
-      <p class="text-xs leading-5 text-gray-500 dark:text-dark-400">
+      <p v-if="!isDesktop" class="text-xs leading-5 text-gray-500 dark:text-dark-400">
         {{ t('keys.ccsClientSelect.openHint') }}
         <a
           href="https://github.com/farion1231/cc-switch/releases/latest"
@@ -99,6 +79,7 @@
       <button
         type="button"
         class="btn btn-primary inline-flex items-center gap-2"
+        v-if="!isDesktop"
         data-testid="ccs-import-submit"
         :disabled="!canImport"
         @click="launchImport"
@@ -119,9 +100,9 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import ClaudeDesktopSetup from './ClaudeDesktopSetup.vue'
 import type { GroupPlatform } from '@/types'
 import {
-  CC_SWITCH_DESKTOP_GUIDE_URL,
   CC_SWITCH_USAGE_SCRIPT,
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
@@ -167,7 +148,7 @@ const clientOptions = computed(() => {
   return options
 })
 const isDesktop = computed(() => selectedClient.value === 'claude-desktop')
-const canImport = computed(() => props.show && clientOptions.value.length > 0 && !!props.apiKey.trim() && !!props.baseUrl.trim())
+const canImport = computed(() => props.show && !isDesktop.value && clientOptions.value.length > 0 && !!props.apiKey.trim() && !!props.baseUrl.trim())
 
 // 换密钥、分组或重新打开时恢复默认，不能沿用另一个密钥的目标和发起提示。
 watch(

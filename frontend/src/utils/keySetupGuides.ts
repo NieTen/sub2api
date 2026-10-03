@@ -144,13 +144,16 @@ export function getKeySetupGuide(client: string, os: string): KeySetupGuide | nu
       { description: text('在 CC Switch 的 Claude Desktop 面板检查供应商和模型映射，启用后重启 Desktop，再发起新对话。', 'Check the provider and model mapping in CC Switch’s Claude Desktop panel, enable it, restart Desktop, and start a new conversation.') },
       { description: text('从系统应用列表启动 Claude Desktop。需要模型映射时，保持 CC Switch 及其 Desktop 本地路由运行。', 'Launch Claude Desktop from your system application list. If model mapping is required, keep CC Switch and its Desktop local routing running.') }
     )
-    result.restart = [text('先在 CC Switch 中导入 Claude 供应商，再从 Claude Desktop 面板导入已有 Claude Code 供应商。启用后完全退出并重启 Desktop。', 'Import the Claude provider into CC Switch, then import existing Claude Code providers from its Claude Desktop panel. After enabling the provider, fully quit and restart Desktop.')]
+    result.restart = [text('在 CC Switch 的 Claude Desktop 面板点击「+」，添加自定义供应商并填写本页提供的配置。保存并启用后，完全退出并重新打开 Claude Desktop。', 'In CC Switch’s Claude Desktop panel, click “+”, add a custom provider, and enter the configuration provided here. Save and enable it, then fully quit and reopen Claude Desktop.')]
     result.links = [
       link('Claude 官方下载', 'Official Claude download', 'https://claude.com/download'),
       link('CC Switch 下载', 'Download CC Switch', 'https://github.com/farion1231/cc-switch/releases/latest'),
       link('CC Switch Desktop 供应商指南', 'CC Switch Desktop provider guide', 'https://github.com/farion1231/cc-switch/blob/v3.20.4/docs/user-manual/zh/2-providers/2.6-claude-desktop.md')
     ]
-    result.notices = [text('这是 CC Switch 的第三方供应商配置流程。Claude Desktop 官方登录模式不使用本页 API Key。', 'This flow configures a third-party provider through CC Switch. Claude Desktop’s official sign-in mode does not use this page’s API key.')]
+    result.notices = [
+      text('这是 CC Switch 的第三方供应商配置流程。Claude Desktop 官方登录模式不使用本页 API Key。', 'This flow configures a third-party provider through CC Switch. Claude Desktop’s official sign-in mode does not use this page’s API key.'),
+      text('「将 Claude Code 中已有的供应商导入」只在 Desktop 供应商列表为空时显示。本页使用「+」添加流程，不需要该入口，也不需要删除已有供应商。', '“Import existing providers from Claude Code” only appears when the Desktop provider list is empty. This guide uses “+” to add a provider and does not require that prompt or removing existing providers.')
+    ]
     return result
   }
 

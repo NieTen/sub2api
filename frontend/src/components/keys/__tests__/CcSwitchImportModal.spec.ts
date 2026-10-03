@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import CcSwitchImportModal from '../CcSwitchImportModal.vue'
 import { CC_SWITCH_USAGE_SCRIPT } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
@@ -7,6 +7,9 @@ import type { GroupPlatform } from '@/types'
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
+const { copyMock } = vi.hoisted(() => ({ copyMock: vi.fn() }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard: copyMock }) }))
+const wrappers: VueWrapper[] = []
 
 const defaultProps = {
   show: true,
@@ -17,7 +20,7 @@ const defaultProps = {
 }
 
 function mountModal(props: Partial<typeof defaultProps> & { claudeCodeOnly?: boolean } = {}) {
-  return mount(CcSwitchImportModal, {
+  const wrapper = mount(CcSwitchImportModal, {
     props: { ...defaultProps, ...props },
     global: {
       stubs: {
@@ -31,15 +34,19 @@ function mountModal(props: Partial<typeof defaultProps> & { claudeCodeOnly?: boo
       }
     }
   })
+  wrappers.push(wrapper)
+  return wrapper
 }
 
 describe('CC Switch 目标选择', () => {
   beforeEach(() => {
+    copyMock.mockReset().mockResolvedValue(true)
     vi.spyOn(window, 'open').mockReturnValue(null)
     vi.spyOn(document, 'hasFocus').mockReturnValue(true)
   })
 
   afterEach(() => {
+    wrappers.splice(0).forEach(wrapper => wrapper.unmount())
     vi.restoreAllMocks()
   })
 
@@ -52,23 +59,21 @@ describe('CC Switch 目标选择', () => {
     expect(window.open).not.toHaveBeenCalled()
   })
 
-  it('Desktop 发起兼容的 Claude 导入并保留迁移说明，不误报已完成或安装失败', async () => {
+  it('Desktop 提供字段复制和可选模型，不显示导入按钮或发起 CLI 深链', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
-    expect(wrapper.get('[data-testid="ccs-desktop-guide"]').text()).toContain('keys.ccsClientSelect.desktopStepMigrate')
-    await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
-
-    const args = vi.mocked(window.open).mock.calls[0]
-    const url = new URL(String(args?.[0]))
-    expect(args?.[1]).toBe('_self')
-    expect(url.searchParams.get('app')).toBe('claude')
-    expect(url.searchParams.get('endpoint')).toBe(defaultProps.baseUrl)
-    expect(url.searchParams.get('apiKey')).toBe(defaultProps.apiKey)
-    expect(url.searchParams.get('name')).toBe(defaultProps.providerName)
-    expect(atob(url.searchParams.get('usageScript') || '')).toBe(CC_SWITCH_USAGE_SCRIPT)
-    expect(url.searchParams.get('usageEnabled')).toBe('true')
-    expect(url.searchParams.get('usageAutoInterval')).toBe('30')
-    expect(wrapper.get('[data-testid="ccs-import-requested"]').text()).toBe('keys.ccsClientSelect.importRequested')
+    expect(wrapper.get('[data-testid="ccs-desktop-guide"]').text()).toContain('keys.desktopSetup.addHint')
+    expect(wrapper.find('[data-testid="ccs-import-submit"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('keys.ccsClientSelect.desktopStepMigrate')
+    expect(wrapper.get('[data-testid="desktop-model-input"]').element).toHaveProperty('value', '')
+    await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
+    expect(copyMock).toHaveBeenLastCalledWith(defaultProps.apiKey, 'keys.copied')
+    await wrapper.get('[data-testid="desktop-model-input"]').setValue('claude-sonnet-4-6')
+    await wrapper.get('[data-testid="desktop-copy-model"]').trigger('click')
+    expect(copyMock).toHaveBeenLastCalledWith('claude-sonnet-4-6', 'keys.copied')
+    expect(wrapper.html()).not.toContain(defaultProps.apiKey)
+    expect(window.open).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="ccs-import-requested"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="ccs-import-failed"]').exists()).toBe(false)
     expect(document.hasFocus).not.toHaveBeenCalled()
     expect(wrapper.emitted('close')).toBeUndefined()
@@ -78,7 +83,7 @@ describe('CC Switch 目标选择', () => {
   it('Antigravity 三个目标均使用原平台路径', async () => {
     const wrapper = mountModal({ platform: 'antigravity', baseUrl: 'https://api.example.com/sub/' })
     expect(wrapper.findAll('input[type="radio"]')).toHaveLength(3)
-    for (const client of ['claude', 'claude-desktop', 'gemini']) {
+    for (const client of ['claude', 'gemini']) {
       await wrapper.get(`[data-testid="ccs-target-${client}"] input`).setValue(true)
       await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
       const calls = vi.mocked(window.open).mock.calls
@@ -86,6 +91,11 @@ describe('CC Switch 目标选择', () => {
       expect(url.searchParams.get('endpoint')).toBe('https://api.example.com/sub/antigravity')
       expect(url.searchParams.get('app')).toBe(client === 'gemini' ? 'gemini' : 'claude')
     }
+    await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
+    await wrapper.get('[data-testid="desktop-copy-endpoint"]').trigger('click')
+    expect(copyMock).toHaveBeenLastCalledWith('https://api.example.com/sub/antigravity', 'keys.copied')
+    expect(window.open).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-testid="ccs-import-submit"]').exists()).toBe(false)
   })
 
   it.each([
@@ -125,14 +135,33 @@ describe('CC Switch 目标选择', () => {
 
   it('更换密钥或限制后重置目标和请求提示，避免沿用之前的导入状态', async () => {
     const wrapper = mountModal()
-    await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
     await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
+    await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
+    await wrapper.get('[data-testid="desktop-model-input"]').setValue('custom-model')
+    await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
     await wrapper.setProps({ apiKey: 'sk-replacement', claudeCodeOnly: true })
     expect(wrapper.find('[data-testid="ccs-import-requested"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="ccs-desktop-guide"]').exists()).toBe(false)
     await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
     const url = new URL(String(vi.mocked(window.open).mock.calls[1]?.[0]))
     expect(url.searchParams.get('apiKey')).toBe('sk-replacement')
+  })
+
+  it('Desktop 关闭重开清空可选模型及复制反馈，CLI 仍可正常导入', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
+    await wrapper.get('[data-testid="desktop-model-input"]').setValue('custom-model')
+    await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
+    expect(wrapper.text()).toContain('keys.desktopSetup.fieldCopied')
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    expect(wrapper.get('[data-testid="ccs-target-claude"] input').element).toHaveProperty('checked', true)
+    await wrapper.get('[data-testid="ccs-import-submit"]').trigger('click')
+    expect(new URL(String(vi.mocked(window.open).mock.calls[0]?.[0])).searchParams.get('app')).toBe('claude')
+    await wrapper.get('[data-testid="ccs-target-claude-desktop"] input').setValue(true)
+    expect(wrapper.get('[data-testid="desktop-model-input"]').element).toHaveProperty('value', '')
+    expect(wrapper.text()).not.toContain('keys.desktopSetup.fieldCopied')
+    expect(wrapper.html()).not.toContain(defaultProps.apiKey)
   })
 
   it('只有浏览器抛出异常时显示打开失败，不输出错误内容或密钥', async () => {

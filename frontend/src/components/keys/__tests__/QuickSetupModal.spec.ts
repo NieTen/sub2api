@@ -113,15 +113,70 @@ describe('一键接入面板', () => {
     expect(wrapper.html()).not.toContain(key.key)
   })
 
-  it('Desktop 保留兼容步骤并只发起 Claude 导入', async () => {
-    const wrapper = mountModal()
+  it('Desktop 安装与配置两页均可复制字段，不显示导入页或发起 CLI 深链', async () => {
+    const key = makeKey()
+    const wrapper = mountModal({ keyInfo: key })
     await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
-    expect(wrapper.get('[data-testid="ccs-desktop-guide"]').text()).toContain('keys.ccsClientSelect.desktopStepMigrate')
+    expect(wrapper.find('[data-testid="setup-mode-import"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="setup-open-ccs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="desktop-model-input"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="ccs-desktop-guide"]').text()).toContain('keys.desktopSetup.addHint')
+    expect(wrapper.get('[data-testid="desktop-field-model"]').text()).toContain('model-default')
+    for (const mode of ['install', 'native']) {
+      await wrapper.get(`[data-testid="setup-mode-${mode}"]`).trigger('click')
+      expect(wrapper.find('[data-testid="ccs-desktop-guide"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="setup-open-ccs"]').exists()).toBe(false)
+      await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
+      expect(copyMock).toHaveBeenLastCalledWith(key.key, 'keys.copied')
+      expect(wrapper.html()).not.toContain(key.key)
+    }
+    expect(window.open).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeUndefined()
+  })
+
+  it('从 CLI 导入页切到 Desktop 自动进入配置页，切回后 CLI 导入保持正常', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="setup-mode-import"]').trigger('click')
+    await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
+    expect(wrapper.get('[data-testid="setup-mode-native"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-testid="setup-mode-import"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="setup-client-claude"]').trigger('click')
+    await wrapper.get('[data-testid="setup-mode-import"]').trigger('click')
     await wrapper.get('[data-testid="setup-open-ccs"]').trigger('click')
     expect(importedParams().get('app')).toBe('claude')
-    expect(importedParams().get('model')).toBe('model-default')
-    expect(wrapper.find('[data-testid="ccs-desktop-guide"]').exists()).toBe(true)
-    expect(wrapper.emitted('close')).toBeUndefined()
+  })
+
+  it('管理员隐藏 CCS 导入后 Desktop 仍可手动复制 Antigravity 配置', async () => {
+    const wrapper = mountModal({ keyInfo: makeKey('antigravity'), hideCcsImport: true })
+    await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
+    for (const mode of ['install', 'native']) {
+      await wrapper.get(`[data-testid="setup-mode-${mode}"]`).trigger('click')
+      await wrapper.get('[data-testid="desktop-copy-endpoint"]').trigger('click')
+      expect(copyMock).toHaveBeenLastCalledWith('https://api.example.test/proxy/antigravity', 'keys.copied')
+    }
+    expect(wrapper.find('[data-testid="setup-mode-import"]').exists()).toBe(false)
+    expect(window.open).not.toHaveBeenCalled()
+  })
+
+  it('Desktop 更换密钥和关闭重开后不沿用复制反馈或显示密钥', async () => {
+    const first = makeKey()
+    const second = makeKey('anthropic', { id: 22, key: 'sk-new-desktop-secret-987654' })
+    const wrapper = mountModal({ keyInfo: first, keys: [first, second] })
+    await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
+    await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
+    expect(wrapper.text()).toContain('keys.desktopSetup.fieldCopied')
+    await wrapper.setProps({ keyInfo: second })
+    await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
+    expect(wrapper.text()).not.toContain('keys.desktopSetup.fieldCopied')
+    await wrapper.get('[data-testid="desktop-copy-key"]').trigger('click')
+    expect(copyMock).toHaveBeenLastCalledWith(second.key, 'keys.copied')
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await wrapper.get('[data-testid="setup-client-claude-desktop"]').trigger('click')
+    expect(wrapper.text()).not.toContain('keys.desktopSetup.fieldCopied')
+    expect(wrapper.html()).not.toContain(first.key)
+    expect(wrapper.html()).not.toContain(second.key)
+    expect(window.open).not.toHaveBeenCalled()
   })
 
   it('切换 TypeSafe 密钥后提供原生出口，停止模型目录并清除原导入流程', async () => {
