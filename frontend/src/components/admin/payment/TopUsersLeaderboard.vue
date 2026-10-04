@@ -15,20 +15,20 @@
         <div
           v-for="(user, idx) in currencyUsers"
           :key="user.user_id"
-          class="flex items-center justify-between rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-700"
+          class="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-700"
         >
-          <div class="flex items-center gap-3">
+          <div class="flex min-w-0 items-center gap-3">
             <span
               :class="[
-                'flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold',
+                'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold',
                 rankClass(idx),
               ]"
             >
               {{ idx + 1 }}
             </span>
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ user.email }}</span>
+            <span class="min-w-0 break-all text-sm text-gray-700 dark:text-gray-300">{{ user.email }}</span>
           </div>
-          <span class="text-sm font-medium text-gray-900 dark:text-white">
+          <span class="break-all text-sm font-medium text-gray-900 dark:text-white">
             {{ formatMoney(currency, user.amount) }}
           </span>
         </div>

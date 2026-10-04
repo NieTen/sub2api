@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>桌面 UI 前后对照 · 2026-10-03～04</title>
+  <style>
+    :root{--ink:#17332e;--muted:#637772;--teal:#087e73;--line:#dce9e5;--wash:#f3f8f6;--white:#fff;--amber:#895d14}
+    *{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.65}button,a{-webkit-tap-highlight-color:transparent}button{font:inherit;cursor:pointer}a{color:var(--teal);text-underline-offset:3px}button:focus-visible,a:focus-visible{outline:3px solid #12a594;outline-offset:4px}[hidden]{display:none!important}.wrap{width:min(1560px,calc(100% - 64px));margin:auto}
+    header{padding:44px 0 30px;border-bottom:1px solid var(--line);background:linear-gradient(125deg,#e5f3ed 0%,#f8fbfa 70%)}.eyebrow{display:flex;align-items:center;gap:10px;color:var(--teal);font-size:12px;letter-spacing:.12em;font-weight:750}.dot{width:8px;height:8px;border-radius:50%;background:#0b9685}h1{margin:12px 0 10px;font-size:clamp(27px,3vw,42px);line-height:1.25;letter-spacing:-.035em}h2,h3,p{margin-top:0}.intro{max-width:890px;margin-bottom:20px;color:var(--muted);font-size:15px}.meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px 18px;font-size:13px}.status{padding:5px 12px;border:1px solid #badfd3;border-radius:100px;background:#fff;color:#166353;font-weight:650}.meta a{margin-left:auto;text-decoration:none;border-bottom:1px solid #9bc8bc}
+    main{padding:26px 0 0}.tabs{display:flex;flex-wrap:wrap;gap:6px;padding:6px;border:1px solid var(--line);border-radius:14px;background:#eaf2ee}.tab{min-height:44px;flex:1 0 auto;border:1px solid transparent;border-radius:9px;padding:9px 14px;background:transparent;color:#48635b;font-weight:600;font-size:14px;transition:background .15s,color .15s}.tab:hover{background:#f8fbfa}.tab[aria-selected="true"]{border-color:#c4e1d6;background:#fff;color:var(--teal);box-shadow:0 2px 4px #17332e06}.panel-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:30px 0 18px}.panel-head h2{font-size:23px;letter-spacing:-.025em;margin-bottom:5px}.panel-head p{margin:0;color:var(--muted);font-size:13px}.sequence{font-size:12px;color:var(--teal);font-weight:700;letter-spacing:.08em}.overview-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.overview-card{overflow:hidden;border:1px solid var(--line);border-radius:16px;background:var(--white)}.overview-pair{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:#dde9e3;border-bottom:1px solid var(--line)}.overview-pair figure{margin:0;background:#fff}.overview-pair img{display:block;width:100%;height:auto}.overview-pair figcaption{padding:7px 10px;font-size:11px;font-weight:700;color:var(--muted)}.overview-pair figure:last-child figcaption{color:var(--teal)}.card-body{padding:18px 20px 20px}.card-body h3{margin:5px 0 7px;font-size:18px}.card-body p{color:var(--muted);font-size:13px;min-height:44px;margin-bottom:16px}.open-module{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:42px;padding:9px 12px;border:1px solid #cce3d8;border-radius:9px;color:var(--teal);background:#f4faf7;font-size:13px;font-weight:650}.open-module:hover{background:#e8f5ee}
+    .view-tools{display:flex;gap:8px;flex-shrink:0}.view-tools button{min-height:40px;padding:8px 13px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--muted);font-size:13px}.view-tools button[aria-pressed="true"]{color:var(--teal);border-color:#a9d2c5;background:#eaf7f0}.comparison{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.comparison.stacked{grid-template-columns:1fr}.shot{margin:0;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:#fff}.shot figcaption{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);font-size:13px}.shot-label{display:inline-flex;align-items:center;gap:8px;font-weight:700}.shot-label:before{content:"";width:7px;height:7px;border-radius:50%;background:#8b9c96}.shot.after .shot-label{color:var(--teal)}.shot.after .shot-label:before{background:#0d9988}.shot figcaption a{font-size:12px;text-decoration:none}.shot-image{display:block}.shot img{display:block;width:100%;height:auto}.image-help{margin:12px 0 24px;color:var(--muted);font-size:12px}
+    .detail-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(270px,1fr);gap:20px;margin-bottom:26px}.info-card{padding:22px 24px;border:1px solid var(--line);border-radius:14px;background:#fff}.info-card h3{font-size:15px;margin-bottom:16px}.change-list{list-style:none;padding:0;margin:0}.change-list li+li{margin-top:17px;padding-top:17px;border-top:1px solid #edf2ef}.change-title{font-size:14px;font-weight:700;margin:0 0 5px}.change-row{display:grid;grid-template-columns:40px 1fr;gap:8px;color:var(--muted);font-size:13px;margin:3px 0}.change-row b{font-size:11px;font-weight:650;color:#83938d;padding-top:2px}.change-row.after b{color:var(--teal)}.evidence-links{display:flex;flex-direction:column;gap:8px}.evidence-links a{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:42px;border:1px solid var(--line);border-radius:9px;padding:9px 12px;font-size:13px;text-decoration:none;background:#fafcfb}.evidence-links a:hover{border-color:#a3cdbd;background:#eef8f2}.evidence-note{font-size:12px;color:var(--muted);margin:14px 0 0}.module-boundary{margin:16px 0 0;padding:12px 14px;background:#f5f8f6;border-radius:8px;font-size:12px;color:#50685e}
+    .boundary{margin:32px 0 24px;padding:24px 28px;border:1px solid #e3d8be;border-radius:14px;background:#fffdf7}.boundary h2{margin-bottom:12px;font-size:18px;color:#6c531f}.boundary ul{padding-left:20px;margin:0;color:#665e4b;font-size:13px}.boundary li+li{margin-top:9px}.boundary strong{color:#624b1d}.scope-note{font-size:12px;color:var(--muted);margin:22px 0 0}.footer{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;padding:0 0 32px;font-size:12px;color:var(--muted)}.footer a{text-decoration:none}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+    @media(min-width:1700px){.wrap{width:min(1760px,calc(100% - 96px))}}@media(max-width:1050px){.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-grid{grid-template-columns:1fr}.meta a{margin-left:0}}@media(max-width:650px){.wrap{width:calc(100% - 28px)}header{padding:28px 0 24px}.tabs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tab:first-child{grid-column:1/-1}.overview-grid,.comparison{grid-template-columns:1fr}.panel-head{align-items:flex-start;flex-direction:column;gap:12px}.info-card{padding:18px}.boundary{padding:20px}.card-body p{min-height:0}.view-tools{width:100%}.view-tools button{flex:1}}@media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+    @media print{header{padding-top:10px}.tabs,.view-tools,.open-module{display:none}.wrap{width:100%}.overview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.overview-card,.shot,.info-card,.boundary{break-inside:avoid}a{color:var(--ink)}.comparison{grid-template-columns:1fr}.footer{padding-bottom:0}}
+  </style>
+</head>
+<body>
+  <header><div class="wrap">
+    <div class="eyebrow"><span class="dot" aria-hidden="true"></span>SUB2API · DESKTOP REVIEW</div>
+    <h1>桌面 UI 前后对照</h1>
+    <p class="intro">六个后台模块的布局与交互调整。保留原有青绿配色、页面结构和业务接口，通过真实运行截图查看长内容、操作区域与状态反馈的变化。</p>
+    <div class="meta"><span class="status">本地完成 · 尚未发布</span><span>2026-10-03～04</span><span>主对照 1440 × 900</span><a href="桌面端控件审查与前后对照.md">查看详细审查记录 ↗</a></div>
+  </div></header>
+  <main class="wrap">
+    <nav class="tabs" role="tablist" aria-label="选择对照模块">
+      <button class="tab" id="tab-overview" role="tab" aria-selected="true" aria-controls="overview" data-module="overview">六项总览</button>
+      <button class="tab" id="tab-quality" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="quality">质量检测</button>
+      <button class="tab" id="tab-communications" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="communications">通知配置</button>
+      <button class="tab" id="tab-tickets" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="tickets">工单</button>
+      <button class="tab" id="tab-bulk" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="bulk">邮件群发</button>
+      <button class="tab" id="tab-vip-settings" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="vip-settings">VIP 社群设置</button>
+      <button class="tab" id="tab-members" role="tab" aria-selected="false" aria-controls="module-panel" tabindex="-1" data-module="members">成员绑定</button>
+    </nav>
+
+    <section id="overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="0">
+      <div class="panel-head"><div><h2>六项总览</h2><p>每张卡片左侧为修改前，右侧为修改后；选择模块查看大图与具体说明。</p></div><span class="sequence">06 个后台模块</span></div>
+      <div class="overview-grid" id="overview-grid"></div>
+      <p class="scope-note">“修改前”使用本轮桌面调整前的工作区快照，已经包含上一轮窄屏修正。补充截图覆盖 1024 × 768 暗色与 1920 × 1080；交互执行记录及尚未覆盖的状态以详细审查文档为准。</p>
+    </section>
+
+    <section id="module-panel" role="tabpanel" aria-labelledby="tab-quality" tabindex="0" hidden>
+      <div class="panel-head"><div><span class="sequence" id="module-number"></span><h2 id="module-title"></h2><p id="module-summary"></p></div><div class="view-tools" role="group" aria-label="截图排列方式"><button id="side-view" type="button" aria-pressed="true">左右对照</button><button id="large-view" type="button" aria-pressed="false">纵向大图</button></div></div>
+      <div class="comparison" id="comparison">
+        <figure class="shot"><figcaption><span class="shot-label">修改前</span><a id="before-link" target="_blank" rel="noopener">打开原图 ↗</a></figcaption><a id="before-image-link" class="shot-image" target="_blank" rel="noopener"><img id="before-image" alt=""></a></figure>
+        <figure class="shot after"><figcaption><span class="shot-label">修改后</span><a id="after-link" target="_blank" rel="noopener">打开原图 ↗</a></figcaption><a id="after-image-link" class="shot-image" target="_blank" rel="noopener"><img id="after-image" alt=""></a></figure>
+      </div>
+      <p class="image-help">截图保持完整比例。可切换纵向大图，或点击图片在新标签中查看原始尺寸。静态截图展示视觉结果，加载、焦点和提交行为请结合详细记录。</p>
+      <div class="detail-grid">
+        <section class="info-card"><h3>具体改动</h3><ol class="change-list" id="changes"></ol></section>
+        <section class="info-card"><h3>补充截图</h3><div class="evidence-links" id="evidence"></div><p class="evidence-note">以下均为现有真实 UI 截图，保存在本报告旁的截图目录中，可直接离线打开。</p><p class="module-boundary" id="module-boundary"></p></section>
+      </div>
+    </section>
+
+    <section class="info-card" style="margin-top:24px" aria-labelledby="shared-controls-title">
+      <h3 id="shared-controls-title">公共控件与补充验收</h3>
+      <p class="evidence-note">下拉框在窗口边缘保留 200px 可读宽度；Tab、Shift+Tab、Escape 和清除按钮已通过真实浏览器检查。成员表格在 1024px 桌面由 135px 增至 320px。</p>
+      <div class="evidence-links">
+        <a href="桌面UI审查截图-20261003/select-edge-1024.jpg">1024px 右下角菜单 ↗</a>
+        <a href="桌面UI审查截图-20261003/select-edge-1440.jpg">1440px 右下角菜单 ↗</a>
+        <a href="桌面UI审查截图-20261003/select-edge-1920.jpg">1920px 右下角菜单 ↗</a>
+        <a href="桌面UI审查截图-20261003/members-1024-before.jpg">1024px 成员表格 · 修改前 ↗</a>
+        <a href="桌面UI审查截图-20261003/members-1024-after.jpg">1024px 成员表格 · 修改后 ↗</a>
+        <a href="桌面UI审查截图-20261003/user-vip-after.jpg">用户社群 · 邀请入口 ↗</a>
+        <a href="桌面UI审查截图-20261003/user-vip-banned.jpg">用户社群 · 禁入状态 ↗</a>
+      </div>
+    </section>
+    <aside class="boundary" aria-labelledby="boundary-title">
+      <h2 id="boundary-title">验证边界与未补齐的业务需求</h2>
+      <ul>
+        <li><strong>本地模拟接口：</strong>截图来自真实 Vue 页面与合成数据，保存、检测、发送等操作使用内存响应；未发送真实邮件、Telegram 消息或模型请求，不能据此认定生产环境联调完成。</li>
+        <li><strong>邮件群发仍是纯文本：</strong>本轮未新增富文本编辑、实时富文本预览或多风格模板。在“选择用户”模式下，即使设置余额或充值条件，仍须至少选择一名用户。</li>
+        <li><strong>成员绑定默认仍为全部状态：</strong>未改为默认仅显示已入群账户；详情入口打开的是既有身份与解绑信息，未增加充值、并发变动记录或独立禁入管理 API。</li>
+        <li><strong>本轮是桌面 UI 调整：</strong>已完成本地修改，尚未发布。截图不是每一种错误、媒体、权限或禁用组合的全覆盖证明；具体实测与待验收项保留在详细审查记录中。</li>
+      </ul>
+    </aside>
+    <noscript><section class="info-card"><h2>离线截图入口</h2><p>当前浏览器未启用 JavaScript，模块切换不可用。可直接查看原图：</p><ul><li><a href="桌面UI审查截图-20261003/quality-before.jpg">质量检测：修改前</a> · <a href="桌面UI审查截图-20261003/quality-after.jpg">修改后</a></li><li><a href="桌面UI审查截图-20261003/communications-before.jpg">通知配置：修改前</a> · <a href="桌面UI审查截图-20261003/communications-after.jpg">修改后</a></li><li><a href="桌面UI审查截图-20261003/tickets-before.jpg">工单：修改前</a> · <a href="桌面UI审查截图-20261003/tickets-after.jpg">修改后</a></li><li><a href="桌面UI审查截图-20261003/bulk-before.jpg">邮件群发：修改前</a> · <a href="桌面UI审查截图-20261003/bulk-after.jpg">修改后</a></li><li><a href="桌面UI审查截图-20261003/vip-settings-before.jpg">VIP 社群设置：修改前</a> · <a href="桌面UI审查截图-20261003/vip-settings-after.jpg">修改后</a></li><li><a href="桌面UI审查截图-20261003/members-before.jpg">成员绑定：修改前</a> · <a href="桌面UI审查截图-20261003/members-after.jpg">修改后</a></li></ul></section></noscript>
+    <footer class="footer"><span>离线报告 · 无外部字体、脚本或依赖 · 请与截图目录一起保留</span><a href="桌面端控件审查与前后对照.md">完整控件清单、测试结果与验收记录 ↗</a></footer>
+  </main>
+  <script>
+    // 仅使用同目录截图和固定说明；file 协议无需服务器、网络或模块加载。
+    (function () {
+      'use strict';
+      const directory = '桌面UI审查截图-20261003/';
+      const modules = [
+        {id:'quality',name:'质量检测',summary:'长名称收缩、模型加载状态与弹窗操作区。',changes:[
+          ['表格操作可见','长账号占用整行，右侧详情入口被挤到边缘。','账号名称截断并保留完整标题，详情按钮有独立点击区域。'],
+          ['模型列表状态','模型尚在读取时显示“没有匹配的模型”，容易误判为空。','读取状态与无匹配分开，保留自定义模型入口；列表支持内部滚动、选中和禁用反馈。'],
+          ['计划与手动检测弹窗','操作按钮随表单内容滚动，长内容下需要反复寻找。','取消与保存／检测放入固定 footer，以 form 关联保留原生校验与 Enter 提交。']
+        ],extras:[['quality-plan-before.jpg','计划弹窗 · 修改前'],['quality-plan-after.jpg','计划弹窗 · 修改后'],['quality-details-after.jpg','历史详情 · 修改后']],boundary:'检测请求与历史记录均为合成数据。本轮没有改变检测算法、计划规则或模型接口。'},
+        {id:'communications',name:'通知配置',summary:'分段导航、配置分区与危险清除状态。',changes:[
+          ['导航与信息层级','通信导航较松散，配置字段难以快速分组。','五个等宽分段导航，配置卡按标题、图标和分隔组织。'],
+          ['清除凭据','清除 Token / Secret 的状态不够醒目。','整行可点击，选中清除时用红色状态区提示，相关输入按原规则禁用。'],
+          ['保存反馈','操作中的反馈主要依赖文本，保存区域不够独立。','保存独立分组，显示忙碌图标与禁用状态，保留错误和用户输入。']
+        ],extras:[],boundary:'只验证本地表单与模拟保存。没有连接 Telegram 验证机器人，也没有在截图中使用真实凭据。'},
+        {id:'tickets',name:'工单',summary:'列表独立滚动，长会话与回复区域分开。',changes:[
+          ['左右区域','桌面列表与右侧会话高度不一致，长列表影响操作定位。','列表与会话区域同高，列表内部滚动，筛选和分页保持可见。'],
+          ['长上下文回复','长消息需要稳定的会话滚动区域，避免把输入区挤出页面。','保留上一轮回复区域固定修正，上下文在内部滚动；本轮进一步对齐左侧列表。'],
+          ['操作状态','刷新、发送按钮的忙碌状态不够明确。','补图标与忙碌反馈，发送按钮宽度稳定；空内容、上传与发送中的原禁用规则保留。']
+        ],extras:[],boundary:'回复、关闭与重新打开只作用于模拟状态。邮件通知收件规则和真实工单投递没有在本轮改动。'},
+        {id:'bulk',name:'邮件群发',summary:'收件方式双卡、用户选中状态与正文分区。',changes:[
+          ['收件方式','“选择用户”和“全部有效用户”的选择状态不突出。','改为两张单选卡；已选用户整行着色，移除标签有清晰悬停反馈。'],
+          ['正文编辑区域','正文与收件区层级较弱，桌面编辑空间不够明确。','正文放入独立卡片并调整编辑高度，保留原有图片添加、预览与移除入口。'],
+          ['审核详情','长收件列表、邮箱和错误内容不便查看。','收件表内部滚动，长邮箱与错误可换行，原审核和发送入口保持可达。']
+        ],extras:[['bulk-filters-after.jpg','收件筛选与选中行 · 修改后'],['bulk-review-after.jpg','草稿审核详情 · 修改后']],boundary:'正文仍为纯文本；“选择用户”模式设置条件后仍需选人。本轮未增加富文本模板或修复条件独立群发。'},
+        {id:'vip-settings',name:'VIP 社群设置',summary:'桌面双列分组，开关与依赖状态更清楚。',changes:[
+          ['桌面布局','客服、群配置、准入和前提说明集中在窄单列。','桌面双列分区：客服与前提说明、群配置与准入设置分别组织。'],
+          ['开关与依赖','普通复选框的当前状态及依赖关系不够醒目。','使用局部开关外观，保留 checkbox 数据绑定；VIP 依赖项显示明确禁用状态。'],
+          ['提交操作','保存区域与字段层级接近。','独立保存栏与忙碌状态，保存期间禁用表单，错误时保留输入。']
+        ],extras:[],boundary:'准入条件和后端配置接口保持原有语义；本轮没有新增“即使充值也禁止加入”的管理 API。'},
+        {id:'members',name:'成员绑定',summary:'筛选、身份详情入口与窄桌面表格空间。',changes:[
+          ['筛选与重置','状态下拉与搜索缺少统一层级，清除和重置入口不明确。','使用共用 Select，增加可见清除／重置；统计卡通过背景、边框和图标标明选中状态。'],
+          ['身份详情','主要依靠头像打开详情，刷新操作不够直观。','邮箱和 TG 名称可打开既有身份详情，增加可见刷新与底部关闭，解绑危险操作独立分区。'],
+          ['1024px 桌面','筛选和统计区域占据空间时，表格可视区域容易被压缩。','成员表区域保留至少 320px 高度；暗色下拉与内部滚动另有截图可核对。']
+        ],extras:[['members-dropdown-after.jpg','状态下拉展开 · 修改后'],['members-detail-after.jpg','身份详情弹窗 · 修改后'],['members-chat-after.jpg','群消息面板 · 修改后']],boundary:'默认筛选仍为 all。名称入口不是账务详情，未新增充值／并发记录查询或独立禁入管理接口。'}
+      ];
+      const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+      const byId = id => document.getElementById(id);
+      const make = (tag, className, text) => {const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined)node.textContent=text;return node;};
+      const imagePath = filename => directory + filename;
+      modules.forEach((module,index) => {
+        const card=make('article','overview-card');
+        const pair=make('div','overview-pair');
+        ['before','after'].forEach((state,i)=>{const figure=make('figure');const img=make('img');img.src=imagePath(module.id+'-'+state+'.jpg');img.alt=module.name+' · '+(i?'修改后':'修改前');img.loading='lazy';figure.append(img,make('figcaption','',i?'修改后':'修改前'));pair.append(figure);});
+        const body=make('div','card-body');const button=make('button','open-module');button.type='button';button.setAttribute('aria-label','查看'+module.name+'前后大图');button.append(make('span','','查看前后对照'),make('span','','↗'));button.addEventListener('click',()=>{select(module.id);byId('module-panel').scrollIntoView({block:'start'});});
+        body.append(make('span','sequence',String(index+1).padStart(2,'0')),make('h3','',module.name),make('p','',module.summary),button);card.append(pair,body);byId('overview-grid').append(card);
+      });
+      function setPicture(state,module){const path=imagePath(module.id+'-'+state+'.jpg');const title=module.name+' · '+(state==='before'?'修改前':'修改后');byId(state+'-image').src=path;byId(state+'-image').alt=title;byId(state+'-link').href=path;byId(state+'-image-link').href=path;byId(state+'-image-link').setAttribute('aria-label','打开'+title+'原图');}
+      function select(id){
+        const module=modules.find(item=>item.id===id);if(!module)id='overview';
+        tabs.forEach(tab=>{const active=tab.dataset.module===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;});
+        byId('overview').hidden=id!=='overview';byId('module-panel').hidden=id==='overview';
+        if(module){
+          byId('module-panel').setAttribute('aria-labelledby','tab-'+id);byId('module-number').textContent=String(modules.indexOf(module)+1).padStart(2,'0')+' / 06';byId('module-title').textContent=module.name;byId('module-summary').textContent=module.summary;
+          setPicture('before',module);setPicture('after',module);byId('changes').replaceChildren();
+          module.changes.forEach(change=>{const li=make('li');li.append(make('p','change-title',change[0]));[1,2].forEach((i)=>{const row=make('div','change-row'+(i===2?' after':''));row.append(make('b','',i===1?'之前':'现在'),make('span','',change[i]));li.append(row);});byId('changes').append(li);});
+          byId('evidence').replaceChildren();
+          const dark=id==='members'?'members-1024-dark-dropdown.jpg':id+'-1024-dark.jpg';
+          [[dark,'1024 × 768 · 暗色'+(id==='members'?'下拉':'' )],[id+'-1920.jpg','1920 × 1080 · 宽桌面'],...module.extras].forEach(([filename,label])=>{const link=make('a');link.href=imagePath(filename);link.target='_blank';link.rel='noopener';link.append(make('span','',label),make('span','','↗'));byId('evidence').append(link);});
+          byId('module-boundary').textContent=module.boundary;
+        }
+        try{history.replaceState(null,'','#'+id);}catch{/* 部分本地文件浏览器限制历史 API，不影响模块切换。 */}
+      }
+      tabs.forEach((tab,index)=>{tab.addEventListener('click',()=>select(tab.dataset.module));tab.addEventListener('keydown',event=>{let next;if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();tabs[next].focus();select(tabs[next].dataset.module);});});
+      function setLarge(large){byId('comparison').classList.toggle('stacked',large);byId('side-view').setAttribute('aria-pressed',String(!large));byId('large-view').setAttribute('aria-pressed',String(large));}
+      byId('side-view').addEventListener('click',()=>setLarge(false));byId('large-view').addEventListener('click',()=>setLarge(true));
+      window.addEventListener('hashchange',()=>select(location.hash.slice(1)));
+      select(location.hash.slice(1)||'overview');
+    })();
+  </script>
+</body>
+</html>

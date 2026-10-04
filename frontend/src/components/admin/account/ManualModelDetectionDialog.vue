@@ -1,17 +1,17 @@
 <template>
-  <BaseDialog :show="show" :title="t('modelDetection.manualTitle')" @close="close">
-    <form class="space-y-4" @submit.prevent="submit">
-      <p class="font-medium text-gray-900 dark:text-white">{{ account?.name }} <span class="font-mono text-xs text-gray-500">#{{ account?.id }}</span></p>
-      <p class="text-sm text-gray-500">{{ t('modelDetection.manualHint') }}</p>
+  <BaseDialog :show="show" :title="t('modelDetection.manualTitle')" :close-on-escape="!saving" :close-on-click-outside="!saving" :show-close-button="!saving" trap-focus @close="close">
+    <form :id="`manual-model-detection-form-${account?.id || 0}`" class="min-w-0 space-y-4" @submit.prevent="submit">
+      <p class="break-words font-medium text-gray-900 [overflow-wrap:anywhere] dark:text-white">{{ account?.name }} <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ account?.id }}</span></p>
+      <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('modelDetection.manualHint') }}</p>
       <p class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('modelDetection.costHint', { count: modelIds.length * requestsPerRun }) }}</p>
-      <ModelDetectionModelPicker :key="account?.id" v-model="modelIds" :models="models" :disabled="saving" />
-      <p v-if="modelsFailed" class="text-xs text-gray-500">{{ t('modelDetection.modelsUnavailable') }}</p>
-      <p class="text-xs leading-5 text-gray-500">{{ t('modelDetection.automaticComparison') }}</p>
-      <p class="text-xs leading-5 text-gray-500">{{ t('modelDetection.longRunningHint', { seconds: requestTimeout }) }}</p>
-      <div v-if="failures.length" class="rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20" role="alert"><p class="font-medium text-red-700 dark:text-red-300">{{ t('modelDetection.batchPartial', { success: successfulCount, failed: failures.length }) }}</p><ul class="mt-2 space-y-1 text-red-600 dark:text-red-400"><li v-for="failure in failures" :key="failure.model_id" class="break-words"><span class="font-mono">{{ failure.model_id }}</span>: {{ failure.error || failure.reason || t('modelDetection.actionFailed') }}</li></ul><p class="mt-2 text-xs text-gray-500">{{ t('modelDetection.retryFailedOnly') }}</p></div>
+      <ModelDetectionModelPicker :key="account?.id" v-model="modelIds" :models="models" :loading="modelsLoading" :disabled="saving" />
+      <p v-if="modelsFailed" class="text-xs text-gray-500 dark:text-gray-400">{{ t('modelDetection.modelsUnavailable') }}</p>
+      <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('modelDetection.automaticComparison') }}</p>
+      <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('modelDetection.longRunningHint', { seconds: requestTimeout }) }}</p>
+      <div v-if="failures.length" class="rounded-lg bg-red-50 p-3 text-sm dark:bg-red-900/20" role="alert"><p class="font-medium text-red-700 dark:text-red-300">{{ t('modelDetection.batchPartial', { success: successfulCount, failed: failures.length }) }}</p><ul class="mt-2 space-y-1 text-red-600 dark:text-red-400"><li v-for="failure in failures" :key="failure.model_id" class="break-words"><span class="font-mono">{{ failure.model_id }}</span>: {{ failure.error || failure.reason || t('modelDetection.actionFailed') }}</li></ul><p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('modelDetection.retryFailedOnly') }}</p></div>
       <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
-      <div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="saving" @click="close">{{ t('modelDetection.cancel') }}</button><button type="submit" class="btn btn-primary" :disabled="saving || !modelIds.length">{{ t(saving ? 'modelDetection.running' : 'modelDetection.run') }}</button></div>
     </form>
+    <template #footer><button type="button" class="btn btn-secondary min-h-11" :disabled="saving" @click="close">{{ t('modelDetection.cancel') }}</button><button type="submit" :form="`manual-model-detection-form-${account?.id || 0}`" class="btn btn-primary min-h-11" :disabled="saving || !modelIds.length" :aria-busy="saving"><Icon :name="saving ? 'refresh' : 'play'" size="sm" :class="{ 'motion-safe:animate-spin': saving }" aria-hidden="true" />{{ t(saving ? 'modelDetection.running' : 'modelDetection.run') }}</button></template>
   </BaseDialog>
 </template>
 
@@ -20,6 +20,7 @@ import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ModelDetectionModelPicker from './ModelDetectionModelPicker.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { getAvailableModels } from '@/api/admin/accounts'
 import { modelDetectionAPI, type ModelDetectionBatchItem } from '@/api/admin/modelDetection'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -31,6 +32,7 @@ const { t } = useI18n()
 const modelIds = ref<string[]>([])
 const models = ref<ClaudeModel[]>([])
 const modelsFailed = ref(false)
+const modelsLoading = ref(false)
 const failures = ref<ModelDetectionBatchItem[]>([])
 const successfulCount = ref(0)
 const requestsPerRun = ref(4)
@@ -41,11 +43,13 @@ let requestId = 0
 
 watch(() => [props.show, props.account?.id] as const, async ([show, accountId]) => {
   const current = ++requestId
-  if (!show || !accountId) return
+  if (!show || !accountId) { modelsLoading.value = false; return }
+  modelsLoading.value = true
   modelIds.value = []; models.value = []; modelsFailed.value = false; error.value = ''; failures.value = []; successfulCount.value = 0
   requestsPerRun.value = 4; requestTimeout.value = 600
   const [modelResult, catalogResult] = await Promise.allSettled([getAvailableModels(accountId), modelDetectionAPI.catalog()])
   if (current !== requestId) return
+  modelsLoading.value = false
   if (modelResult.status === 'fulfilled') models.value = modelResult.value ?? []
   else modelsFailed.value = true
   if (catalogResult.status === 'fulfilled') { requestsPerRun.value = catalogResult.value.requests_per_run || 4; requestTimeout.value = catalogResult.value.request_timeout_seconds || 600 }

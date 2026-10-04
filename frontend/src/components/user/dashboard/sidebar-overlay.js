@@ -46,6 +46,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   let guideModelsRequestVersion = 0;
   let guideDataRequestVersion = 0;
   let guideModelsController = null;
+  let guideKeyboardInput = false;
   let destroyed = false;
 
   function debugLog(...args) {
@@ -667,9 +668,10 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     pageState.guideModelsError = '';
     pageState.selectedModel = '';
     pageState.guideModelProtocol = 'all';
-    if (!apiKey?.key || apiKey.status !== 'active' || pageState.guideSettingsError) {
+    if (!apiKey?.key || apiKey.status !== 'active' || pageState.guideSettingsError || apiKey?.group?.platform === 'typesafe') {
       pageState.guideModelsLoading = false;
-      pageState.guideModelsError = pageState.guideSettingsError || (apiKey ? '当前密钥不可用，请选择有效密钥或前往密钥管理。' : '');
+      pageState.guideModelsError = pageState.guideSettingsError || (apiKey?.group?.platform === 'typesafe'
+        ? guideSetupUnavailable(apiKey) : (apiKey ? '当前密钥不可用，请选择有效密钥或前往密钥管理。' : ''));
       rerenderGuide();
       return;
     }
@@ -819,7 +821,25 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       && recommendedModelsForKey(selectedGuideKey()).some((model) => model.name === pageState.selectedModel);
   }
 
+  function guideSetupUnavailable(apiKey) {
+    if (apiKey?.group?.platform === 'typesafe') {
+      return 'TypeSafe 分组仅支持 System One，请前往「密钥管理」，使用该密钥的原生配置入口。';
+    }
+    const invalidAddress = 'API 地址配置无效，暂时无法生成接入配置，请联系管理员检查服务地址。';
+    if (!guideBaseUrl()) return invalidAddress;
+    try {
+      const baseUrl = String(pageState.settings?.api_base_url || window.location.origin).replace(/\/+$/, '').replace(/\/v1$/, '');
+      resolveCcSwitchImportConfig(guideClientPlatform(apiKey), guideClientType(apiKey), baseUrl);
+      return '';
+    } catch {
+      // 不将配置异常中的地址或凭据显示到页面。
+      return invalidAddress;
+    }
+  }
+
   function guideProtocolUnavailable(protocol, apiKey = selectedGuideKey()) {
+    const unavailable = guideSetupUnavailable(apiKey);
+    if (unavailable) return unavailable;
     const group = apiKey?.group || {};
     if (group.claude_code_only) return '当前分组仅允许 Claude Code 客户端，请选择应用对接中的 Claude Code。';
     if (protocol === 'anthropic' && guideClientPlatform(apiKey) === 'openai' && group.allow_messages_dispatch === false) {
@@ -832,6 +852,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   }
 
   function guideAppUnavailable(appKey, apiKey) {
+    const unavailable = guideSetupUnavailable(apiKey);
+    if (unavailable) return unavailable;
     const group = apiKey?.group || {};
     const ccConfig = resolveCcSwitchImportConfig(guideClientPlatform(apiKey), guideClientType(apiKey), guideBaseUrl());
     const isClaude = appKey === 'claude' || (appKey === 'ccswitch' && ccConfig.app === 'claude');
@@ -1120,7 +1142,16 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-api-copy data-copy-text="${unavailable ? '' : escapeHtml(selected.code)}" ${unavailable ? 'disabled' : ''}>${icon('copy', 15)}复制代码</button><button class="s2-btn s2-btn-primary" type="button" data-test-connection ${unavailable ? 'disabled' : ''}>${icon('play', 15)}测试连接</button></div>`;
   }
 
+  function guideUnavailablePanel(message) {
+    return `
+      <div class="s2-section-head"><div><h2>暂不可在此生成接入配置</h2></div></div>
+      <div class="s2-guide-error" role="status">${escapeHtml(message)}</div>
+      <div class="s2-panel-actions"><button class="s2-btn" type="button" data-guide-step="1">${icon('back', 14)}返回选择密钥</button><button class="s2-btn s2-btn-primary" type="button" data-route="/keys">${icon('key', 15)}前往密钥管理</button></div>`;
+  }
+
   function guideStepTwo(apiKey) {
+    const unavailable = guideSetupUnavailable(apiKey);
+    if (unavailable) return guideUnavailablePanel(unavailable);
     return `
       <div class="s2-section-head"><div><h2>选择接入方式</h2><p>优先使用应用一键导入；需要自行开发时再使用 API 或 SDK。</p></div><span class="s2-badge">步骤 2 / 4</span></div>
       <div class="s2-mode-tabs">
@@ -1189,6 +1220,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       panel = '<div class="s2-empty"><div><span class="s2-icon-box" style="margin:0 auto">' + icon('refresh', 18) + '</span><h3>正在准备接入信息</h3><p>正在读取站点地址、API Key 和可用模型。</p></div></div>';
     } else if (pageState.guideStep === 1) {
       panel = guideStepOne(apiKey);
+    } else if (apiKey?.group?.platform === 'typesafe') {
+      panel = guideUnavailablePanel(guideSetupUnavailable(apiKey));
     } else if (pageState.guideStep === 2) {
       panel = guideStepTwo(apiKey);
     } else if (pageState.guideStep === 3) {
@@ -1276,10 +1309,34 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     showPageToast(copied ? successMessage : failureMessage, version, viewVersion);
   }
 
+  function guideFocusTarget() {
+    const active = document.activeElement;
+    if (!guideKeyboardInput || !(active instanceof HTMLElement) || !root.contains(active)) return null;
+    if (active.hasAttribute('data-guide-key-option')) return { attribute: 'data-guide-key-toggle', value: '', index: 0 };
+    const attribute = [
+      'data-guide-step', 'data-guide-mode', 'data-guide-app', 'data-guide-protocol',
+      'data-guide-model', 'data-guide-model-protocol', 'data-guide-models-retry',
+      'data-guide-key-toggle', 'data-guide-api-copy', 'data-guide-app-action',
+      'data-copy-secret', 'data-copy-text', 'data-test-connection', 'data-route', 'data-overlay-view',
+    ].find((name) => active.hasAttribute(name));
+    if (!attribute) return null;
+    const value = active.getAttribute(attribute);
+    const matches = Array.from(root.querySelectorAll(`[${attribute}]`)).filter((item) => item.getAttribute(attribute) === value);
+    return { attribute, value, index: matches.indexOf(active) };
+  }
+
   function rerenderGuide() {
     if (!isCurrentPage(pageRequestVersion, 'guide')) return;
+    const focusTarget = guideFocusTarget();
     pageViewVersion += 1;
     root.innerHTML = buildGuideHtml(false);
+    if (focusTarget) {
+      // 使用属性值比较，避免模型名等动态内容成为选择器；异步重绘仅保留仍在指南内的键盘焦点。
+      const matches = Array.from(root.querySelectorAll(`[${focusTarget.attribute}]`))
+        .filter((item) => item.getAttribute(focusTarget.attribute) === focusTarget.value);
+      const control = matches[focusTarget.index] || matches[0] || root.querySelector(`[data-guide-step="${pageState.guideStep}"]`);
+      control?.focus({ preventScroll: true });
+    }
   }
 
   async function testGuideConnection() {
@@ -1314,6 +1371,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
 
   async function handlePageClick(event) {
     if (destroyed || !(event.target instanceof Element)) return;
+    if (event.detail > 0) guideKeyboardInput = false;
     const control = event.target.closest(
       '[data-overlay-view], [data-route], [data-dashboard-days], [data-dashboard-retry], [data-guide-step], [data-guide-mode], [data-guide-app], [data-guide-app-action], [data-guide-protocol], [data-guide-model], [data-guide-model-protocol], [data-guide-models-retry], [data-guide-key-toggle], [data-guide-key-option], [data-copy-text], [data-copy-secret], [data-test-connection]',
     );
@@ -1324,6 +1382,7 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
       }
       return;
     }
+    if (event.detail === 0 && document.activeElement === control) guideKeyboardInput = true;
 
     if (control.hasAttribute('data-dashboard-retry')) {
       loadDashboardIntoRoot();
@@ -1461,6 +1520,10 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     }
   }
 
+  function handleGuideInputMode(event) {
+    guideKeyboardInput = event.type === 'keydown';
+  }
+
   function loadDashboardIntoRoot() {
     if (destroyed || root.dataset.pageMode !== 'dashboard') return;
     const days = pageState[DASHBOARD_DAYS_STATE_KEY] === 30 ? 30 : 7;
@@ -1507,6 +1570,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
     root.removeEventListener('click', handlePageClick);
     root.removeEventListener('change', handlePageChange);
     root.removeEventListener('keydown', handlePageKeydown);
+    document.removeEventListener('keydown', handleGuideInputMode, true);
+    document.removeEventListener('pointerdown', handleGuideInputMode, true);
     root.removeEventListener('pointerover', handleTrendPoint);
     root.removeEventListener('mouseover', handleTrendPoint);
     root.removeEventListener('focusin', handleTrendPoint);
@@ -1527,6 +1592,8 @@ export function createSidebarPageOverlay({ target, navigate, request }) {
   root.addEventListener('click', handlePageClick);
   root.addEventListener('change', handlePageChange);
   root.addEventListener('keydown', handlePageKeydown);
+  document.addEventListener('keydown', handleGuideInputMode, true);
+  document.addEventListener('pointerdown', handleGuideInputMode, true);
   root.addEventListener('pointerover', handleTrendPoint);
   root.addEventListener('mouseover', handleTrendPoint);
   root.addEventListener('focusin', handleTrendPoint);

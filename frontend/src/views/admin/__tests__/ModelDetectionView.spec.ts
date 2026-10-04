@@ -21,7 +21,7 @@ const run: ModelDetectionRun = { id: 8, plan_id: 3, account_id: 17, account_name
 function render() {
   return mount(ModelDetectionView, { global: { stubs: {
     AppLayout: { template: '<main><slot /></main>' },
-    BaseDialog: { props: ['show', 'title'], emits: ['close'], template: '<section v-if="show" :data-dialog="title"><button data-testid="close-dialog" @click="$emit(\'close\')">关闭</button><slot /></section>' },
+    BaseDialog: { props: ['show', 'title'], emits: ['close'], template: '<section v-if="show" :data-dialog="title"><button data-testid="close-dialog" @click="$emit(\'close\')">关闭</button><slot /><footer><slot name="footer" /></footer></section>' },
     ManualModelDetectionDialog: true, RouterLink: RouterLinkStub
   } } })
 }
@@ -79,6 +79,26 @@ describe('管理员模型检测页面', () => {
     await flushPromises()
     expect(modelDetectionAPI.history).toHaveBeenLastCalledWith(17, 8)
     expect(wrapper.findAll('button').filter(button => button.text() === 'modelDetection.detail')).toHaveLength(3)
+    wrapper.unmount()
+  })
+  it('新计划模型等待状态不误报空列表，底部保存按钮关联带原生校验的表单', async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof getAvailableModels>>) => void
+    vi.mocked(getAvailableModels).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'modelDetection.createPlan')!.trigger('click')
+    const dialog = wrapper.get('[data-dialog="modelDetection.createPlan"]')
+    await dialog.findAll('select')[0].setValue(17)
+    expect(dialog.get('[role="status"]').text()).toBe('common.loading')
+    expect(dialog.text()).not.toContain('modelDetection.noModelMatches')
+    const submit = dialog.get<HTMLButtonElement>('footer button[type="submit"]')
+    expect(submit.attributes('form')).toBe(dialog.get('form').attributes('id'))
+    expect(submit.element.disabled).toBe(true)
+    resolve([{ id: 'loaded-model', display_name: '已加载模型', type: 'model', created_at: '' }])
+    await flushPromises()
+    await dialog.get('input[value="loaded-model"]').setValue(true)
+    expect(dialog.find('[role="status"]').exists()).toBe(false)
+    expect(submit.element.disabled).toBe(false)
     wrapper.unmount()
   })
   it('详情保留回答和原始错误，恶意回答只作为文本展示', async () => {

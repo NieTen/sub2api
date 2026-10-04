@@ -1,34 +1,36 @@
 <template>
-  <BaseDialog :show="identity !== null" :title="t('community.members.detail')" :close-on-escape="!unbinding" :show-close-button="!unbinding" @close="$emit('close')">
+  <BaseDialog :show="identity !== null" :title="t('community.members.detail')" :close-on-escape="!unbinding" :show-close-button="!unbinding" trap-focus @close="$emit('close')">
     <div v-if="identity" class="space-y-5">
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3 rounded-xl border border-primary-100 bg-primary-50/60 p-4 dark:border-primary-900/40 dark:bg-primary-900/10">
         <CommunityAvatar :telegram-id="identity.telegram_user_id" :name="identity.telegram_name" @select="load" />
-        <div class="min-w-0"><p class="break-words font-semibold">{{ detail?.telegram_name || identity.telegram_name || t('community.chat.unknownSender') }}</p><p v-if="detail?.telegram_username || identity.telegram_username" class="mt-1 break-all text-sm text-gray-500">{{ '@' + (detail?.telegram_username || identity.telegram_username).replace(/^@/, '') }}</p><span v-if="detail?.is_bot || identity.is_bot" class="badge badge-gray mt-1">{{ t('community.members.botAccount') }}</span></div>
+        <div class="min-w-0 flex-1"><p class="break-words font-semibold [overflow-wrap:anywhere]">{{ detail?.telegram_name || identity.telegram_name || t('community.chat.unknownSender') }}</p><p v-if="detail?.telegram_username || identity.telegram_username" class="mt-1 break-all text-sm text-gray-500 dark:text-dark-300">{{ '@' + (detail?.telegram_username || identity.telegram_username).replace(/^@/, '') }}</p><span v-if="detail?.is_bot || identity.is_bot" class="badge badge-gray mt-1">{{ t('community.members.botAccount') }}</span></div>
+        <button v-if="identity.telegram_user_id" type="button" class="btn btn-secondary btn-sm gap-2" :disabled="loading || unbinding" data-test="refresh-member-detail" @click="load"><Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" aria-hidden="true" />{{ t(loading ? 'community.refreshing' : 'community.refresh') }}</button>
       </div>
-      <p v-if="loading" role="status" class="text-sm text-gray-500">{{ t('common.loading') }}</p>
-      <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
-      <dl class="grid gap-4 text-sm sm:grid-cols-2">
-        <div><dt class="text-xs text-gray-500">{{ t('community.telegramId') }}</dt><dd class="mt-1 font-mono">{{ identity.telegram_user_id || '—' }}</dd></div>
-        <div><dt class="text-xs text-gray-500">{{ t('community.members.membershipStatus') }}</dt><dd class="mt-1"><span v-if="isBanned || member" :class="['badge', isBanned ? 'badge-danger' : member?.status === 'joined' ? 'badge-success' : 'badge-gray']">{{ t('community.members.' + (isBanned ? 'banned' : member?.status)) }}</span><span v-else>{{ t('community.members.notBound') }}</span></dd></div>
+      <p v-if="loading" role="status" class="text-sm text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</p>
+      <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ error }}</p>
+      <dl class="grid gap-x-6 gap-y-5 rounded-xl border border-gray-200 p-4 text-sm sm:grid-cols-2 dark:border-dark-700">
+        <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramId') }}</dt><dd class="mt-1 font-mono">{{ identity.telegram_user_id || '—' }}</dd></div>
+        <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.members.membershipStatus') }}</dt><dd class="mt-1"><span v-if="isBanned || member" :class="['badge', isBanned ? 'badge-danger' : member?.status === 'joined' ? 'badge-success' : 'badge-gray']">{{ t('community.members.' + (isBanned ? 'banned' : member?.status)) }}</span><span v-else>{{ t('community.members.notBound') }}</span></dd></div>
         <template v-if="member">
-          <div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('community.members.siteIdentity') }}</dt><dd class="mt-1 break-all">{{ member.email }}<span class="mt-1 block text-xs text-gray-500">#{{ member.user_id }} · {{ member.username || '—' }}</span></dd></div>
-          <div><dt class="text-xs text-gray-500">{{ t('community.members.userStatus') }}</dt><dd class="mt-1">{{ t('community.members.' + member.user_status) }}</dd></div>
-          <div><dt class="text-xs text-gray-500">{{ t('community.members.joinedAt') }}</dt><dd class="mt-1">{{ member.joined_at ? new Date(member.joined_at).toLocaleString(locale) : '—' }}</dd></div>
+          <div class="sm:col-span-2"><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.members.siteIdentity') }}</dt><dd class="mt-1 break-all">{{ member.email }}<span class="mt-1 block text-xs text-gray-500 dark:text-dark-300">#{{ member.user_id }} · {{ member.username || '—' }}</span></dd></div>
+          <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.members.userStatus') }}</dt><dd class="mt-1">{{ t('community.members.' + member.user_status) }}</dd></div>
+          <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.members.joinedAt') }}</dt><dd class="mt-1">{{ member.joined_at ? new Date(member.joined_at).toLocaleString(locale) : '—' }}</dd></div>
         </template>
       </dl>
       <p v-if="isBanned" class="rounded-lg bg-red-50 p-3 text-sm leading-6 text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ t('community.members.bannedHint') }}</p>
-      <p v-else-if="member?.status === 'left'" class="text-sm text-gray-500">{{ t('community.leftHint') }}</p>
-      <p v-if="!identity.telegram_user_id" class="text-sm text-gray-500">{{ t(identity.sender_kind === 'chat' ? 'community.chat.anonymousHint' : 'community.members.notBound') }}</p>
-      <form v-if="member?.telegram_user_id && !loading && !error" class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-700" @submit.prevent="unbind">
-        <h4 class="text-sm font-semibold">{{ t('community.members.unbindTitle') }}</h4>
-        <p class="text-sm leading-6 text-gray-500">{{ t('community.members.unbindHint') }}</p>
+      <p v-else-if="member?.status === 'left'" class="text-sm text-gray-500 dark:text-dark-300">{{ t('community.leftHint') }}</p>
+      <p v-if="!identity.telegram_user_id" class="text-sm text-gray-500 dark:text-dark-300">{{ t(identity.sender_kind === 'chat' ? 'community.chat.anonymousHint' : 'community.members.notBound') }}</p>
+      <form v-if="member?.telegram_user_id && !loading && !error" class="space-y-4 rounded-xl border border-red-200 bg-red-50/30 p-4 dark:border-red-900/50 dark:bg-red-900/5" :aria-busy="unbinding" @submit.prevent="unbind">
+        <h4 class="flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300"><Icon name="exclamationTriangle" size="sm" aria-hidden="true" />{{ t('community.members.unbindTitle') }}</h4>
+        <p class="text-sm leading-6 text-gray-500 dark:text-dark-300">{{ t('community.members.unbindHint') }}</p>
         <label class="block"><span class="mb-1 block text-sm">{{ t('community.members.ticketID') }}</span><input v-model="ticketID" name="unbind-ticket-id" inputmode="numeric" pattern="[1-9][0-9]*" required :disabled="unbinding" class="input" :placeholder="t('community.members.ticketPlaceholder')" /></label>
-        <label class="flex items-start gap-2 text-sm leading-6"><input v-model="confirmed" name="unbind-confirmed" type="checkbox" class="mt-1 rounded" :disabled="unbinding" /><span>{{ t('community.members.unbindConfirm') }}</span></label>
+        <label class="flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 text-sm leading-6 dark:bg-dark-800"><input v-model="confirmed" name="unbind-confirmed" type="checkbox" class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:cursor-not-allowed dark:border-dark-500" :disabled="unbinding" /><span>{{ t('community.members.unbindConfirm') }}</span></label>
         <p v-if="unbindError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ unbindError }}</p>
-        <button type="submit" class="btn btn-secondary text-red-600 dark:text-red-400" :disabled="unbinding || !confirmed || !validTicketID">{{ t(unbinding ? 'community.members.unbinding' : 'community.members.unbind') }}</button>
+        <div class="flex justify-end"><button type="submit" class="btn btn-danger gap-2" :disabled="unbinding || !confirmed || !validTicketID"><Icon :name="unbinding ? 'refresh' : 'link'" size="sm" :class="unbinding ? 'animate-spin' : ''" aria-hidden="true" />{{ t(unbinding ? 'community.members.unbinding' : 'community.members.unbind') }}</button></div>
       </form>
       <p v-if="success" role="status" class="rounded-lg bg-green-50 p-3 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-300">{{ t('community.members.unbound') }}</p>
     </div>
+    <template #footer><button type="button" class="btn btn-secondary min-w-24" :disabled="unbinding" data-test="close-member-detail" @click="$emit('close')">{{ t('common.close') }}</button></template>
   </BaseDialog>
 </template>
 
@@ -36,6 +38,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Icon from '@/components/icons/Icon.vue'
 import CommunityAvatar from './CommunityAvatar.vue'
 import { communityAPI, type CommunityMember, type CommunityTelegramUser } from '@/api/community'
 import { supportError } from '@/api/support'

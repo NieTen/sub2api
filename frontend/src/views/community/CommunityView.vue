@@ -4,23 +4,23 @@
       <p class="text-sm text-gray-500 dark:text-dark-400">{{ t(hideVIP ? 'community.contactDescription' : 'community.description') }}</p>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ error }}</p>
       <div v-if="banned" role="status" class="rounded-lg bg-red-50 p-4 text-sm leading-6 text-red-700 dark:bg-red-900/20 dark:text-red-300" data-test="banned-notice"><p>{{ t('community.bannedHint') }}</p><router-link to="/tickets" class="mt-2 inline-block font-medium underline">{{ t('community.tickets') }}</router-link></div>
-      <div v-if="loading" class="p-10 text-center text-gray-500">{{ t('common.loading') }}</div>
+      <div v-if="loading" class="p-10 text-center text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</div>
       <div v-else-if="state" :class="['grid items-start gap-5', hideVIP ? 'max-w-xl' : 'lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]']">
-        <section class="space-y-4 rounded-xl border border-gray-200 bg-white p-6 dark:border-dark-700 dark:bg-dark-800">
-          <h2 class="text-lg font-semibold">{{ t('community.contactTitle') }}</h2>
+        <section class="min-w-0 space-y-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 lg:sticky lg:top-24 dark:border-dark-700 dark:bg-dark-800">
+          <div class="flex items-center gap-3"><span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-600 dark:bg-primary-900/20 dark:text-primary-400"><Icon name="chat" aria-hidden="true" /></span><h2 class="text-lg font-semibold">{{ t('community.contactTitle') }}</h2></div>
           <p class="text-sm leading-6 text-gray-500 dark:text-dark-400">{{ t('community.contactDescription') }}</p>
-          <a v-if="contactURL" :href="contactURL" target="_blank" rel="noopener noreferrer" data-test="contact-link" class="btn btn-primary w-full">{{ t('community.contact') }}</a>
-          <p v-else class="rounded-lg bg-gray-50 p-3 text-sm text-gray-500 dark:bg-dark-900/50">{{ t('community.contactUnavailable') }}</p>
-          <router-link to="/tickets" class="btn btn-secondary w-full">{{ t('community.tickets') }}</router-link>
+          <a v-if="contactURL" :href="contactURL" target="_blank" rel="noopener noreferrer" data-test="contact-link" class="btn btn-primary w-full gap-2">{{ t('community.contact') }}<Icon name="externalLink" size="sm" aria-hidden="true" /></a>
+          <p v-else class="rounded-lg bg-gray-50 p-3 text-sm text-gray-500 dark:bg-dark-900/50 dark:text-dark-300">{{ t('community.contactUnavailable') }}</p>
+          <router-link to="/tickets" class="btn btn-secondary w-full gap-2"><Icon name="chat" size="sm" aria-hidden="true" />{{ t('community.tickets') }}</router-link>
         </section>
 
-        <section v-if="!hideVIP" data-test="community-group" class="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 p-6 dark:border-dark-700">
-            <h2 class="text-lg font-semibold">{{ state.group_name || t('community.groupTitle') }}</h2>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="refreshing || acting" data-test="refresh" @click="refresh()">{{ t(refreshing ? 'community.refreshing' : 'community.refresh') }}</button>
+        <section v-if="!hideVIP" data-test="community-group" class="min-w-0 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-dark-700 dark:bg-dark-800">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-gray-50/60 p-4 sm:p-6 dark:border-dark-700 dark:bg-dark-900/30">
+            <div class="flex min-w-0 flex-1 items-center gap-3"><span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-primary-600 dark:border-dark-600 dark:bg-dark-800 dark:text-primary-400"><Icon name="users" aria-hidden="true" /></span><h2 class="min-w-0 break-words text-lg font-semibold [overflow-wrap:anywhere]">{{ state.group_name || t('community.groupTitle') }}</h2></div>
+            <button type="button" class="btn btn-secondary btn-sm gap-2" :disabled="refreshing || acting" :aria-busy="refreshing" data-test="refresh" @click="refresh()"><Icon name="refresh" size="sm" :class="refreshing ? 'animate-spin' : ''" aria-hidden="true" />{{ t(refreshing ? 'community.refreshing' : 'community.refresh') }}</button>
           </div>
-          <div v-if="!state.enabled" class="p-6 text-sm leading-6 text-gray-500">{{ t('community.groupUnavailable') }}</div>
-          <div v-else class="space-y-5 p-6">
+          <div v-if="!state.enabled" class="p-6 text-sm leading-6 text-gray-500 dark:text-dark-300">{{ t('community.groupUnavailable') }}</div>
+          <div v-else class="space-y-5 p-4 sm:p-6">
             <p v-if="state.require_paid_recharge" class="text-sm leading-6 text-gray-500 dark:text-dark-400">{{ t('community.vipEligibility') }}</p>
             <div v-if="state.membership?.telegram_user_id" class="rounded-lg border border-primary-100 bg-primary-50/60 p-4 dark:border-primary-900/40 dark:bg-primary-900/10" aria-live="polite">
               <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -28,43 +28,43 @@
                 <span :class="['badge', banned ? 'badge-danger' : joined ? 'badge-success' : 'badge-gray']">{{ t('community.' + state.membership.status) }}</span>
               </div>
               <dl class="grid gap-3 text-sm sm:grid-cols-2">
-                <div><dt class="text-xs text-gray-500">{{ t('community.telegramName') }}</dt><dd data-test="telegram-name" class="mt-1 break-words">{{ state.membership.telegram_name || '—' }}</dd></div>
-                <div><dt class="text-xs text-gray-500">{{ t('community.telegramUsername') }}</dt><dd class="mt-1 break-all">{{ state.membership.telegram_username ? '@' + state.membership.telegram_username.replace(/^@/, '') : t('community.noUsername') }}</dd></div>
-                <div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('community.telegramId') }}</dt><dd data-test="telegram-id" class="mt-1 font-mono">{{ state.membership.telegram_user_id }}</dd></div>
+                <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramName') }}</dt><dd data-test="telegram-name" class="mt-1 break-words [overflow-wrap:anywhere]">{{ state.membership.telegram_name || '—' }}</dd></div>
+                <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramUsername') }}</dt><dd class="mt-1 break-all">{{ state.membership.telegram_username ? '@' + state.membership.telegram_username.replace(/^@/, '') : t('community.noUsername') }}</dd></div>
+                <div class="sm:col-span-2"><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramId') }}</dt><dd data-test="telegram-id" class="mt-1 font-mono">{{ state.membership.telegram_user_id }}</dd></div>
               </dl>
             </div>
-            <div class="rounded-lg bg-gray-50 p-4 text-sm leading-6 text-gray-600 dark:bg-dark-900/60 dark:text-dark-300" data-test="binding-policy"><p>{{ t('community.bindingPolicy') }}</p><router-link to="/tickets" class="mt-2 inline-block font-medium text-primary-600 underline dark:text-primary-400">{{ t('community.bindingTicket') }}</router-link></div>
-            <p v-if="!banned && state.membership?.status === 'left'" class="text-sm text-gray-500">{{ t('community.leftHint') }}</p>
-            <p v-if="joined && state.membership?.joined_at" class="text-sm text-gray-500">{{ t('community.joinedAt', { time: date(state.membership.joined_at) }) }}</p>
+            <div class="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm leading-6 text-gray-600 dark:border-dark-700 dark:bg-dark-900/60 dark:text-dark-300" data-test="binding-policy"><p>{{ t('community.bindingPolicy') }}</p><router-link to="/tickets" class="mt-2 inline-flex items-center gap-1 rounded font-medium text-primary-600 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-primary-400">{{ t('community.bindingTicket') }}<Icon name="arrowRight" size="sm" aria-hidden="true" /></router-link></div>
+            <p v-if="!banned && state.membership?.status === 'left'" class="text-sm text-gray-500 dark:text-dark-300">{{ t('community.leftHint') }}</p>
+            <p v-if="joined && state.membership?.joined_at" class="text-sm text-gray-500 dark:text-dark-300">{{ t('community.joinedAt', { time: date(state.membership.joined_at) }) }}</p>
             <template v-if="!joined && !banned">
               <div v-if="inviteURL && inviteActive" class="space-y-3">
                 <span class="badge badge-warning">{{ t('community.pending') }}</span>
-                <div><a :href="inviteURL" target="_blank" rel="noopener noreferrer" data-test="invite-link" class="btn btn-primary">{{ t('community.join') }}</a></div>
-                <p class="text-xs text-gray-500">{{ t('community.expires', { time: date(state.invite!.expires_at) }) }}</p>
+                <div><a :href="inviteURL" target="_blank" rel="noopener noreferrer" data-test="invite-link" class="btn btn-primary gap-2">{{ t('community.join') }}<Icon name="externalLink" size="sm" aria-hidden="true" /></a></div>
+                <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.expires', { time: date(state.invite!.expires_at) }) }}</p>
               </div>
-              <p v-else class="text-sm leading-6 text-gray-500">{{ t(state.invite ? 'community.inviteExpired' : 'community.inviteDescription') }}</p>
+              <p v-else class="text-sm leading-6 text-gray-500 dark:text-dark-300">{{ t(state.invite ? 'community.inviteExpired' : 'community.inviteDescription') }}</p>
               <p class="rounded-lg bg-amber-50 p-4 text-sm leading-6 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">{{ t('community.inviteHint') }}</p>
-              <button type="button" :class="['btn', inviteURL && inviteActive ? 'btn-secondary' : 'btn-primary']" :disabled="acting || refreshing" :data-test="state.membership || state.invite ? 'reissue' : 'get-invite'" @click="getInvitation">{{ t(issuing ? 'community.issuing' : state.membership || state.invite ? 'community.reissue' : 'community.getInvite') }}</button>
+              <button type="button" :class="['btn gap-2', inviteURL && inviteActive ? 'btn-secondary' : 'btn-primary']" :disabled="acting || refreshing" :aria-busy="issuing" :data-test="state.membership || state.invite ? 'reissue' : 'get-invite'" @click="getInvitation"><Icon :name="issuing ? 'refresh' : 'link'" size="sm" :class="issuing ? 'animate-spin' : ''" aria-hidden="true" />{{ t(issuing ? 'community.issuing' : state.membership || state.invite ? 'community.reissue' : 'community.getInvite') }}</button>
             </template>
             <div v-if="canVerifyIdentity || challenge" class="space-y-3 border-t border-gray-100 pt-4 dark:border-dark-700" data-test="identity-recovery">
-              <p class="text-sm leading-6 text-gray-500">{{ t('community.verifyExistingHint') }}</p>
+              <p class="text-sm leading-6 text-gray-500 dark:text-dark-300">{{ t('community.verifyExistingHint') }}</p>
               <template v-if="challenge">
-                <p v-if="challenge.status === 'waiting'" class="text-sm text-gray-500" role="status">{{ t('community.verificationWaiting') }}</p>
+                <p v-if="challenge.status === 'waiting'" class="text-sm text-gray-500 dark:text-dark-300" role="status">{{ t('community.verificationWaiting') }}</p>
                 <a v-if="verificationURL && challenge.status !== 'confirmed'" :href="verificationURL" target="_blank" rel="noopener noreferrer" data-test="verification-link" class="btn btn-secondary">{{ t('community.openVerificationBot') }}</a>
                 <div v-if="challenge.status === 'claimed' || challenge.status === 'confirmed'" class="space-y-3 rounded-lg bg-gray-50 p-4 dark:bg-dark-900" aria-live="polite">
                   <p class="text-sm font-medium">{{ t('community.confirmIdentityHint') }}</p>
                   <dl class="grid gap-3 text-sm sm:grid-cols-2">
-                    <div><dt class="text-xs text-gray-500">{{ t('community.telegramName') }}</dt><dd data-test="verification-name" class="mt-1 break-words">{{ challenge.telegram_name || '—' }}</dd></div>
-                    <div><dt class="text-xs text-gray-500">{{ t('community.telegramUsername') }}</dt><dd class="mt-1 break-all">{{ challenge.telegram_username ? '@' + challenge.telegram_username.replace(/^@/, '') : t('community.noUsername') }}</dd></div>
-                    <div class="sm:col-span-2"><dt class="text-xs text-gray-500">{{ t('community.telegramId') }}</dt><dd data-test="verification-id" class="mt-1 font-mono">{{ challenge.telegram_user_id }}</dd></div>
+                    <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramName') }}</dt><dd data-test="verification-name" class="mt-1 break-words [overflow-wrap:anywhere]">{{ challenge.telegram_name || '—' }}</dd></div>
+                    <div><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramUsername') }}</dt><dd class="mt-1 break-all">{{ challenge.telegram_username ? '@' + challenge.telegram_username.replace(/^@/, '') : t('community.noUsername') }}</dd></div>
+                    <div class="sm:col-span-2"><dt class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.telegramId') }}</dt><dd data-test="verification-id" class="mt-1 font-mono">{{ challenge.telegram_user_id }}</dd></div>
                   </dl>
                   <button type="button" class="btn btn-primary" :disabled="acting || refreshing || !canConfirmIdentity" data-test="confirm-identity" @click="confirmIdentity">{{ t(confirming ? 'community.confirmingIdentity' : 'community.confirmIdentity') }}</button>
                 </div>
-                <p class="text-xs text-gray-500">{{ t('community.expires', { time: date(challenge.expires_at) }) }}</p>
+                <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.expires', { time: date(challenge.expires_at) }) }}</p>
               </template>
-              <button v-if="canVerifyIdentity" type="button" class="btn btn-secondary btn-sm" :disabled="acting || refreshing" data-test="verify-identity" @click="startVerification">{{ t(verifying ? 'community.verifyingIdentity' : challenge ? 'community.restartVerification' : 'community.verifyExisting') }}</button>
+              <button v-if="canVerifyIdentity" type="button" class="btn btn-secondary btn-sm gap-2" :disabled="acting || refreshing" :aria-busy="verifying" data-test="verify-identity" @click="startVerification"><Icon :name="verifying ? 'refresh' : 'userCircle'" size="sm" :class="verifying ? 'animate-spin' : ''" aria-hidden="true" />{{ t(verifying ? 'community.verifyingIdentity' : challenge ? 'community.restartVerification' : 'community.verifyExisting') }}</button>
             </div>
-            <p class="text-xs text-gray-500">{{ t('community.statusHint') }}</p>
+            <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('community.statusHint') }}</p>
           </div>
         </section>
       </div>
@@ -77,6 +77,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { communityAPI, type CommunityState } from '@/api/community'
 import { supportError } from '@/api/support'
 import { safeCommunityContactURL, safeCommunityTelegramURL, safeCommunityVerificationURL } from '@/utils/communityLinks'

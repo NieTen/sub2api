@@ -3,6 +3,7 @@
     :show="show"
     :title="t(isDesktop ? 'keys.desktopSetup.title' : 'keys.ccsClientSelect.title')"
     :width="isDesktop ? 'wide' : 'normal'"
+    trap-focus
     @close="emit('close')"
   >
     <div class="space-y-4">

@@ -4,6 +4,18 @@ import ModelDetectionModelPicker from '../ModelDetectionModelPicker.vue'
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 const models = Array.from({ length: 21 }, (_, index) => ({ id: `model-${index + 1}`, display_name: `模型 ${index + 1}` }))
 describe('检测模型多选', () => {
+  it('模型加载中显示状态而非空结果，并保留自定义模型入口', async () => {
+    const wrapper = mount(ModelDetectionModelPicker, { props: { models: [], modelValue: [], loading: true } })
+    expect(wrapper.get('[role="status"]').text()).toBe('common.loading')
+    expect(wrapper.text()).not.toContain('modelDetection.noModelMatches')
+    await wrapper.get('[data-testid="custom-model"]').setValue('custom-model')
+    await wrapper.get('[data-testid="custom-model"]').trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['custom-model']])
+    await wrapper.setProps({ loading: false, models })
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.findAll('input[type="checkbox"]')).toHaveLength(21)
+    wrapper.unmount()
+  })
   it('搜索不清空已选模型，并可通过已选项移除', async () => {
     const wrapper = mount(ModelDetectionModelPicker, { props: { models, modelValue: ['model-1'] } })
     await wrapper.get('[data-testid="model-search"]').setValue('model-20')

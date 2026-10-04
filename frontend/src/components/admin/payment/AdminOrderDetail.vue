@@ -84,7 +84,7 @@
             <span class="text-red-600 dark:text-red-400">{{ t('payment.admin.refundAmount') }}:</span>
             <span class="ml-1 font-medium text-red-700 dark:text-red-300">{{ creditedAmountSymbol }}{{ order.refund_amount.toFixed(2) }}</span>
           </div>
-          <div v-if="order.refund_reason" class="col-span-2">
+          <div v-if="order.refund_reason" class="col-span-2 min-w-0 break-words">
             <span class="text-red-600 dark:text-red-400">{{ t('payment.admin.refundReason') }}:</span>
             <span class="ml-1 text-red-700 dark:text-red-300">{{ order.refund_reason }}</span>
           </div>

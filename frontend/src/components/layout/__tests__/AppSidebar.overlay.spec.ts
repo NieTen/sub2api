@@ -183,16 +183,37 @@ describe('AppSidebar 普通用户参考布局', () => {
     expect(purchaseLink?.text()).toContain('nav.balanceRecharge')
   })
 
-  it.each(['/admin/communications', '/admin/support/settings', '/admin/bulk-emails/7', '/admin/community/members', '/admin/tickets/3'])('管理员在 %s 可直接找到机器人与群发入口且菜单保持选中', (path) => {
+  it.each([
+    ['/admin/communications', '/admin/communications'],
+    ['/admin/support/settings', '/admin/communications'],
+    ['/admin/bulk-emails', '/admin/bulk-emails'],
+    ['/admin/bulk-emails/7', '/admin/bulk-emails'],
+    ['/admin/community/settings', '/admin/community/settings'],
+    ['/admin/community/members', '/admin/community/members'],
+    ['/admin/community/members/7', '/admin/community/members'],
+    ['/admin/tickets', '/admin/tickets'],
+    ['/admin/tickets/3', '/admin/tickets'],
+  ])('管理员访问 %s 时只高亮当前菜单 %s', (path, activePath) => {
     authStore.isAdmin = true
     authStore.isSimpleMode = true
     route.path = path
     const wrapper = mount(AppSidebar, {
       global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: { template: '<span />' } } }
     })
-    const link = wrapper.findAllComponents(RouterLinkStub).find(node => node.props('to') === '/admin/communications')
+    const links = wrapper.findAllComponents(RouterLinkStub)
+    const link = links.find(node => node.props('to') === '/admin/communications')
     expect(link?.text()).toContain('communications.title')
-    expect(link?.classes()).toContain('sidebar-link-active')
+    expect(links.filter(node => node.classes().includes('sidebar-link-active')).map(node => node.props('to'))).toEqual([activePath])
+    wrapper.unmount()
+  })
+
+  it.each(['/admin/communications-old', '/admin/support/settings-old', '/admin/tickets-old', '/admin/community/members-old'])('相似路径 %s 不误高亮现有菜单', (path) => {
+    authStore.isAdmin = true
+    route.path = path
+    const wrapper = mount(AppSidebar, {
+      global: { stubs: { RouterLink: RouterLinkStub, VersionBadge: { template: '<span />' } } }
+    })
+    expect(wrapper.findAllComponents(RouterLinkStub).filter(node => node.classes().includes('sidebar-link-active'))).toHaveLength(0)
     wrapper.unmount()
   })
 

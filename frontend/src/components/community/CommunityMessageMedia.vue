@@ -4,8 +4,8 @@
     <template v-if="url">
       <img v-if="isImage" :src="url" :alt="message.text || label" loading="lazy" class="max-h-80 max-w-full rounded-lg object-contain" />
       <video v-else-if="isVideo" :src="url" controls preload="metadata" class="max-h-80 max-w-full rounded-lg" />
-      <audio v-else-if="isAudio" :src="url" controls preload="metadata" class="max-w-full" />
-      <a :href="url" :download="message.file_name || ('telegram-' + message.id)" class="inline-flex text-sm font-medium text-primary-600 underline dark:text-primary-400">{{ t('community.chat.download') }}</a>
+      <audio v-else-if="isAudio" :src="url" controls preload="metadata" class="w-full min-w-0 max-w-full" />
+      <a :href="url" :download="message.file_name || ('telegram-' + message.id)" class="inline-flex min-h-11 items-center rounded text-sm font-medium text-primary-600 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-primary-400">{{ t('community.chat.download') }}</a>
     </template>
     <button v-else-if="message.media_available" type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ t(loading ? 'common.loading' : 'community.chat.loadMedia') }}</button>
     <p v-else class="text-xs text-gray-500 dark:text-dark-400">{{ t('community.chat.mediaUnavailable') }}</p>

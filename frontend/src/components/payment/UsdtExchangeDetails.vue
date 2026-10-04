@@ -13,7 +13,7 @@
           <span>{{ t('payment.exchange.cnyBill') }}</span>
           <span class="font-mono font-medium">{{ formatPaymentAmount(exchange.cny_pay_amount, 'CNY') }}</span>
         </div>
-        <p v-if="exchange.source === 'fallback'" class="text-sm leading-6 text-orange-800 dark:text-orange-200">{{ t('payment.exchange.fallbackExplanation') }} <span v-if="exchange.fallback_reason">{{ exchange.fallback_reason }}</span></p>
+        <p v-if="exchange.source === 'fallback'" class="break-words text-sm leading-6 text-orange-800 dark:text-orange-200">{{ t('payment.exchange.fallbackExplanation') }} <span v-if="exchange.fallback_reason">{{ exchange.fallback_reason }}</span></p>
         <p v-if="exchange.fetched_at || exchange.observed_at" class="text-xs text-gray-500 dark:text-gray-400">{{ t('payment.exchange.quoteTime') }}：{{ formatTime(exchange.source === 'fallback' ? exchange.observed_at : exchange.fetched_at || exchange.observed_at) }}</p>
       </template>
     </template>

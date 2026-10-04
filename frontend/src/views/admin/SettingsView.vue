@@ -8700,6 +8700,7 @@
               </div>
               <Toggle
                 data-testid="support-ticket-reply-email-toggle"
+                :aria-label="t('admin.settings.supportTicketReplyEmail.title')"
                 v-model="form.support_ticket_reply_email_enabled"
               />
             </div>

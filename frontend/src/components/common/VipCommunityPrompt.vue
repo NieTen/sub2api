@@ -1,6 +1,6 @@
 <template>
   <BaseDialog :show="visible" :title="t('community.vipPromptTitle')" width="narrow" @close="dismiss">
-    <p class="text-sm leading-6 text-gray-600 dark:text-dark-300">{{ t('community.vipPromptBody', { group: state?.group_name || t('community.vipGroup') }) }}</p>
+    <p class="break-words text-sm leading-6 [overflow-wrap:anywhere] text-gray-600 dark:text-dark-300">{{ t('community.vipPromptBody', { group: state?.group_name || t('community.vipGroup') }) }}</p>
     <template #footer>
       <button type="button" class="btn btn-secondary" data-test="vip-later" @click="dismiss">{{ t('community.vipPromptLater') }}</button>
       <button type="button" class="btn btn-primary" data-test="vip-join" @click="join">{{ t('community.vipPromptAction') }}</button>

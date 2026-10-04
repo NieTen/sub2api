@@ -50,7 +50,7 @@
           <div v-if="$slots.footer" class="mt-6 text-center text-sm">
             <slot name="footer" />
           </div>
-          <footer class="mt-8 text-center text-xs text-gray-400 dark:text-dark-500">
+          <footer class="mt-8 break-words text-center text-xs text-gray-500 [overflow-wrap:anywhere] dark:text-dark-400">
             &copy; {{ currentYear }} {{ siteName }}. All rights reserved.
           </footer>
         </section>
@@ -94,7 +94,7 @@
           >
             <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
           </div>
-          <h1 class="text-gradient mb-2 text-3xl font-bold">
+          <h1 class="text-gradient mb-2 break-words text-3xl font-bold [overflow-wrap:anywhere]">
             {{ siteName }}
           </h1>
           <p class="text-sm text-gray-500 dark:text-dark-400">
@@ -114,7 +114,7 @@
       </div>
 
       <!-- Copyright -->
-      <div class="mt-8 text-center text-xs text-gray-400 dark:text-dark-500">
+      <div class="mt-8 break-words text-center text-xs text-gray-500 [overflow-wrap:anywhere] dark:text-dark-400">
         &copy; {{ currentYear }} {{ siteName }}. All rights reserved.
       </div>
     </div>

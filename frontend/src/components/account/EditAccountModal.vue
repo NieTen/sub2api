@@ -2296,6 +2296,7 @@
             type="button"
             data-testid="openai-codex-overdraft-toggle"
             role="switch"
+            :aria-label="t('admin.accounts.openai.codexQuotaOverdraft')"
             :aria-checked="openAICodexQuotaOverdraftEnabled"
             @click="openAICodexQuotaOverdraftEnabled = !openAICodexQuotaOverdraftEnabled"
             :class="[

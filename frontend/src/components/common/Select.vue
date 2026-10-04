@@ -6,9 +6,10 @@
       @click="toggle"
       :disabled="disabled"
       :aria-expanded="isOpen"
-      :aria-haspopup="true"
+      aria-haspopup="listbox"
+      :aria-controls="isOpen ? `${instanceId}-options` : undefined"
       :id="id"
-      :aria-label="ariaLabel ?? 'Select option'"
+      :aria-label="ariaLabel ?? placeholderText"
       :aria-describedby="ariaDescribedby"
       :class="[
         'select-trigger',
@@ -19,22 +20,10 @@
       @keydown.down.prevent="onTriggerKeyDown"
       @keydown.up.prevent="onTriggerKeyDown"
     >
-      <span class="select-value">
+      <span class="select-value" :class="clearable && hasValue && !disabled && 'pr-7'">
         <slot name="selected" :option="selectedOption">
           {{ selectedLabel }}
         </slot>
-      </span>
-      <span
-        v-if="clearable && hasValue && !disabled"
-        class="select-clear"
-        role="button"
-        tabindex="-1"
-        aria-label="Clear selection"
-        @click.stop="clearSelection"
-        @mousedown.stop
-        @keydown.enter.stop.prevent="clearSelection"
-      >
-        <Icon name="x" size="sm" />
       </span>
       <span class="select-icon">
         <Icon
@@ -43,6 +32,15 @@
           :class="['transition-transform duration-200', isOpen && 'rotate-180']"
         />
       </span>
+    </button>
+    <button
+      v-if="clearable && hasValue && !disabled"
+      type="button"
+      class="select-clear"
+      :aria-label="`${t('common.clear')} ${ariaLabel ?? placeholderText}`"
+      @click.stop="clearSelection"
+    >
+      <Icon name="x" size="sm" />
     </button>
 
     <!-- Teleport dropdown to body to escape stacking context -->
@@ -54,8 +52,6 @@
           class="select-dropdown-portal"
           :class="[instanceId]"
           :style="dropdownStyle"
-          role="listbox"
-          tabindex="-1"
           @click.stop
           @mousedown.stop
           @keydown="onDropdownKeyDown"
@@ -69,17 +65,26 @@
               type="text"
               :placeholder="searchPlaceholderText"
               :aria-label="searchPlaceholderText"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded="true"
+              :aria-controls="`${instanceId}-options`"
+              :aria-activedescendant="activeOptionId"
               class="select-search-input"
               @click.stop
             />
           </div>
 
           <!-- Options list -->
-          <div class="select-options" ref="optionsListRef">
+          <div v-if="loading && filteredOptions.length" class="select-loading" role="status">{{ t('common.loading') }}</div>
+          <div class="select-options" ref="optionsListRef" role="listbox" tabindex="-1"
+            :id="`${instanceId}-options`" :aria-label="ariaLabel ?? placeholderText"
+            :aria-busy="loading" :aria-activedescendant="activeOptionId">
             <div
               v-for="(option, index) in filteredOptions"
               :key="`${typeof getOptionValue(option)}:${String(getOptionValue(option) ?? '')}`"
               role="option"
+              :id="`${instanceId}-option-${index}`"
               :aria-selected="isSelected(option)"
               :aria-disabled="isOptionDisabled(option)"
               @click.stop="!isOptionDisabled(option) && selectOption(option)"
@@ -194,6 +199,8 @@ const dropdownPosition = ref<'bottom' | 'top'>('bottom')
 const triggerRect = ref<DOMRect | null>(null)
 const dropdownViewportPadding = 8
 const dropdownMinimumWidth = 200
+const dropdownMaxHeight = ref(368)
+const activeOptionId = computed(() => focusedIndex.value >= 0 ? `${instanceId}-option-${focusedIndex.value}` : undefined)
 
 // i18n placeholders
 const placeholderText = computed(() => props.placeholder ?? t('common.selectOption'))
@@ -217,18 +224,18 @@ const dropdownStyle = computed(() => {
 
   const rect = triggerRect.value
   const viewportRight = Math.max(dropdownViewportPadding, window.innerWidth - dropdownViewportPadding)
+  const minWidth = Math.min(Math.max(dropdownMinimumWidth, rect.width), Math.max(0, viewportRight - dropdownViewportPadding))
   const left = Math.min(
     Math.max(dropdownViewportPadding, rect.left),
-    viewportRight
+    viewportRight - minWidth
   )
   const availableWidth = Math.max(0, viewportRight - left)
-  const preferredMinWidth = Math.max(dropdownMinimumWidth, rect.width)
-  const minWidth = Math.min(preferredMinWidth, availableWidth)
   const style: Record<string, string> = {
     position: 'fixed',
     left: `${left}px`,
     minWidth: `${minWidth}px`,
     maxWidth: `${availableWidth}px`,
+    maxHeight: `${dropdownMaxHeight.value}px`,
     zIndex: '100000020'
   }
 
@@ -257,7 +264,7 @@ const getOptionLabel = (option: any): string => {
 
 const isOptionDisabled = (option: any): boolean => {
   if (typeof option === 'object' && option !== null) {
-    return !!option.disabled
+    return !!option.disabled || option.kind === 'group'
   }
   return false
 }
@@ -336,6 +343,7 @@ const findPrevEnabledIndex = (startIndex: number): number => {
 
 watch(filteredOptions, () => {
   if (!isOpen.value) return
+  nextTick(calculateDropdownPosition)
   focusedIndex.value = findNextEnabledIndex(0)
   if (focusedIndex.value >= 0) scrollToFocused()
 })
@@ -349,6 +357,12 @@ const handleOptionMouseEnter = (option: any, index: number) => {
 const updateTriggerRect = () => {
   if (containerRef.value) {
     triggerRect.value = containerRef.value.getBoundingClientRect()
+    const spaceBelow = Math.max(0, window.innerHeight - triggerRect.value.bottom - 4 - dropdownViewportPadding)
+    const spaceAbove = Math.max(0, triggerRect.value.top - 4 - dropdownViewportPadding)
+    const desiredHeight = Math.min(368, filteredOptions.value.length * 40 + (isSearchable.value ? 44 : 0) + 10)
+    // 两侧都不足时选择空间较多的一侧，剩余选项在菜单内部滚动。
+    dropdownPosition.value = spaceBelow < desiredHeight && spaceAbove > spaceBelow ? 'top' : 'bottom'
+    dropdownMaxHeight.value = Math.min(368, dropdownPosition.value === 'top' ? spaceAbove : spaceBelow)
   }
 }
 
@@ -356,18 +370,6 @@ const calculateDropdownPosition = () => {
   if (!containerRef.value) return
   updateTriggerRect()
 
-  nextTick(() => {
-    if (!dropdownRef.value || !triggerRect.value) return
-    const dropdownHeight = dropdownRef.value.offsetHeight || 240
-    const spaceBelow = window.innerHeight - triggerRect.value.bottom
-    const spaceAbove = triggerRect.value.top
-
-    if (spaceBelow < dropdownHeight && spaceAbove > dropdownHeight) {
-      dropdownPosition.value = 'top'
-    } else {
-      dropdownPosition.value = 'bottom'
-    }
-  })
 }
 
 const toggle = () => {
@@ -392,7 +394,7 @@ watch(isOpen, (open) => {
     if (isSearchable.value) {
       nextTick(() => searchInputRef.value?.focus())
     } else {
-      nextTick(() => dropdownRef.value?.focus())
+      nextTick(() => optionsListRef.value?.focus())
     }
     // Add scroll listener to update position
     window.addEventListener('scroll', updateTriggerRect, { capture: true, passive: true })
@@ -408,6 +410,10 @@ watch(isOpen, (open) => {
     window.removeEventListener('scroll', updateTriggerRect, { capture: true })
     window.removeEventListener('resize', calculateDropdownPosition)
   }
+})
+
+watch(() => props.disabled, (disabled) => {
+  if (disabled) isOpen.value = false
 })
 
 // 远程搜索：输入防抖后交给父组件请求（!isOpen 抑制关闭重置 searchQuery 触发的空 query）。
@@ -432,6 +438,8 @@ const clearSelection = () => {
   if (props.disabled) return
   emit('update:modelValue', null)
   emit('change', null, null)
+  isOpen.value = false
+  triggerRef.value?.focus()
 }
 
 // Keyboards
@@ -466,6 +474,8 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       triggerRef.value?.focus()
       break
     case 'Tab':
+      // 从 Teleport 菜单回到原控件，再交给浏览器继续表单的 Tab 顺序。
+      triggerRef.value?.focus()
       isOpen.value = false
       break
   }
@@ -546,15 +556,16 @@ onUnmounted(() => {
 }
 
 .select-clear {
-  @apply flex flex-shrink-0 cursor-pointer items-center justify-center;
-  @apply rounded text-gray-400 transition-colors;
-  @apply hover:text-gray-600 dark:hover:text-gray-200;
+  @apply absolute right-10 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center;
+  @apply rounded-md text-gray-500 transition-colors dark:text-dark-300;
+  @apply hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-dark-700 dark:hover:text-white;
+  @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500;
 }
 </style>
 
 <style>
 .select-dropdown-portal {
-  @apply w-max min-w-[200px];
+  @apply flex w-max min-w-[200px] flex-col;
   @apply bg-white dark:bg-dark-800;
   @apply rounded-xl;
   @apply border border-gray-200 dark:border-dark-700;
@@ -564,19 +575,23 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-search {
-  @apply flex items-center gap-2 px-3 py-2;
+  @apply flex shrink-0 items-center gap-2 px-3 py-2;
   @apply border-b border-gray-100 dark:border-dark-700;
 }
 
 .select-dropdown-portal .select-search-input {
-  @apply flex-1 bg-transparent text-sm;
+  @apply min-w-0 flex-1 bg-transparent text-sm;
   @apply text-gray-900 dark:text-gray-100;
   @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
   @apply focus:outline-none;
 }
 
 .select-dropdown-portal .select-options {
-  @apply max-h-80 overflow-y-auto py-1 outline-none;
+  @apply min-h-0 max-h-80 overflow-y-auto overscroll-contain py-1 outline-none;
+}
+
+.select-dropdown-portal .select-loading {
+  @apply shrink-0 px-3 py-1 text-xs text-gray-500 dark:text-dark-300;
 }
 
 .select-dropdown-portal .select-option {
@@ -630,5 +645,10 @@ onUnmounted(() => {
 .select-dropdown-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .select-dropdown-enter-active,
+  .select-dropdown-leave-active { transition: none; }
 }
 </style>

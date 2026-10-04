@@ -1490,6 +1490,7 @@
               type="button"
               data-testid="create-codex-overdraft-enabled"
               role="switch"
+              :aria-label="t('admin.groups.codexOverdraft.title')"
               :aria-checked="createForm.codex_overdraft_enabled"
               @click="createForm.codex_overdraft_enabled = !createForm.codex_overdraft_enabled"
               :class="[
@@ -1506,8 +1507,10 @@
             </button>
           </div>
           <div v-if="createForm.codex_overdraft_enabled" class="mt-3">
-            <label class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
+            <label for="create-codex-overdraft-next-group" class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
             <Select
+              id="create-codex-overdraft-next-group"
+              :aria-label="t('admin.groups.codexOverdraft.nextGroup')"
               v-model="createForm.codex_overdraft_next_group_id"
               data-testid="create-codex-overdraft-next-group"
               :options="codexOverdraftNextGroupOptions"
@@ -3178,6 +3181,7 @@
               type="button"
               data-testid="edit-codex-overdraft-enabled"
               role="switch"
+              :aria-label="t('admin.groups.codexOverdraft.title')"
               :aria-checked="editForm.codex_overdraft_enabled"
               @click="editForm.codex_overdraft_enabled = !editForm.codex_overdraft_enabled"
               :class="[
@@ -3194,8 +3198,10 @@
             </button>
           </div>
           <div v-if="editForm.codex_overdraft_enabled" class="mt-3">
-            <label class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
+            <label for="edit-codex-overdraft-next-group" class="input-label">{{ t("admin.groups.codexOverdraft.nextGroup") }}</label>
             <Select
+              id="edit-codex-overdraft-next-group"
+              :aria-label="t('admin.groups.codexOverdraft.nextGroup')"
               v-model="editForm.codex_overdraft_next_group_id"
               data-testid="edit-codex-overdraft-next-group"
               :options="codexOverdraftNextGroupOptionsForEdit"

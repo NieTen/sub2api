@@ -1,18 +1,18 @@
 <template>
-  <div class="space-y-3" @paste="pasteImages">
+  <div class="min-w-0 space-y-3" :aria-busy="busy" @paste="pasteImages">
     <label class="block">
       <span class="mb-1 block text-sm font-medium">{{ label || t('support.content') }}</span>
-      <textarea :value="modelValue" :disabled="disabled" :maxlength="20000" :placeholder="t('support.contentPlaceholder')" class="input min-h-32 resize-y" rows="5" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"></textarea>
+      <textarea :value="modelValue" :disabled="disabled" :maxlength="20000" :placeholder="t('support.contentPlaceholder')" class="input resize-y" :class="compact ? 'min-h-20 max-h-40' : 'min-h-48 xl:min-h-64'" :rows="compact ? 3 : 5" @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"></textarea>
     </label>
     <div v-if="attachments.length" class="flex flex-wrap gap-3">
       <div v-for="attachment in attachments" :key="attachment.id" class="relative">
         <SupportImage :attachment="attachment" :admin="admin" />
-        <button type="button" :disabled="disabled || busy" class="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200" :aria-label="t('support.removeImage') + ': ' + attachment.file_name" @click="removeImage(attachment.id)">×</button>
+        <button type="button" :disabled="disabled || busy" class="absolute right-0 top-0 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm hover:border-red-300 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-300" :aria-label="t('support.removeImage') + ': ' + attachment.file_name" @click="removeImage(attachment.id)"><Icon name="x" size="sm" /></button>
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="disabled || busy || attachments.length >= 4" @click="fileInput?.click()">{{ busy ? t('common.loading') : t('support.addImages') }}</button>
-      <span class="text-xs text-gray-500">{{ modelValue.length }} / 20000</span>
+      <button type="button" class="btn btn-secondary min-h-11 cursor-pointer hover:shadow-sm" :disabled="disabled || busy || attachments.length >= 4" @click="fileInput?.click()"><Icon :name="busy ? 'refresh' : 'plus'" size="sm" :class="busy ? 'motion-safe:animate-spin' : ''" />{{ busy ? t('common.loading') : t('support.addImages') }}</button>
+      <span class="text-xs text-gray-500 dark:text-dark-300">{{ modelValue.length }} / 20000</span>
       <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden @change="filesChanged" />
     </div>
     <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('support.imageHint') }}</p>
@@ -24,9 +24,10 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import SupportImage from './SupportImage.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { supportAPI, supportError, type SupportAttachment } from '@/api/support'
 
-const props = withDefaults(defineProps<{ modelValue: string; attachments: SupportAttachment[]; admin?: boolean; disabled?: boolean; label?: string }>(), { admin: false, disabled: false })
+const props = withDefaults(defineProps<{ modelValue: string; attachments: SupportAttachment[]; admin?: boolean; disabled?: boolean; label?: string; compact?: boolean }>(), { admin: false, disabled: false, compact: false })
 const emit = defineEmits<{ 'update:modelValue': [value: string]; 'update:attachments': [value: SupportAttachment[]]; busy: [value: boolean] }>()
 const { t } = useI18n()
 const fileInput = ref<HTMLInputElement>()

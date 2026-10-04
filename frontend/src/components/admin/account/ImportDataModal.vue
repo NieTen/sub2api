@@ -19,8 +19,9 @@
       <div class="grid gap-4 lg:grid-cols-2">
         <section class="space-y-3">
           <div>
-            <label class="input-label">{{ t('admin.accounts.dataImportText') }}</label>
+            <label for="account-import-source" class="input-label">{{ t('admin.accounts.dataImportText') }}</label>
             <textarea
+              id="account-import-source"
               v-model="sourceText"
               data-testid="account-import-input"
               class="input min-h-[240px] w-full resize-y font-mono text-xs leading-5"
@@ -98,7 +99,7 @@
         </section>
 
         <section class="space-y-3">
-          <div class="flex items-start justify-between gap-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="min-w-0">
               <div class="text-lg font-semibold text-gray-900 dark:text-white">
                 {{ t('admin.accounts.dataImportOutputTitle') }}
@@ -208,6 +209,7 @@
 
           <textarea
             ref="outputTextarea"
+            :aria-label="t('admin.accounts.dataImportOutputTitle')"
             data-testid="account-import-output"
             class="input min-h-[240px] w-full resize-y font-mono text-xs leading-5"
             readonly

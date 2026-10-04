@@ -88,6 +88,14 @@ function click(target: HTMLElement, selector: string) {
   button!.click()
 }
 
+function keyboardClick(target: HTMLElement, selector: string) {
+  const button = target.querySelector<HTMLElement>(selector)
+  expect(button, `缺少键盘操作入口：${selector}`).not.toBeNull()
+  button!.focus()
+  button!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  button!.click()
+}
+
 function mockLocationAssign() {
   const assign = vi.fn()
   const browserWindow = window
@@ -349,6 +357,137 @@ describe('仪表盘页面模块', () => {
     expect(target.querySelector('.s2-guide-panel')?.textContent).toContain('接入准备完成')
     click(target, '[data-route="/usage"]')
     expect(navigate).toHaveBeenLastCalledWith('/usage')
+  })
+
+  it.each(['apps', 'api'])('从 %s 模式切到 TypeSafe 后提供原生配置出口，不生成其他协议', async (mode) => {
+    const data = apiData()
+    const keys = data['/keys'] as { items: unknown[] }
+    keys.items.push({
+      id: 3, name: 'TypeSafe 密钥', key: 'sk-typesafe-private', status: 'active',
+      group: { name: 'TypeSafe', platform: 'typesafe', claude_code_only: true },
+    })
+    const { target, navigate, overlay } = mountOverlay(data)
+    overlay.render('guide')
+    await flushPromises()
+    click(target, '[data-guide-step="2"]')
+    click(target, `[data-guide-mode="${mode}"]`)
+    click(target, '[data-guide-step="1"]')
+    click(target, '[data-guide-key-toggle]')
+    click(target, '[data-guide-key-option="3"]')
+    await flushPromises()
+
+    expect(modelListFetch).toHaveBeenCalledTimes(1)
+    for (const step of [2, 3, 4]) {
+      click(target, `[data-guide-step="${step}"]`)
+      const panel = target.querySelector('.s2-guide-panel')!
+      expect(panel.textContent).toContain('TypeSafe 分组仅支持 System One')
+      expect(panel.textContent).toContain('原生配置入口')
+      expect(panel.textContent).not.toContain('sk-typesafe-private')
+      expect(panel.querySelector('[data-guide-app-action], [data-guide-api-copy], [data-test-connection], .s2-code')).toBeNull()
+    }
+    click(target, '.s2-guide-panel [data-route="/keys"]')
+    expect(navigate).toHaveBeenLastCalledWith('/keys')
+    click(target, '.s2-guide-panel [data-guide-step="1"]')
+    click(target, '[data-guide-key-toggle]')
+    click(target, '[data-guide-key-option="1"]')
+    await flushPromises()
+    click(target, '[data-guide-step="2"]')
+    expect(target.querySelector('[data-guide-app-action], [data-guide-api-copy]')).not.toBeNull()
+  })
+
+  it.each([
+    'https://user:private-password@api.example.test',
+    'https://api.example.test?token=private-password',
+  ])('无效 Antigravity 地址不会使指南抛错，也不回显配置异常：%s', async (baseUrl) => {
+    const { target, navigate, overlay } = mountOverlay({
+      '/settings/public': { api_base_url: baseUrl },
+      '/keys': { items: [{
+        id: 3, name: 'Antigravity 密钥', key: 'sk-antigravity-private', status: 'active',
+        group: { platform: 'antigravity' },
+      }] },
+    })
+    overlay.render('guide')
+    await flushPromises()
+    click(target, '[data-guide-step="2"]')
+    const panel = target.querySelector('.s2-guide-panel')!
+    expect(panel.querySelector('[role="status"]')?.textContent).toContain('API 地址配置无效')
+    expect(panel.textContent).not.toContain('private-password')
+    expect(panel.textContent).not.toContain('sk-antigravity-private')
+    expect(panel.querySelector('[data-guide-app-action], [data-guide-api-copy], .s2-code')).toBeNull()
+    click(target, '.s2-guide-panel [data-route="/keys"]')
+    expect(navigate).toHaveBeenLastCalledWith('/keys')
+  })
+
+  it('键盘切换步骤、客户端、协议和模型后保留对应控件焦点', async () => {
+    const { target, overlay } = mountOverlay()
+    overlay.render('guide')
+    await flushPromises()
+    for (const selector of [
+      '[data-guide-step="2"]', '[data-guide-app="codex"]',
+      '[data-guide-mode="api"]', '[data-guide-protocol="responses"]',
+      '[data-guide-step="3"]', '[data-guide-model-protocol="openai"]',
+      '[data-guide-model="gpt-5.4-mini"]',
+    ]) {
+      const previous = target.querySelector(selector)
+      keyboardClick(target, selector)
+      await flushPromises()
+      expect(document.activeElement).toBe(target.querySelector(selector))
+      expect(document.activeElement).not.toBe(previous)
+    }
+  })
+
+  it.each([false, true])('键盘选密钥后保留焦点，模型异步返回尊重离开指南的焦点（离开：%s）', async (leaveGuide) => {
+    const { target, overlay } = mountOverlay()
+    overlay.render('guide')
+    await flushPromises()
+    const pending = deferred<{ ok: boolean; json: () => Promise<unknown> }>()
+    modelListFetch.mockReturnValueOnce(pending.promise)
+
+    keyboardClick(target, '[data-guide-key-toggle]')
+    expect(document.activeElement).toBe(target.querySelector('[data-guide-key-toggle]'))
+    expect(document.activeElement?.getAttribute('aria-expanded')).toBe('true')
+    keyboardClick(target, '[data-guide-key-option="2"]')
+    expect(document.activeElement).toBe(target.querySelector('[data-guide-key-toggle]'))
+    expect(document.activeElement?.getAttribute('aria-expanded')).toBe('false')
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    if (leaveGuide) outside.focus()
+    pending.resolve({ ok: true, json: async () => ({ data: [{ id: 'claude-sonnet-4-6' }] }) })
+    await flushPromises()
+    expect(document.activeElement).toBe(leaveGuide ? outside : target.querySelector('[data-guide-key-toggle]'))
+  })
+
+  it('键盘进入指南但尚未操作时，异步重绘仍保留焦点', async () => {
+    const pending = deferred<{ ok: boolean; json: () => Promise<unknown> }>()
+    modelListFetch.mockReturnValueOnce(pending.promise)
+    const { target, overlay } = mountOverlay()
+    overlay.render('guide')
+    await flushPromises()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    target.querySelector<HTMLElement>('[data-guide-key-toggle]')!.focus()
+    pending.resolve({ ok: true, json: async () => ({ data: [{ id: 'gpt-5.5' }] }) })
+    await flushPromises()
+    expect(document.activeElement).toBe(target.querySelector('[data-guide-key-toggle]'))
+  })
+
+  it('切换到鼠标操作后，重绘不主动移动焦点；Escape 仍返回密钥按钮', async () => {
+    const { target, overlay } = mountOverlay()
+    overlay.render('guide')
+    await flushPromises()
+    keyboardClick(target, '[data-guide-key-toggle]')
+    const option = target.querySelector<HTMLElement>('[data-guide-key-option="2"]')!
+    option.focus()
+    option.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    const trigger = target.querySelector<HTMLElement>('[data-guide-key-toggle]')!
+    expect(document.activeElement).toBe(trigger)
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus')
+    trigger.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }))
+    expect(target.querySelector('[data-guide-key-toggle]')?.getAttribute('aria-expanded')).toBe('true')
+    expect(focus).not.toHaveBeenCalled()
+    expect(document.activeElement).not.toBe(target.querySelector('[data-guide-key-toggle]'))
   })
 
   it('可用模型查询失败时提供重试，不把首页价格目录当成权限列表', async () => {

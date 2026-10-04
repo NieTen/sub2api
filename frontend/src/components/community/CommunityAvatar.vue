@@ -1,5 +1,5 @@
 <template>
-  <button type="button" class="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-100 text-sm font-semibold text-primary-700 ring-offset-2 transition hover:ring-2 hover:ring-primary-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-primary-900/30 dark:text-primary-200" :aria-label="t('community.members.openDetail', { name: name || t('community.chat.unknownSender') })" @click="$emit('select')">
+  <button type="button" class="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-full bg-primary-100 text-sm font-semibold text-primary-700 ring-offset-2 transition hover:ring-2 hover:ring-primary-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-primary-900/30 dark:text-primary-200" :aria-label="t('community.members.openDetail', { name: name || t('community.chat.unknownSender') })" @click="$emit('select')">
     <img v-if="url" :src="url" alt="" class="h-full w-full object-cover" @error="clearURL" />
     <span v-else aria-hidden="true">{{ name?.trim().slice(0, 1).toUpperCase() || '?' }}</span>
   </button>

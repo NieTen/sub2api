@@ -10,9 +10,9 @@
         {{ t(loading ? 'admin.settings.payment.okpayDiagnostic.loading' : 'admin.settings.payment.okpayDiagnostic.action') }}
       </button>
     </div>
-    <p v-if="errorMessage" class="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{{ errorMessage }}</p>
+    <p v-if="errorMessage" class="mt-3 break-words rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{{ errorMessage }}</p>
     <div v-if="result" class="mt-3 space-y-3" aria-live="polite" data-test="okpay-diagnostic-result">
-      <p class="text-xs font-medium text-gray-600 dark:text-gray-300">{{ providerName }} · #{{ providerId }}</p>
+      <p class="break-all text-xs font-medium text-gray-600 dark:text-gray-300">{{ providerName }} · #{{ providerId }}</p>
       <div class="grid gap-3 sm:grid-cols-2" :class="orderedChecks.length === 3 ? 'xl:grid-cols-3' : ''">
         <div v-for="check in orderedChecks" :key="check.mode" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800" :data-test="'okpay-check-' + check.mode">
           <div class="flex flex-wrap items-center justify-between gap-2">

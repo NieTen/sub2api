@@ -8,10 +8,12 @@
     <div class="space-y-4">
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label for="batch-scheduled-test-model" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             {{ t('admin.scheduledTests.model') }}
           </label>
           <Select
+            id="batch-scheduled-test-model"
+            :aria-label="t('admin.scheduledTests.model')"
             v-model="form.model_id"
             :options="modelOptions"
             :placeholder="t('admin.scheduledTests.model')"
@@ -20,20 +22,21 @@
           />
         </div>
         <div>
-          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label for="batch-scheduled-test-cron" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             {{ t('admin.scheduledTests.cronExpression') }}
           </label>
           <Input
+            id="batch-scheduled-test-cron"
             v-model="form.cron_expression"
             :placeholder="'*/30 * * * *'"
             :hint="t('admin.scheduledTests.cronHelp')"
           />
         </div>
         <div>
-          <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+          <label for="batch-scheduled-test-max-results" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
             {{ t('admin.scheduledTests.maxResults') }}
           </label>
-          <Input v-model="form.max_results" type="number" placeholder="100" />
+          <Input id="batch-scheduled-test-max-results" v-model="form.max_results" type="number" placeholder="100" />
         </div>
         <div class="flex items-end gap-5">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">

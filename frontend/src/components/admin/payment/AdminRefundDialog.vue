@@ -18,11 +18,11 @@
           </svg>
           {{ t('payment.admin.refundRequestInfo') }}
         </div>
-        <div v-if="order?.refund_requested_at" class="mt-2 flex justify-between text-sm">
+        <div v-if="order?.refund_requested_at" class="mt-2 flex flex-wrap justify-between gap-2 text-sm">
           <span class="text-violet-600 dark:text-violet-400">{{ t('payment.admin.refundRequestedAt') }}</span>
           <span class="text-violet-800 dark:text-violet-200">{{ formatDateTime(order.refund_requested_at) }}</span>
         </div>
-        <div v-if="order?.refund_request_reason" class="mt-1 text-sm">
+        <div v-if="order?.refund_request_reason" class="mt-1 break-words text-sm">
           <span class="text-violet-600 dark:text-violet-400">{{ t('payment.admin.refundRequestReason') }}:</span>
           <span class="ml-1 text-violet-800 dark:text-violet-200">{{ order.refund_request_reason }}</span>
         </div>
@@ -50,7 +50,7 @@
 
       <!-- Deduct Balance -->
       <div>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <input
             id="deduct-balance"
             v-model="form.deduct_balance"
@@ -99,6 +99,7 @@
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{{ creditedAmountSymbol }}</span>
           <input
             v-model.number="form.amount"
+            :aria-label="t('payment.admin.refundAmount')"
             type="number"
             step="0.01"
             min="0.01"
@@ -117,6 +118,7 @@
         <label class="input-label">{{ t('payment.admin.refundReason') }}</label>
         <textarea
           v-model="form.reason"
+          :aria-label="t('payment.admin.refundReason')"
           rows="3"
           class="input"
           :placeholder="t('payment.admin.refundReasonPlaceholder')"

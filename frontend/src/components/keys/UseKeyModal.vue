@@ -25,8 +25,8 @@
         <template v-if="quickSetup && !embedded">
           <section class="rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-800" data-testid="setup-connection">
             <div class="mb-3 flex flex-wrap items-center gap-2">
-              <span class="font-medium text-gray-900 dark:text-white">{{ keyName || t('keys.apiKey') }}</span>
-              <span v-if="groupName" class="rounded-md bg-white px-2 py-0.5 text-xs text-gray-600 ring-1 ring-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:ring-dark-600">{{ groupName }}</span>
+              <span class="min-w-0 break-words font-medium text-gray-900 [overflow-wrap:anywhere] dark:text-white">{{ keyName || t('keys.apiKey') }}</span>
+              <span v-if="groupName" class="min-w-0 break-words rounded-md bg-white px-2 py-0.5 text-xs [overflow-wrap:anywhere] text-gray-600 ring-1 ring-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:ring-dark-600">{{ groupName }}</span>
             </div>
             <dl class="space-y-3 text-sm">
               <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
@@ -78,8 +78,9 @@
               :key="tab.id"
               type="button"
               @click="activeClientTab = tab.id"
+              :aria-pressed="activeClientTab === tab.id"
               :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
+                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500',
                 activeClientTab === tab.id
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
@@ -161,7 +162,7 @@
               type="button"
               @click="activeTab = tab.id"
               :class="[
-                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors',
+                'whitespace-nowrap py-2.5 px-1 border-b-2 font-medium text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500',
                 activeTab === tab.id
                   ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'

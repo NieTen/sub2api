@@ -7,27 +7,27 @@
       </p>
       <div class="flex flex-wrap items-center justify-between gap-3">
         <p class="max-w-2xl text-sm text-gray-500 dark:text-dark-400">{{ t('bulkMail.description') }}</p>
-        <div class="flex gap-2"><button class="btn btn-secondary" :disabled="loading" @click="loadBatches()">{{ t('support.refresh') }}</button><button class="btn btn-primary" :disabled="busy || uploading" @click="composing = !composing">{{ t(composing ? 'common.cancel' : 'bulkMail.new') }}</button></div>
+        <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary min-h-11 cursor-pointer hover:shadow-sm" :disabled="loading" :aria-busy="loading" @click="loadBatches()"><Icon name="refresh" size="sm" :class="loading ? 'motion-safe:animate-spin' : ''" />{{ t('support.refresh') }}</button><button type="button" class="btn btn-primary min-h-11 cursor-pointer" :disabled="busy || uploading" :aria-expanded="composing" aria-controls="bulk-email-compose" @click="composing = !composing"><Icon :name="composing ? 'x' : 'plus'" size="sm" />{{ t(composing ? 'common.cancel' : 'bulkMail.new') }}</button></div>
       </div>
 
-      <form v-if="composing" class="space-y-5 rounded-xl border border-primary-100 bg-white p-5 dark:border-dark-700 dark:bg-dark-800" @submit.prevent="createDraft">
+      <form v-if="composing" id="bulk-email-compose" class="space-y-5 rounded-xl border border-primary-100 bg-white p-5 dark:border-dark-700 dark:bg-dark-800" :aria-busy="busy || uploading" @submit.prevent="createDraft">
         <h2 class="text-lg font-semibold">{{ t('bulkMail.new') }}</h2>
         <div class="grid gap-6 xl:grid-cols-2">
-          <fieldset :disabled="busy" class="min-w-0 space-y-4">
+          <fieldset :disabled="busy" class="min-w-0 space-y-4 rounded-xl border border-gray-200 bg-gray-50/50 p-4 dark:border-dark-700 dark:bg-dark-900/20" :aria-label="t('bulkMail.body')">
             <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('bulkMail.subject') }}</span><input v-model="subject" class="input" required maxlength="200" /></label>
             <SupportComposer v-model="body" v-model:attachments="attachments" :admin="true" :disabled="busy" :label="t('bulkMail.body')" @busy="uploading = $event" />
-            <p class="text-xs text-gray-500">{{ t('bulkMail.bodyHint') }}</p>
+            <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.bodyHint') }}</p>
           </fieldset>
           <fieldset :disabled="busy" class="min-w-0 space-y-3">
             <legend class="mb-3 text-sm font-semibold">{{ t('bulkMail.recipients') }}</legend>
-            <div class="flex flex-wrap gap-4 text-sm"><label class="flex items-center gap-2"><input v-model="allActive" type="radio" :value="false" name="recipient-mode" />{{ t('bulkMail.selectedUsers') }}</label><label class="flex items-center gap-2"><input v-model="allActive" type="radio" :value="true" name="recipient-mode" />{{ t('bulkMail.allActive') }}</label></div>
+            <div class="grid gap-2 text-sm sm:grid-cols-2"><label class="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors focus-within:ring-2 focus-within:ring-primary-500" :class="!allActive ? 'border-primary-300 bg-primary-50 text-primary-800 dark:border-primary-700 dark:bg-primary-900/20 dark:text-primary-200' : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"><input v-model="allActive" type="radio" :value="false" name="recipient-mode" class="h-4 w-4 shrink-0 accent-primary-600" />{{ t('bulkMail.selectedUsers') }}</label><label class="flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 transition-colors focus-within:ring-2 focus-within:ring-primary-500" :class="allActive ? 'border-primary-300 bg-primary-50 text-primary-800 dark:border-primary-700 dark:bg-primary-900/20 dark:text-primary-200' : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"><input v-model="allActive" type="radio" :value="true" name="recipient-mode" class="h-4 w-4 shrink-0 accent-primary-600" />{{ t('bulkMail.allActive') }}</label></div>
             <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
               <h3 class="text-sm font-semibold">{{ t('bulkMail.filters.title') }}</h3>
               <div class="grid gap-3 sm:grid-cols-2">
                 <div class="space-y-2">
                   <label class="block">
                     <span class="mb-1 block text-xs font-medium">{{ t('bulkMail.filters.balance') }}</span>
-                    <select v-model="balanceCondition" name="balance-condition" class="input" @change="filterError = ''">
+                    <select v-model="balanceCondition" name="balance-condition" class="input cursor-pointer transition-colors hover:border-primary-300 dark:hover:border-primary-500" @change="filterError = ''">
                       <option value="all">{{ t('bulkMail.filters.all') }}</option>
                       <option value="positive">{{ t('bulkMail.filters.positive') }}</option>
                       <option value="non_positive">{{ t('bulkMail.filters.nonPositive') }}</option>
@@ -42,47 +42,47 @@
                 <div class="space-y-2">
                   <label class="block">
                     <span class="mb-1 block text-xs font-medium">{{ t('bulkMail.filters.recharge') }}</span>
-                    <select v-model="rechargeCondition" name="recharge-condition" class="input" @change="filterError = ''">
+                    <select v-model="rechargeCondition" name="recharge-condition" class="input cursor-pointer transition-colors hover:border-primary-300 dark:hover:border-primary-500" @change="filterError = ''">
                       <option value="all">{{ t('bulkMail.filters.all') }}</option>
                       <option value="recharged">{{ t('bulkMail.filters.recharged') }}</option>
                     </select>
                   </label>
                 </div>
               </div>
-              <p v-if="balanceCondition === 'greater_than'" class="text-xs text-gray-500">{{ t('bulkMail.filters.amountHint') }}</p>
+              <p v-if="balanceCondition === 'greater_than'" class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.filters.amountHint') }}</p>
               <p class="text-xs leading-5 text-gray-500 dark:text-dark-400">{{ t('bulkMail.filters.help') }}</p>
               <p v-if="filterError" role="alert" data-test="filter-error" class="text-sm text-red-600 dark:text-red-400">{{ filterError }}</p>
             </div>
             <p v-if="allActive" class="rounded-lg bg-primary-50 p-4 text-sm leading-6 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300">{{ t('bulkMail.allActiveHint') }}</p>
             <template v-else>
               <input v-model="userSearch" type="search" class="input" :placeholder="t('bulkMail.searchUsers')" :aria-label="t('bulkMail.searchUsers')" @input="searchUsers" />
-              <p v-if="usersError" role="alert" class="text-sm text-red-600">{{ usersError }} <button type="button" class="underline" @click="loadUsers">{{ t('support.refresh') }}</button></p>
-              <p v-if="usersLoading" class="p-3 text-sm text-gray-500">{{ t('common.loading') }}</p>
-              <ul v-else class="max-h-64 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 dark:divide-dark-700 dark:border-dark-600">
-                <li v-for="user in users" :key="user.id"><label class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-700"><input type="checkbox" :checked="selectedUsers.has(user.id)" @change="toggleUser(user)" /><span class="min-w-0"><span class="block truncate text-sm">{{ user.email }}</span><span class="block truncate text-xs text-gray-500">{{ user.username || `#${user.id}` }}</span><span class="mt-1 block text-xs text-gray-500">{{ t('bulkMail.filters.currentBalance') }}: ${{ user.balance }}</span></span></label></li>
-                <li v-if="!users.length" class="p-4 text-sm text-gray-500">{{ t('bulkMail.noUsers') }}</li>
+              <p v-if="usersError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ usersError }} <button type="button" class="min-h-9 cursor-pointer rounded px-1.5 underline underline-offset-2 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-primary-900/20" @click="loadUsers">{{ t('support.refresh') }}</button></p>
+              <p v-if="usersLoading" class="p-3 text-sm text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</p>
+              <ul v-else class="max-h-64 divide-y divide-gray-100 overflow-y-auto overscroll-contain rounded-lg border border-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:divide-dark-700 dark:border-dark-600" tabindex="0" :aria-label="t('bulkMail.recipients')">
+                <li v-for="user in users" :key="user.id"><label class="flex cursor-pointer items-center gap-3 px-3 py-3 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary-500" :class="selectedUsers.has(user.id) ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-700'"><input type="checkbox" class="h-4 w-4 shrink-0 rounded accent-primary-600" :checked="selectedUsers.has(user.id)" @change="toggleUser(user)" /><span class="min-w-0"><span class="block truncate text-sm">{{ user.email }}</span><span class="block truncate text-xs text-gray-500 dark:text-dark-300">{{ user.username || `#${user.id}` }}</span><span class="mt-1 block text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.filters.currentBalance') }}: ${{ user.balance }}</span></span></label></li>
+                <li v-if="!users.length" class="p-4 text-sm text-gray-500 dark:text-dark-300">{{ t('bulkMail.noUsers') }}</li>
               </ul>
-              <div v-if="usersTotal > 20" class="flex items-center justify-between gap-2 text-xs"><button type="button" class="btn btn-secondary btn-sm" :disabled="userPage === 1 || usersLoading" @click="changeUserPage(userPage - 1)">{{ t('pagination.previous') }}</button><span>{{ userPage }} / {{ Math.ceil(usersTotal / 20) }}</span><button type="button" class="btn btn-secondary btn-sm" :disabled="userPage * 20 >= usersTotal || usersLoading" @click="changeUserPage(userPage + 1)">{{ t('pagination.next') }}</button></div>
+              <div v-if="usersTotal > 20" class="flex items-center justify-between gap-2 text-xs"><button type="button" class="btn btn-secondary btn-sm cursor-pointer" :disabled="userPage === 1 || usersLoading" @click="changeUserPage(userPage - 1)">{{ t('pagination.previous') }}</button><span>{{ userPage }} / {{ Math.ceil(usersTotal / 20) }}</span><button type="button" class="btn btn-secondary btn-sm cursor-pointer" :disabled="userPage * 20 >= usersTotal || usersLoading" @click="changeUserPage(userPage + 1)">{{ t('pagination.next') }}</button></div>
               <p class="text-sm font-medium">{{ t('bulkMail.selectedCount', { count: selectedUsers.size }) }}</p>
-              <div v-if="selectedUsers.size" class="flex max-h-24 flex-wrap gap-2 overflow-y-auto"><button v-for="user in selectedUsers.values()" :key="user.id" type="button" class="max-w-full truncate rounded-full bg-gray-100 px-2 py-1 text-xs dark:bg-dark-700" :aria-label="`${t('common.remove')}: ${user.email}`" @click="toggleUser(user)">{{ user.email }} ×</button></div>
+              <div v-if="selectedUsers.size" class="flex max-h-24 flex-wrap gap-2 overflow-y-auto"><button v-for="user in selectedUsers.values()" :key="user.id" type="button" class="min-h-9 max-w-full cursor-pointer truncate rounded-full border border-gray-200 bg-gray-100 px-3 py-1 text-xs transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-600 dark:bg-dark-700 dark:hover:border-red-700 dark:hover:bg-red-950 dark:hover:text-red-300" :aria-label="`${t('common.remove')}: ${user.email}`" @click="toggleUser(user)">{{ user.email }} ×</button></div>
             </template>
           </fieldset>
         </div>
-        <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"><button class="btn btn-primary" :disabled="busy || uploading || !subject.trim() || (!body.trim() && !attachments.length) || (!allActive && !selectedUsers.size)">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.review') }}</button></div>
+        <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"><button class="btn btn-primary cursor-pointer" :disabled="busy || uploading || !subject.trim() || (!body.trim() && !attachments.length) || (!allActive && !selectedUsers.size)">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.review') }}</button></div>
       </form>
 
       <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-800">
         <h2 class="border-b border-gray-100 p-5 text-base font-semibold dark:border-dark-700">{{ t('bulkMail.history') }}</h2>
-        <p v-if="listError" role="alert" class="p-5 text-sm text-red-600">{{ listError }}</p>
-        <p v-else-if="loading && !batches.length" class="p-8 text-center text-gray-500">{{ t('common.loading') }}</p>
-        <div v-else-if="!batches.length" class="space-y-2 p-10 text-center"><p class="font-medium">{{ t('bulkMail.noBatches') }}</p><p class="text-sm text-gray-500">{{ t('bulkMail.noBatchesHint') }}</p></div>
-        <div v-else class="overflow-x-auto">
+        <p v-if="listError" role="alert" class="p-5 text-sm text-red-600 dark:text-red-400">{{ listError }}</p>
+        <p v-else-if="loading && !batches.length" class="p-8 text-center text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</p>
+        <div v-else-if="!batches.length" class="space-y-2 p-10 text-center"><p class="font-medium">{{ t('bulkMail.noBatches') }}</p><p class="text-sm text-gray-500 dark:text-dark-300">{{ t('bulkMail.noBatchesHint') }}</p></div>
+        <div v-else class="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.history')">
           <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.total') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th></tr></thead>
+            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.total') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th></tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="batch in batches" :key="batch.id" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
-              <td class="max-w-sm px-5 py-4"><router-link :to="`/admin/bulk-emails/${batch.id}`" class="block break-words font-medium text-primary-600 hover:underline dark:text-primary-400">{{ batch.subject }}</router-link><p class="mt-1 text-xs text-gray-500">#{{ batch.id }} · {{ date(batch.created_at) }}</p></td>
+              <td class="max-w-sm px-5 py-4"><router-link :to="`/admin/bulk-emails/${batch.id}`" class="block break-words rounded font-medium [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 text-primary-600 hover:underline dark:text-primary-400">{{ batch.subject }}</router-link><p class="mt-1 text-xs text-gray-500 dark:text-dark-300">#{{ batch.id }} · {{ date(batch.created_at) }}</p></td>
               <td class="px-4 py-4"><span :class="['badge', statusClass(batch.status)]">{{ statusLabel(batch.status) }}</span></td>
-              <td class="min-w-32 px-4 py-4"><div class="mb-1 text-xs text-gray-500">{{ batch.sent_count }} / {{ batch.total_count }}</div><progress class="h-1.5 w-full accent-primary-500" :value="batch.sent_count + batch.failed_count" :max="batch.total_count || 1" :aria-label="t('bulkMail.progress')"></progress></td>
+              <td class="min-w-32 px-4 py-4"><div class="mb-1 text-xs text-gray-500 dark:text-dark-300">{{ batch.sent_count }} / {{ batch.total_count }}</div><progress class="h-1.5 w-full accent-primary-500" :value="batch.sent_count + batch.failed_count" :max="batch.total_count || 1" :aria-label="t('bulkMail.progress')"></progress></td>
               <td class="px-4 py-4 tabular-nums">{{ batch.total_count }}</td><td class="px-4 py-4 tabular-nums" :class="batch.failed_count ? 'text-red-600' : 'text-gray-500'">{{ batch.failed_count }}</td>
             </tr></tbody>
           </table>
@@ -91,24 +91,24 @@
       </section>
     </div>
 
-    <BaseDialog :show="!!selectedId" :title="t(detail?.batch.status === 'draft' ? 'bulkMail.reviewTitle' : 'bulkMail.details')" width="extra-wide" :show-close-button="!busy" :close-on-escape="!busy" @close="closeDetail">
-      <p v-if="detailError" role="alert" class="mb-4 text-sm text-red-600">{{ detailError }} <button class="underline" @click="loadDetail()">{{ t('support.refresh') }}</button></p>
-      <p v-if="detailLoading" class="p-8 text-center text-gray-500">{{ t('common.loading') }}</p>
+    <BaseDialog :show="!!selectedId" :title="t(detail?.batch.status === 'draft' ? 'bulkMail.reviewTitle' : 'bulkMail.details')" width="extra-wide" :show-close-button="!busy" :close-on-escape="!busy" trap-focus @close="closeDetail">
+      <p v-if="detailError" role="alert" class="mb-4 text-sm text-red-600 dark:text-red-400">{{ detailError }} <button class="min-h-9 cursor-pointer rounded px-1.5 underline underline-offset-2 hover:bg-primary-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:hover:bg-primary-900/20" @click="loadDetail()">{{ t('support.refresh') }}</button></p>
+      <p v-if="detailLoading" class="p-8 text-center text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</p>
       <div v-if="detail" class="space-y-5">
         <p v-if="detail.batch.status === 'draft'" class="rounded-lg bg-amber-50 p-4 text-sm font-medium text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('bulkMail.reviewHint', { count: detail.batch.total_count }) }}</p>
         <div class="rounded-lg border border-gray-200 px-4 py-3 dark:border-dark-600">
-          <p class="text-xs text-gray-500">{{ t('bulkMail.filters.summary') }}</p>
+          <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.filters.summary') }}</p>
           <p data-test="recipient-filter-summary" class="mt-1 text-sm font-medium">{{ recipientFilterSummary(detail.batch.recipient_filter) }}</p>
         </div>
-        <div class="flex flex-wrap gap-5 rounded-lg bg-gray-50 p-4 dark:bg-dark-900/50"><div><span class="text-xs text-gray-500">{{ t('bulkMail.total') }}</span><p class="text-lg font-semibold tabular-nums">{{ detail.batch.total_count }}</p></div><div><span class="text-xs text-gray-500">{{ t('bulkMail.sent') }}</span><p class="text-lg font-semibold tabular-nums text-green-600">{{ detail.batch.sent_count }}</p></div><div><span class="text-xs text-gray-500">{{ t('bulkMail.failed') }}</span><p class="text-lg font-semibold tabular-nums text-red-600">{{ detail.batch.failed_count }}</p></div><span :class="['badge ml-auto self-center', statusClass(detail.batch.status)]">{{ statusLabel(detail.batch.status) }}</span></div>
-        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"><h3 class="break-words font-semibold">{{ detail.batch.subject }}</h3><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{{ detail.batch.body }}</p><div v-if="detail.batch.attachments?.length" class="mt-4 flex flex-wrap gap-3"><SupportImage v-for="attachment in detail.batch.attachments" :key="attachment.id" :attachment="attachment" :admin="true" :bulk-id="detail.batch.id" /></div></div>
-        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"><div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50"><tr><th class="px-4 py-3">{{ t('bulkMail.email') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.attempts') }}</th><th class="px-4 py-3">{{ t('bulkMail.lastError') }}</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="recipient in detail.recipients.items" :key="recipient.id"><td class="px-4 py-3">{{ recipient.email }}</td><td class="px-4 py-3"><span :class="['badge', statusClass(recipient.status)]">{{ statusLabel(recipient.status) }}</span></td><td class="px-4 py-3 tabular-nums">{{ recipient.attempts }}</td><td class="max-w-sm break-words px-4 py-3 text-xs text-red-600">{{ recipient.last_error || '—' }}</td></tr></tbody></table></div><Pagination v-if="detail.recipients.total > 0" :page="recipientPage" :page-size="20" :total="detail.recipients.total" :show-page-size-selector="false" @update:page="changeRecipientPage" /></div>
-        <p v-if="detail.batch.failed_count > 0" class="text-xs text-gray-500">{{ t('bulkMail.retryHint') }}</p>
+        <div class="flex flex-wrap gap-5 rounded-lg bg-gray-50 p-4 dark:bg-dark-900/50"><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.total') }}</span><p class="text-lg font-semibold tabular-nums">{{ detail.batch.total_count }}</p></div><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.sent') }}</span><p class="text-lg font-semibold tabular-nums text-green-600">{{ detail.batch.sent_count }}</p></div><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.failed') }}</span><p class="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">{{ detail.batch.failed_count }}</p></div><span :class="['badge ml-auto self-center', statusClass(detail.batch.status)]">{{ statusLabel(detail.batch.status) }}</span></div>
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"><h3 class="break-words font-semibold [overflow-wrap:anywhere]">{{ detail.batch.subject }}</h3><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{{ detail.batch.body }}</p><div v-if="detail.batch.attachments?.length" class="mt-4 flex flex-wrap gap-3"><SupportImage v-for="attachment in detail.batch.attachments" :key="attachment.id" :attachment="attachment" :admin="true" :bulk-id="detail.batch.id" /></div></div>
+        <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"><div class="max-h-80 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.recipients')"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-4 py-3">{{ t('bulkMail.email') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.attempts') }}</th><th class="px-4 py-3">{{ t('bulkMail.lastError') }}</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="recipient in detail.recipients.items" :key="recipient.id"><td class="min-w-40 max-w-xs break-all px-4 py-3">{{ recipient.email }}</td><td class="px-4 py-3"><span :class="['badge', statusClass(recipient.status)]">{{ statusLabel(recipient.status) }}</span></td><td class="px-4 py-3 tabular-nums">{{ recipient.attempts }}</td><td class="max-w-sm break-words [overflow-wrap:anywhere] px-4 py-3 text-xs text-red-600 dark:text-red-400">{{ recipient.last_error || '—' }}</td></tr></tbody></table></div><Pagination v-if="detail.recipients.total > 0" :page="recipientPage" :page-size="20" :total="detail.recipients.total" :show-page-size-selector="false" @update:page="changeRecipientPage" /></div>
+        <p v-if="detail.batch.failed_count > 0" class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.retryHint') }}</p>
       </div>
       <template #footer>
-        <button class="btn btn-secondary" :disabled="busy" @click="closeDetail">{{ t(detail?.batch.status === 'draft' ? 'bulkMail.cancelReview' : 'common.close') }}</button>
-        <button v-if="detail?.batch.status === 'draft'" class="btn btn-primary" :disabled="busy || !detail.batch.total_count" @click="startBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.send') }}</button>
-        <button v-else-if="detail && detail.batch.failed_count > 0 && !activeStatus(detail.batch.status)" class="btn btn-primary" :disabled="busy" @click="retryBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.retry') }}</button>
+        <button class="btn btn-secondary cursor-pointer" :disabled="busy" @click="closeDetail">{{ t(detail?.batch.status === 'draft' ? 'bulkMail.cancelReview' : 'common.close') }}</button>
+        <button v-if="detail?.batch.status === 'draft'" class="btn btn-primary cursor-pointer" :disabled="busy || !detail.batch.total_count" @click="startBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.send') }}</button>
+        <button v-else-if="detail && detail.batch.failed_count > 0 && !activeStatus(detail.batch.status)" class="btn btn-primary cursor-pointer" :disabled="busy" @click="retryBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.retry') }}</button>
       </template>
     </BaseDialog>
   </CommunicationsLayout>
@@ -119,6 +119,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import CommunicationsLayout from '@/components/support/CommunicationsLayout.vue'
+import Icon from '@/components/icons/Icon.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import SupportComposer from '@/components/support/SupportComposer.vue'

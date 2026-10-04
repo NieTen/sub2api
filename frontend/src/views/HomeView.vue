@@ -874,9 +874,12 @@ onMounted(() => {
     }
 
     .brand-home .header { position: relative;z-index: 20;height: 88px;padding: 20px 48px; }
-    .brand-home .nav { height: 48px;display: grid;grid-template-columns: 1fr auto 1fr;align-items: center; }
-    .brand-home .brand { justify-self: start;display: inline-flex;align-items: center;gap: 10px;font-size: 19.5px;font-weight: 850; }
-    .brand-home .logo {
+    .brand-home .nav { height: 48px;display: grid;grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);align-items: center; }
+    .brand-home .brand { min-width: 0;max-width: 100%;justify-self: start;display: inline-flex;align-items: center;gap: 10px;font-size: 19.5px;font-weight: 850; }
+    .brand-home .brand > span:last-child { min-width: 0;overflow: hidden;text-overflow: ellipsis;white-space: nowrap; }
+    .brand-home .hero h1 { max-width: 100%;overflow-wrap: anywhere; }
+    .brand-home.is-dark .vendor-grok .vendor-label { color: var(--text); }
+    .brand-home .logo { flex-shrink: 0;
       width: 36px;height: 36px;display: grid;place-items: center;border-radius: 50%;
       color: #fff;background: linear-gradient(135deg,#7c3aed,#db2777);
       box-shadow: 0 8px 22px rgba(91,33,182,.24);font-size: 15px;font-weight: 900;

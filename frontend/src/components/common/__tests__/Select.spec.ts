@@ -78,16 +78,16 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.maxWidth).toBe('996px')
   })
 
-  it('shrinks the minimum width to fit near the right viewport edge', async () => {
+  it('moves a dropdown left to keep readable width near the right edge', async () => {
     setViewportWidth(320)
     mockTriggerRect(220, 80)
 
     const dropdown = await openSelect()
 
     expect(dropdown).not.toBeNull()
-    expect(dropdown?.style.left).toBe('220px')
-    expect(dropdown?.style.minWidth).toBe('92px')
-    expect(dropdown?.style.maxWidth).toBe('92px')
+    expect(dropdown?.style.left).toBe('112px')
+    expect(dropdown?.style.minWidth).toBe('200px')
+    expect(dropdown?.style.maxWidth).toBe('200px')
   })
 
   it('clamps a trigger left of the viewport to the safe padding', async () => {
@@ -109,9 +109,56 @@ describe('Select dropdown viewport constraints', () => {
     const dropdown = await openSelect()
 
     expect(dropdown).not.toBeNull()
-    expect(dropdown?.style.left).toBe('312px')
-    expect(dropdown?.style.minWidth).toBe('0px')
-    expect(dropdown?.style.maxWidth).toBe('0px')
+    expect(dropdown?.style.left).toBe('112px')
+    expect(dropdown?.style.minWidth).toBe('200px')
+    expect(dropdown?.style.maxWidth).toBe('200px')
+  })
+
+  it('limits menu height when neither side can fit all options', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 350, bottom: 390, left: 20, width: 200 } as DOMRect)
+    const wrapper = mount(Select, { props: { modelValue: null, options: Array.from({ length: 30 }, (_, value) => ({value, label: String(value)})) } })
+    unmountWrapper = () => wrapper.unmount()
+    await wrapper.get('button').trigger('click')
+    const dropdown = document.body.querySelector<HTMLElement>('.select-dropdown-portal')!
+    expect(Number.parseFloat(dropdown.style.maxHeight)).toBeLessThanOrEqual(window.innerHeight - 390 - 12)
+    expect(dropdown.querySelector('[role=listbox]')?.getAttribute('id')).toBe(wrapper.get('button').attributes('aria-controls'))
+  })
+})
+
+describe('Select keyboard interaction', () => {
+  it('skips disabled options and group titles, returns focus after Enter and allows keyboard clearing', async () => {
+    const wrapper = mount(Select, { attachTo: document.body, props: { modelValue: 'beta', clearable: true, searchable: false, options: [
+      { value: 'group', label: '分组', kind: 'group' }, { value: 'alpha', label: 'Alpha', disabled: true }, { value: 'beta', label: 'Beta' }, { value: 'gamma', label: 'Gamma' }
+    ] } })
+    unmountWrapper = () => wrapper.unmount()
+    await wrapper.get('.select-trigger').trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+    const list = document.body.querySelector<HTMLElement>('[role=listbox]')!
+    expect(document.activeElement).toBe(list)
+    list.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(wrapper.emitted('update:modelValue')).toEqual([['gamma']])
+    expect(document.activeElement).toBe(wrapper.get('.select-trigger').element)
+    const clear = wrapper.get('.select-clear')
+    expect(clear.element.tagName).toBe('BUTTON')
+    await clear.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([null])
+    expect(document.activeElement).toBe(wrapper.get('.select-trigger').element)
+  })
+
+  it('returns to the trigger before tabbing away and closes when disabled', async () => {
+    const wrapper = mount(Select, { attachTo: document.body, props: { modelValue: null, options: [{ value: 'a', label: 'A' }] } })
+    unmountWrapper = () => wrapper.unmount()
+    await wrapper.get('button').trigger('click')
+    await nextTick()
+    document.body.querySelector('[role=listbox]')!.dispatchEvent(new KeyboardEvent('keydown', {key: 'Tab', bubbles: true}))
+    await nextTick()
+    expect(document.activeElement).toBe(wrapper.get('button').element)
+    expect(wrapper.get('button').attributes('aria-expanded')).toBe('false')
+    await wrapper.get('button').trigger('click')
+    await wrapper.setProps({disabled: true})
+    expect(wrapper.get('button').attributes('aria-expanded')).toBe('false')
   })
 })
 

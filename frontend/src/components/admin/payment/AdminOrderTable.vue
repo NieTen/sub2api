@@ -5,6 +5,7 @@
         <div class="flex-1 sm:max-w-64">
           <input
             v-model="searchQuery"
+            :aria-label="t('payment.admin.searchOrders')"
             type="text"
             :placeholder="t('payment.admin.searchOrders')"
             class="input"
@@ -13,18 +14,21 @@
         </div>
         <Select
           v-model="filters.status"
+          :aria-label="t('payment.orders.status')"
           :options="statusFilterOptions"
           class="w-36"
           @change="emitFiltersChanged"
         />
         <Select
           v-model="filters.payment_type"
+          :aria-label="t('payment.orders.paymentMethod')"
           :options="paymentTypeFilterOptions"
           class="w-40"
           @change="emitFiltersChanged"
         />
         <Select
           v-model="filters.order_type"
+          :aria-label="t('payment.admin.orderType')"
           :options="orderTypeFilterOptions"
           class="w-36"
           @change="emitFiltersChanged"

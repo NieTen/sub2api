@@ -11,7 +11,7 @@
       </div>
     </div>
     <div class="p-5">
-      <div v-if="error" class="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{{ error }}</div>
+      <div v-if="error" class="mb-4 break-words rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300" role="alert">{{ error }}</div>
       <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div class="space-y-1">
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('payment.exchange.currentRate') }}</p>
@@ -24,7 +24,7 @@
           <div><dt class="text-xs text-gray-500 dark:text-gray-400">{{ t('payment.exchange.failedCount') }}</dt><dd class="mt-1 font-mono font-semibold text-gray-700 dark:text-gray-300">{{ unavailableCount }}</dd></div>
         </dl>
       </div>
-      <p v-if="data?.error || data?.current?.fallback_reason" class="mb-3 rounded-lg bg-orange-50 p-3 text-sm leading-6 text-orange-800 dark:bg-orange-950/30 dark:text-orange-200" data-test="usdt-current-error">{{ data.error || data.current?.fallback_reason }}</p>
+      <p v-if="data?.error || data?.current?.fallback_reason" class="mb-3 break-words rounded-lg bg-orange-50 p-3 text-sm leading-6 text-orange-800 dark:bg-orange-950/30 dark:text-orange-200" data-test="usdt-current-error">{{ data.error || data.current?.fallback_reason }}</p>
       <div class="h-64 sm:h-72">
         <div v-if="loading && !data" class="flex h-full items-center justify-center"><LoadingSpinner size="md" /></div>
         <Line v-else-if="hasPlottableHistory" :data="chartData" :options="chartOptions" role="img" :aria-label="t('payment.exchange.chartAccessible')" />

@@ -1,11 +1,11 @@
 <template>
-  <div class="w-36">
-    <button type="button" class="flex h-28 w-full items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-500 focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-600 dark:bg-dark-900" :aria-label="t('support.preview') + ': ' + attachment.file_name" @click="url ? preview = true : load()">
+  <div class="w-36 min-w-0 max-w-full">
+    <button type="button" class="flex h-28 w-full items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-xs text-gray-500 focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-dark-600 dark:bg-dark-900 dark:text-dark-300" :aria-label="t('support.preview') + ': ' + attachment.file_name" @click="url ? preview = true : load()">
       <img v-if="url" :src="url" :alt="attachment.file_name" class="h-full w-full object-cover" />
       <span v-else class="p-2">{{ t(failed ? 'support.imageFailed' : 'support.loadingImage') }}</span>
     </button>
-    <p class="mt-1 truncate text-xs text-gray-500" :title="attachment.file_name">{{ attachment.file_name }}</p>
-    <BaseDialog :show="preview" :title="attachment.file_name" width="wide" @close="preview = false">
+    <p class="mt-1 truncate text-xs text-gray-500 dark:text-dark-300" :title="attachment.file_name">{{ attachment.file_name }}</p>
+    <BaseDialog :show="preview" :title="attachment.file_name" width="wide" trap-focus @close="preview = false">
       <img v-if="url" :src="url" :alt="attachment.file_name" class="mx-auto max-h-[65vh] max-w-full object-contain" />
       <template #footer>
         <a v-if="url" :href="url" :download="attachment.file_name" class="btn btn-primary">{{ t('support.download') }}</a>

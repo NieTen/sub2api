@@ -25,7 +25,14 @@ const data: CommunityMembersPage = {
   total: 70, page: 1, page_size: 20,
   summary: { total: 70, joined: 10, not_joined: 60, pending: 5, left: 2 }
 }
-const render = () => mount(CommunityMembersView, { global: { stubs: { Teleport: true, RouterLink: { template: '<a><slot /></a>' } } } })
+const render = () => mount(CommunityMembersView, { attachTo: document.body, global: { stubs: { Teleport: true, RouterLink: { template: '<a><slot /></a>' } } } })
+const selectStatus = async (wrapper: ReturnType<typeof render>, status: string) => {
+  await wrapper.get('#community-member-status').trigger('click')
+  const option = wrapper.findAll('[role="option"]').find(item => item.text() === 'community.members.' + status)
+  expect(option).toBeDefined()
+  await option!.trigger('click')
+  await flushPromises()
+}
 
 describe('社群成员列表', () => {
   beforeEach(() => { vi.clearAllMocks(); vi.useFakeTimers(); vi.mocked(communityAPI.members).mockResolvedValue(data); vi.mocked(communityAPI.avatar).mockRejectedValue({ status: 404 }) })
@@ -52,8 +59,7 @@ describe('社群成员列表', () => {
     await wrapper.find('[data-test="next-page"]').trigger('click')
     await flushPromises()
     expect(communityAPI.members).toHaveBeenLastCalledWith(2, '', 'all')
-    await wrapper.find('select[name="community-member-status"]').setValue(status)
-    await flushPromises()
+    await selectStatus(wrapper, status)
     expect(communityAPI.members).toHaveBeenLastCalledWith(1, '', status)
     expect(wrapper.find('[data-test="summary-total"]').text()).toContain('70')
     wrapper.unmount()
@@ -62,8 +68,7 @@ describe('社群成员列表', () => {
   it('搜索回到第一页并保留入群筛选，统计采用搜索后的服务器结果', async () => {
     const wrapper = render()
     await flushPromises()
-    await wrapper.find('select[name="community-member-status"]').setValue('not_joined')
-    await flushPromises()
+    await selectStatus(wrapper, 'not_joined')
     await wrapper.find('[data-test="next-page"]').trigger('click')
     await flushPromises()
     vi.mocked(communityAPI.members).mockResolvedValue({ ...data, items: [], total: 2, summary: { total: 3, joined: 1, not_joined: 2, pending: 1, left: 0 } })
@@ -100,11 +105,41 @@ describe('社群成员列表', () => {
     await flushPromises()
     expect(wrapper.find('[role="dialog"]').text()).toContain('new@example.com')
     expect(communityAPI.telegramUser).not.toHaveBeenCalled()
-    await wrapper.find('[aria-label="Close modal"]').trigger('click')
+    await wrapper.find('[data-test="close-member-detail"]').trigger('click')
     await avatars[2].trigger('click')
     await flushPromises()
     expect(communityAPI.telegramUser).toHaveBeenCalledWith(123456789)
     expect(wrapper.find('[role="dialog"]').text()).toContain('joined@example.com')
+    wrapper.unmount()
+  })
+
+  it('清除搜索保留当前状态并取消待执行搜索，重置恢复全部成员', async () => {
+    const wrapper = render()
+    await flushPromises()
+    await selectStatus(wrapper, 'joined')
+    await wrapper.get('input[name="community-member-search"]').setValue('尚未提交的搜索')
+    await wrapper.get('[data-test="clear-member-search"]').trigger('click')
+    await flushPromises()
+    expect(communityAPI.members).toHaveBeenLastCalledWith(1, '', 'joined')
+    expect(document.activeElement).toBe(wrapper.get('input[name="community-member-search"]').element)
+    const count = vi.mocked(communityAPI.members).mock.calls.length
+    await vi.advanceTimersByTimeAsync(400)
+    expect(communityAPI.members).toHaveBeenCalledTimes(count)
+    await wrapper.get('[data-test="reset-member-filters"]').trigger('click')
+    await flushPromises()
+    expect(communityAPI.members).toHaveBeenLastCalledWith(1, '', 'all')
+    expect(wrapper.get('#community-member-status').text()).toContain('community.members.all')
+    expect(wrapper.get('[data-test="reset-member-filters"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it('点击账户名称打开现有详情，不依赖头像入口', async () => {
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('[data-test="member-detail-1"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="dialog"]').text()).toContain('new@example.com')
+    expect(communityAPI.telegramUser).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

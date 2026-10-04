@@ -968,8 +968,7 @@ function handleMenuItemClick(itemPath: string) {
 
 function isActive(path: string): boolean {
   if (path === '/admin/communications') {
-    return ['/admin/communications', '/admin/support/settings', '/admin/bulk-emails', '/admin/community', '/admin/tickets']
-      .some(section => route.path === section || route.path.startsWith(section + '/'))
+    return route.path === path || route.path === '/admin/support/settings'
   }
   return route.path === path || route.path.startsWith(path + '/')
 }

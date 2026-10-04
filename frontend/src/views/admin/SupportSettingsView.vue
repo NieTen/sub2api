@@ -2,41 +2,41 @@
   <CommunicationsLayout active="bot">
     <div class="space-y-5 text-gray-900 dark:text-gray-100">
       <p class="max-w-3xl text-sm text-gray-500 dark:text-dark-400">{{ t('support.settingsDescription') }}</p>
-      <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-900/20">{{ error }}</p>
-      <div v-if="loading" class="p-8 text-center text-gray-500">{{ t('common.loading') }}</div>
-      <form v-else-if="loaded" class="grid items-start gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" @submit.prevent="save">
+      <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-600 dark:bg-red-900/20 dark:text-red-400">{{ error }}</p>
+      <div v-if="loading" class="p-8 text-center text-gray-500 dark:text-dark-300">{{ t('common.loading') }}</div>
+      <form v-else-if="loaded" class="grid items-start gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]" :aria-busy="saving" @submit.prevent="save">
         <fieldset :disabled="saving" class="min-w-0 space-y-5 rounded-xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-800">
-          <h2 class="text-base font-semibold">{{ t('communications.emailSection') }}</h2>
-          <label class="flex items-center gap-3 font-medium"><input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded" />{{ t('support.enabled') }}</label>
-          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.adminEmails') }}</span><textarea v-model="emailText" rows="3" class="input" :placeholder="'support@example.com'"></textarea><span class="mt-2 block text-xs text-gray-500">{{ t('support.adminEmailsHint') }}</span></label>
-          <p class="text-xs text-gray-500">{{ t('support.emailHelp') }} <router-link to="/admin/settings?tab=email" class="text-primary-600 underline">{{ t('nav.settings') }}</router-link></p>
+          <div class="flex items-center gap-3 border-b border-gray-100 pb-4 dark:border-dark-700"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"><Icon name="inbox" size="md" /></span><h2 class="text-base font-semibold">{{ t('communications.emailSection') }}</h2></div>
+          <label class="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-medium transition-colors hover:border-primary-300 focus-within:ring-2 focus-within:ring-primary-500 dark:border-dark-600 dark:bg-dark-900/50 dark:hover:border-primary-500"><input v-model="form.enabled" type="checkbox" class="h-4 w-4 shrink-0 rounded accent-primary-600" />{{ t('support.enabled') }}</label>
+          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.adminEmails') }}</span><textarea v-model="emailText" rows="3" class="input" :placeholder="'support@example.com'"></textarea><span class="mt-2 block text-xs text-gray-500 dark:text-dark-300">{{ t('support.adminEmailsHint') }}</span></label>
+          <p class="text-xs leading-5 text-gray-500 dark:text-dark-300">{{ t('support.emailHelp') }} <router-link to="/admin/settings?tab=email" class="rounded font-medium text-primary-600 underline underline-offset-2 hover:text-primary-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-primary-400 dark:hover:text-primary-300">{{ t('nav.settings') }}</router-link></p>
         </fieldset>
         <fieldset :disabled="saving" class="min-w-0 space-y-5 rounded-xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-800">
-          <div><h2 class="text-base font-semibold">{{ t('communications.botSection') }}</h2><p class="mt-2 text-sm leading-6 text-gray-500">{{ t('support.telegramHelp') }}</p><p class="mt-2 text-xs leading-5 text-gray-500">{{ t('communications.botCredentialsHint') }}</p></div>
+          <div class="border-b border-gray-100 pb-4 dark:border-dark-700"><div class="flex items-center gap-3"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300"><Icon name="chat" size="md" /></span><h2 class="text-base font-semibold">{{ t('communications.botSection') }}</h2></div><p class="mt-3 text-sm leading-6 text-gray-500 dark:text-dark-300">{{ t('support.telegramHelp') }}</p><p class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ t('communications.botCredentialsHint') }}</p></div>
           <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.botToken') }}</span><input v-model="form.telegram_bot_token" type="password" autocomplete="new-password" class="input" :disabled="form.clear_telegram_bot_token" :placeholder="t(form.telegram_bot_token_configured ? 'support.secretPlaceholder' : 'support.notConfigured')" /></label>
-          <label v-if="form.telegram_bot_token_configured" class="flex items-center gap-2 text-sm"><input v-model="form.clear_telegram_bot_token" type="checkbox" />{{ t('support.clearToken') }}</label>
+          <label v-if="form.telegram_bot_token_configured" class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus-within:ring-2 focus-within:ring-primary-500" :class="form.clear_telegram_bot_token ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-dark-300 dark:hover:bg-dark-700'"><input v-model="form.clear_telegram_bot_token" type="checkbox" class="h-4 w-4 shrink-0 rounded accent-red-600" />{{ t('support.clearToken') }}</label>
           <label class="block">
             <span class="mb-1 block text-sm font-medium">{{ t('support.chatId') }}</span>
             <input v-model="form.telegram_chat_id" type="text" inputmode="numeric" class="input" placeholder="-1001234567890" aria-describedby="support-chat-id-hint" />
-            <span id="support-chat-id-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.chatIdHint') }}</span>
+            <span id="support-chat-id-hint" class="mt-2 block text-xs text-gray-500 dark:text-dark-300">{{ t('support.chatIdHint') }}</span>
           </label>
-          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.allowedUsers') }}</span><textarea v-model="allowedUserText" rows="2" class="input" placeholder="123456789" aria-describedby="support-allowed-users-hint"></textarea><span id="support-allowed-users-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.allowedUsersHint') }}</span></label>
+          <label class="block"><span class="mb-1 block text-sm font-medium">{{ t('support.allowedUsers') }}</span><textarea v-model="allowedUserText" rows="2" class="input" placeholder="123456789" aria-describedby="support-allowed-users-hint"></textarea><span id="support-allowed-users-hint" class="mt-2 block text-xs text-gray-500 dark:text-dark-300">{{ t('support.allowedUsersHint') }}</span></label>
           <label class="block">
             <span class="mb-1 block text-sm font-medium">{{ t('support.webhookSecret') }}</span>
             <input v-model="form.telegram_webhook_secret" type="password" autocomplete="new-password" class="input" aria-describedby="support-webhook-secret-hint" :disabled="form.clear_telegram_webhook_secret" :placeholder="t(form.telegram_webhook_secret_configured ? 'support.secretPlaceholder' : 'support.notConfigured')" />
-            <span id="support-webhook-secret-hint" class="mt-2 block text-xs text-gray-500">{{ t('support.webhookSecretHint') }}</span>
+            <span id="support-webhook-secret-hint" class="mt-2 block text-xs text-gray-500 dark:text-dark-300">{{ t('support.webhookSecretHint') }}</span>
           </label>
-          <label v-if="form.telegram_webhook_secret_configured" class="flex items-center gap-2 text-sm"><input v-model="form.clear_telegram_webhook_secret" type="checkbox" />{{ t('support.clearSecret') }}</label>
+          <label v-if="form.telegram_webhook_secret_configured" class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors focus-within:ring-2 focus-within:ring-primary-500" :class="form.clear_telegram_webhook_secret ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-dark-600 dark:text-dark-300 dark:hover:bg-dark-700'"><input v-model="form.clear_telegram_webhook_secret" type="checkbox" class="h-4 w-4 shrink-0 rounded accent-red-600" />{{ t('support.clearSecret') }}</label>
           <div v-if="webhookUrl" class="rounded-lg bg-gray-50 p-4 dark:bg-dark-900">
             <p class="text-sm font-medium">{{ t('support.webhookUrl') }}</p>
             <input :value="webhookUrl" readonly class="input mt-2 font-mono text-xs" :aria-label="t('support.webhookUrl')" @focus="($event.target as HTMLInputElement).select()" />
-            <p role="status" class="mt-2 text-xs" :class="webhookRegistered ? 'text-green-700 dark:text-green-400' : 'text-gray-500'">{{ t(webhookRegistered ? 'support.webhookRegistered' : 'support.webhookNotRegistered') }}</p>
-            <p class="mt-2 text-xs text-gray-500">{{ t('support.webhookHelp') }}</p>
+            <p role="status" class="mt-2 text-xs" :class="webhookRegistered ? 'text-green-700 dark:text-green-400' : 'text-gray-500 dark:text-dark-300'">{{ t(webhookRegistered ? 'support.webhookRegistered' : 'support.webhookNotRegistered') }}</p>
+            <p class="mt-2 text-xs text-gray-500 dark:text-dark-300">{{ t('support.webhookHelp') }}</p>
           </div>
         </fieldset>
-        <div class="flex justify-end xl:col-span-2"><button class="btn btn-primary" :disabled="saving">{{ t(saving ? 'common.saving' : 'common.save') }}</button></div>
+        <div class="flex justify-end rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800 xl:col-span-2"><button class="btn btn-primary min-h-11 min-w-28 cursor-pointer" :disabled="saving"><Icon v-if="saving" name="refresh" size="sm" class="motion-safe:animate-spin" />{{ t(saving ? 'common.saving' : 'common.save') }}</button></div>
       </form>
-      <button v-else class="btn btn-secondary" @click="load">{{ t('support.refresh') }}</button>
+      <button v-else class="btn btn-secondary min-h-11 cursor-pointer" @click="load">{{ t('support.refresh') }}</button>
     </div>
   </CommunicationsLayout>
 </template>
@@ -45,6 +45,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CommunicationsLayout from '@/components/support/CommunicationsLayout.vue'
+import Icon from '@/components/icons/Icon.vue'
 import { supportAPI, supportError, type SupportSettings } from '@/api/support'
 import { useAppStore } from '@/stores/app'
 

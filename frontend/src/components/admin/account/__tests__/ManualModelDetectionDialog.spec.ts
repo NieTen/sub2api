@@ -7,7 +7,7 @@ import { modelDetectionAPI } from '@/api/admin/modelDetection'
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: unknown) => params ? `${key} ${JSON.stringify(params)}` : key }) }))
 vi.mock('@/api/admin/accounts', () => ({ getAvailableModels: vi.fn() }))
 vi.mock('@/api/admin/modelDetection', () => ({ modelDetectionAPI: { runAccountModels: vi.fn(), catalog: vi.fn() } }))
-const render = () => mount(ManualModelDetectionDialog, { props: { show: true, account: { id: 17, name: '测试账号' } }, global: { stubs: { BaseDialog: { template: '<section><slot /></section>' } } } })
+const render = () => mount(ManualModelDetectionDialog, { props: { show: true, account: { id: 17, name: '测试账号' } }, global: { stubs: { BaseDialog: { template: '<section><slot /><footer><slot name="footer" /></footer></section>' } } } })
 const successResult = (models: string[]) => ({ total: models.length, success: models.length, failed: 0, results: models.map(model_id => ({ model_id, run: { id: 4 } as never })) })
 
 async function addCustom(wrapper: ReturnType<typeof render>, model: string) {
@@ -37,6 +37,22 @@ describe('账号手动模型检测', () => {
     expect(modelDetectionAPI.runAccountModels).toHaveBeenCalledWith(17, ['model-a', 'custom-model'])
     expect(wrapper.emitted('queued')).toHaveLength(1)
     expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+  it('异步读取模型显示加载状态，底部检测按钮仍关联原表单', async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof getAvailableModels>>) => void
+    vi.mocked(getAvailableModels).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+    const wrapper = render()
+    expect(wrapper.get('[role="status"]').text()).toBe('common.loading')
+    expect(wrapper.text()).not.toContain('modelDetection.noModelMatches')
+    const submit = wrapper.get<HTMLButtonElement>('footer button[type="submit"]')
+    expect(submit.attributes('form')).toBe(wrapper.get('form').attributes('id'))
+    expect(submit.element.disabled).toBe(true)
+    resolve([{ id: 'loaded-model', display_name: '已加载模型', type: 'model', created_at: '' }])
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    await wrapper.get('input[value="loaded-model"]').setValue(true)
+    expect(submit.element.disabled).toBe(false)
     wrapper.unmount()
   })
   it('可选模型列表失败仍可自填，保留后端原始错误及选择', async () => {

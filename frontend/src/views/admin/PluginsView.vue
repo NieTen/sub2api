@@ -243,6 +243,7 @@
 
             <div class="md:col-span-2">
               <label
+                :for="`plugin-rollout-${plugin.id}`"
                 class="flex items-center justify-between gap-4 text-xs font-medium text-gray-600 dark:text-gray-300"
               >
                 <span>{{ t("admin.plugins.rollout") }}</span>
@@ -253,6 +254,7 @@
                 >
               </label>
               <input
+                :id="`plugin-rollout-${plugin.id}`"
                 :value="rolloutValues[plugin.id] ?? currentRollout(plugin)"
                 type="range"
                 min="1"
