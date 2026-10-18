@@ -97,7 +97,8 @@ func pluginResourceTestDirectory() (*pluginResourceDirectory, *fakeAccountDirect
 
 func TestPluginAdminResourcesIncludesAllStatusesWithoutExpandingBackendAccess(t *testing.T) {
 	dir, base, _, groups := pluginResourceTestDirectory()
-	repo := dir.accounts.(*pluginResourceAccountRepository)
+	repo, ok := dir.accounts.(*pluginResourceAccountRepository)
+	require.True(t, ok, "资源目录应使用测试账号仓库")
 	parentID := int64(7)
 	repo.accounts = []Account{
 		{ID: 7, Name: "启用账号", Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, GroupIDs: []int64{2}},
@@ -132,7 +133,8 @@ func TestPluginAdminResourcesIncludesAllStatusesWithoutExpandingBackendAccess(t 
 
 func TestPluginAdminResourcesScopeAndRepositoryFailure(t *testing.T) {
 	dir, _, proxies, groups := pluginResourceTestDirectory()
-	repo := dir.accounts.(*pluginResourceAccountRepository)
+	repo, ok := dir.accounts.(*pluginResourceAccountRepository)
+	require.True(t, ok, "资源目录应使用测试账号仓库")
 	_, err := dir.ListPluginAdminResources(context.Background(), PluginAccountScope{})
 	require.Error(t, err)
 	assert.Empty(t, repo.platforms)

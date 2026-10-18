@@ -248,12 +248,20 @@ func stateKitRawActionHandler(server any, ctx context.Context, decode func(any) 
 	if err := decode(&request); err != nil {
 		return nil, err
 	}
+	actionServer, ok := server.(stateKitRawActionServer)
+	if !ok {
+		return nil, status.Error(codes.Internal, "测试动作服务类型无效")
+	}
 	if interceptor == nil {
-		return server.(stateKitRawActionServer).runRawAction(ctx, request)
+		return actionServer.runRawAction(ctx, request)
 	}
 	info := &grpc.UnaryServerInfo{Server: server, FullMethod: "/sub2api.plugin.v1.TransportPlugin/RunAction"}
 	return interceptor(ctx, request, info, func(ctx context.Context, request any) (any, error) {
-		return server.(stateKitRawActionServer).runRawAction(ctx, request.([]byte))
+		rawRequest, ok := request.([]byte)
+		if !ok {
+			return nil, status.Error(codes.Internal, "测试动作请求类型无效")
+		}
+		return actionServer.runRawAction(ctx, rawRequest)
 	})
 }
 

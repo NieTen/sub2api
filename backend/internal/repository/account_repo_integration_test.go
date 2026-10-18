@@ -505,6 +505,39 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_status_active_includes_null_failed_and_recovered_codex_probes",
+			setup: func(client *dbent.Client) {
+				now := time.Now().UTC()
+				for _, probe := range []struct {
+					name  string
+					state map[string]any
+				}{
+					{name: "active-null-probe"},
+					{name: "active-failed-probe", state: map[string]any{"status": "failed", "recover_at": now.Add(time.Hour).Format(time.RFC3339Nano)}},
+					{name: "active-probe-without-recovery", state: map[string]any{"status": "passed"}},
+					{name: "active-recovered-probe", state: map[string]any{"status": "passed", "recover_at": now.Add(-time.Hour).Format(time.RFC3339Nano)}},
+				} {
+					mustCreateAccount(s.T(), client, &service.Account{
+						Name:        probe.name,
+						Status:      service.StatusActive,
+						Schedulable: true,
+						Extra:       map[string]any{service.CodexQuotaOverdraftProbeExtraKey: probe.state},
+					})
+				}
+			},
+			status:    service.StatusActive,
+			wantCount: 4,
+			validate: func(accounts []service.Account) {
+				names := make([]string, 0, len(accounts))
+				for _, account := range accounts {
+					names = append(names, account.Name)
+				}
+				s.ElementsMatch([]string{
+					"active-null-probe", "active-failed-probe", "active-probe-without-recovery", "active-recovered-probe",
+				}, names)
+			},
+		},
+		{
 			name: "filter_by_status_overdrafting_only_returns_active_codex_overdrafting_accounts",
 			setup: func(client *dbent.Client) {
 				now := time.Now().UTC()

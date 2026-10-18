@@ -115,9 +115,13 @@ func TestOKPayHMACNestedSortingAndArrayPaths(t *testing.T) {
 	require.NoError(t, err)
 	// 原文为 data.a[0].amount=1.2300&data.a[0].sign=child-sign&data.a[0].x=false&data.a[1]=0&data.z=2&id=42。
 	require.Equal(t, "E17649FB14ED03DEEC5FB1577883F8E2A66C342FDE6312DF517152CCB73E1787", sign)
-	data := fields[1].value.(okpayArray)
+	data, ok := fields[1].value.(okpayArray)
+	require.True(t, ok)
 	data[0], data[1] = data[1], data[0]
-	child := data[0].value.(okpayJSONArray)[0].(okpayArray)
+	children, ok := data[0].value.(okpayJSONArray)
+	require.True(t, ok)
+	child, ok := children[0].(okpayArray)
+	require.True(t, ok)
 	child[0], child[2] = child[2], child[0]
 	reordered, err := okpayHMACSign(fields, "nested-token")
 	require.NoError(t, err)

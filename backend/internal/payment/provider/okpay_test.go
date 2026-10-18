@@ -111,7 +111,8 @@ func TestOKPayFormPreservesNestedIndexesAndRejectsAmbiguity(t *testing.T) {
 	fields, err := okpayDecodeForm("data%5B2%5D=two&data%5B0%5D=zero&data%5B%5D=three&id=123")
 	require.NoError(t, err)
 	value, _ := fields.get("data")
-	data := value.(okpayArray)
+	data, ok := value.(okpayArray)
+	require.True(t, ok)
 	require.Equal(t, []string{"2", "0", "3"}, []string{data[0].key, data[1].key, data[2].key})
 	for _, raw := range []string{"data[x]=1&data[x]=2", "data[x]tail=1", "data[x=1", "data=1&data[x]=2", "data[x][y]=1&data[x]=2"} {
 		_, err := okpayDecodeForm(raw)

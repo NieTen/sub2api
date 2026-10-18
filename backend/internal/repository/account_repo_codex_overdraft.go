@@ -255,7 +255,7 @@ func codexQuotaOverdraftingSQLPredicate(s *entsql.Selector) *entsql.Predicate {
 		})
 	}
 
-	return entsql.And(
+	overdrafting := entsql.And(
 		entsql.P(func(b *entsql.Builder) {
 			b.WriteString(probeField("status") + " = 'passed'")
 		}),
@@ -265,4 +265,8 @@ func codexQuotaOverdraftingSQLPredicate(s *entsql.Selector) *entsql.Predicate {
 			recoverAfterNow("seven_day_recover_at"),
 		),
 	)
+	// 缺失探测字段会产生 SQL NULL，统一视为未透支，避免 NOT(NULL) 误排除正常账户。
+	return entsql.P(func(b *entsql.Builder) {
+		b.WriteString("COALESCE(").Join(overdrafting).WriteString(", FALSE)")
+	})
 }

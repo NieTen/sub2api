@@ -91,7 +91,8 @@ func TestPluginHostAdaptationStoppedResourcesAndLiveRevocation(t *testing.T) {
 	require.Empty(t, manager.runtimes)
 	// 使用与数据库记录独立的运行时快照，模拟另一副本关闭、换包或改变能力。
 	snapshot := *installation
-	server := manager.buildHostServices(&snapshot).(*pluginHostServiceServer)
+	server, ok := manager.buildHostServices(&snapshot).(*pluginHostServiceServer)
+	require.True(t, ok, "宿主服务应使用预期实现")
 	_, err = server.ListResources(context.Background(), &pluginv1.ListResourcesRequest{})
 	require.NoError(t, err)
 	installation.HostAdaptationEnabled = false

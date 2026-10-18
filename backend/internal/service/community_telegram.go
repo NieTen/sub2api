@@ -123,7 +123,7 @@ func (s *CommunityService) getChatMember(ctx context.Context, token, chatID stri
 		return nil, err
 	}
 	if result.User.ID != userID || result.Status == "" {
-		return nil, errors.New("Telegram 成员状态响应无效")
+		return nil, errors.New("无效的 Telegram 成员状态响应")
 	}
 	return &result, nil
 }

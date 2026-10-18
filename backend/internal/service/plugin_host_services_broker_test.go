@@ -90,7 +90,7 @@ func TestOfferPluginHostServices_BrokerRoundtrip(t *testing.T) {
 
 	store := newFakePluginKVStore()
 	hostServer := newPluginHostServiceServer("test.plugin", store, nil, PluginAccountScope{})
-	offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, hostServer, 5*time.Second)
+	require.NoError(t, offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, hostServer, 5*time.Second))
 
 	probe.mu.Lock()
 	defer probe.mu.Unlock()
@@ -112,9 +112,11 @@ func TestOfferPluginHostServices_UnimplementedIsGraceful(t *testing.T) {
 
 	store := newFakePluginKVStore()
 	hostServer := newPluginHostServiceServer("test.plugin", store, nil, PluginAccountScope{})
+	var offerErr error
 	require.NotPanics(t, func() {
-		offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, hostServer, 5*time.Second)
+		offerErr = offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, hostServer, 5*time.Second)
 	})
+	require.NoError(t, offerErr)
 
 	_, found, err := store.Get(context.Background(), "test.plugin", "state", "probe")
 	require.NoError(t, err)
@@ -124,7 +126,9 @@ func TestOfferPluginHostServices_UnimplementedIsGraceful(t *testing.T) {
 // hostServices 为 nil（未配置键值存储）时不得触发任何 broker 交互。
 func TestOfferPluginHostServices_NilHostServicesNoop(t *testing.T) {
 	tc := dispenseTransportClient(t, &noHostServicesPlugin{})
+	var offerErr error
 	require.NotPanics(t, func() {
-		offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, nil, 5*time.Second)
+		offerErr = offerPluginHostServices(context.Background(), &PluginInstallation{PluginKey: "test.plugin"}, tc.TransportPluginClient, tc.Broker, nil, 5*time.Second)
 	})
+	require.NoError(t, offerErr)
 }
