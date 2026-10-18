@@ -135,19 +135,20 @@ func okpayPHPScalar(value any) (string, error) {
 
 func okpayPHPURLDecode(value string) string {
 	var decoded strings.Builder
+	// strings.Builder.WriteByte 始终返回 nil，显式忽略其错误值。
 	for i := 0; i < len(value); i++ {
 		if value[i] == '+' {
-			decoded.WriteByte(' ')
+			_ = decoded.WriteByte(' ')
 			continue
 		}
 		if value[i] == '%' && i+2 < len(value) {
 			if b, err := strconv.ParseUint(value[i+1:i+3], 16, 8); err == nil {
-				decoded.WriteByte(byte(b))
+				_ = decoded.WriteByte(byte(b))
 				i += 2
 				continue
 			}
 		}
-		decoded.WriteByte(value[i])
+		_ = decoded.WriteByte(value[i])
 	}
 	return decoded.String()
 }

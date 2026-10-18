@@ -1242,7 +1242,7 @@ func init() {
 	// group.DefaultProfitSafetyBuffer holds the default value on creation for the profit_safety_buffer field.
 	group.DefaultProfitSafetyBuffer = groupDescProfitSafetyBuffer.Default.(float64)
 	// groupDescCodexOverdraftEnabled is the schema descriptor for codex_overdraft_enabled field.
-	groupDescCodexOverdraftEnabled := groupFields[63].Descriptor()
+	groupDescCodexOverdraftEnabled := groupFields[64].Descriptor()
 	// group.DefaultCodexOverdraftEnabled holds the default value on creation for the codex_overdraft_enabled field.
 	group.DefaultCodexOverdraftEnabled = groupDescCodexOverdraftEnabled.Default.(bool)
 	idempotencyrecordMixin := schema.IdempotencyRecord{}.Mixin()

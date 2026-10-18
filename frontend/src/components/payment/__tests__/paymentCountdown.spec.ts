@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { enableAutoUnmount, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import PaymentQRDialog from '../PaymentQRDialog.vue'
 import PaymentStatusPanel from '../PaymentStatusPanel.vue'
 import PaymentQRCodeView from '@/views/user/PaymentQRCodeView.vue'
+
+const getOrder = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('vue-i18n')>(),
@@ -15,10 +17,11 @@ vi.mock('@/stores/payment', () => ({
   usePaymentStore: () => ({ pollOrderStatus: vi.fn().mockResolvedValue(null) }),
 }))
 vi.mock('@/stores', () => ({ useAppStore: () => ({ showError: vi.fn() }) }))
-vi.mock('@/api/payment', () => ({ paymentAPI: {} }))
+vi.mock('@/api/payment', () => ({ paymentAPI: { getOrder } }))
 vi.mock('qrcode', () => ({ default: { toCanvas: vi.fn() } }))
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ query: { order_id: '42', expires_at: new Date(Date.now() + 120_000).toISOString() } }),
+  // 查询参数故意过期，确保页面倒计时使用服务端订单的到期时间。
+  useRoute: () => ({ query: { order_id: '42', expires_at: '2000-01-01T00:00:00Z' } }),
   useRouter: () => ({ push: vi.fn() }),
 }))
 
@@ -26,6 +29,9 @@ enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-09-30T12:00:00Z'))
+  getOrder.mockReset().mockResolvedValue({
+    data: { id: 42, payment_type: 'custom', status: 'PENDING', expires_at: new Date(Date.now() + 120_000).toISOString() },
+  })
 })
 afterEach(() => vi.useRealTimers())
 
@@ -36,7 +42,11 @@ async function open(kind: 'dialog' | 'panel' | 'page') {
     AppLayout: { template: '<div><slot /></div>' },
     BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' },
   } }
-  if (kind === 'page') return mount(PaymentQRCodeView, { global })
+  if (kind === 'page') {
+    const wrapper = mount(PaymentQRCodeView, { global })
+    await flushPromises()
+    return wrapper
+  }
   if (kind === 'panel') return mount(PaymentStatusPanel, { props, global })
   const wrapper = mount(PaymentQRDialog, { props: { ...props, show: false }, global })
   await wrapper.setProps({ show: true })

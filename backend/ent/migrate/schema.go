@@ -1020,7 +1020,7 @@ var (
 			{
 				Name:    "idx_groups_codex_overdraft_enabled_active",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[67]},
+				Columns: []*schema.Column{GroupsColumns[68]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "codex_overdraft_enabled = TRUE AND deleted_at IS NULL",
 				},
@@ -1028,7 +1028,7 @@ var (
 			{
 				Name:    "idx_groups_codex_overdraft_next_group_id_active",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[68]},
+				Columns: []*schema.Column{GroupsColumns[69]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "codex_overdraft_next_group_id IS NOT NULL AND deleted_at IS NULL",
 				},

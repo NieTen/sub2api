@@ -174,7 +174,7 @@ func (p *TRC20) requestJSON(ctx context.Context, method, path string, body []byt
 		}
 		return fmt.Errorf("查询 TRON 主网失败: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			gate.deferRequests(gateKey, resp.Header.Get("Retry-After"))

@@ -171,13 +171,13 @@ func (h *SupportTicketHandler) Upload(admin bool) gin.HandlerFunc {
 			response.BadRequest(c, "请上传不超过 5 MB 的图片")
 			return
 		}
-		defer c.Request.MultipartForm.RemoveAll()
+		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
 		file, header, err := c.Request.FormFile("file")
 		if err != nil {
 			response.BadRequest(c, "缺少图片文件")
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		data, err := io.ReadAll(io.LimitReader(file, maxImageSize+1))
 		if err != nil || len(data) > maxImageSize {
 			response.BadRequest(c, "图片读取失败或超过 5 MB")

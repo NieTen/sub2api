@@ -344,16 +344,32 @@ func (s *AntigravityGatewayService) IsModelSupported(requestedModel string) bool
 		strings.HasPrefix(requestedModel, "gemini-")
 }
 
+// TestConnectionImage 测试连接返回的图片结果
+type TestConnectionImage struct {
+	ImageURL string
+	MimeType string
+}
+
 // TestConnectionResult 测试连接结果
 type TestConnectionResult struct {
-	Text        string // 响应文本
-	MappedModel string // 实际使用的模型
+	Text        string                // 响应文本
+	Images      []TestConnectionImage // 响应图片（图片生成模型）
+	MappedModel string                // 实际使用的模型
+}
+
+func shouldUseAntigravityGeminiTestRequest(_, mappedModel string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(mappedModel)), "gemini-")
 }
 
 // TestConnection 测试 Antigravity 账号连接。
 // 复用 antigravityRetryLoop 的完整重试 / credits overages / 智能重试逻辑，
 // 与真实调度行为一致。差异：不做账号切换（测试指定账号）、不记录 ops 错误。
 func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account *Account, modelID string) (*TestConnectionResult, error) {
+	return s.TestConnectionWithPrompt(ctx, account, modelID, "")
+}
+
+// TestConnectionWithPrompt 测试 Antigravity 账号连接，支持为图片生成模型指定测试提示词。
+func (s *AntigravityGatewayService) TestConnectionWithPrompt(ctx context.Context, account *Account, modelID string, prompt string) (*TestConnectionResult, error) {
 
 	// 获取 token
 	if s.tokenProvider == nil {
@@ -377,8 +393,8 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 
 	// 构建请求体
 	var requestBody []byte
-	if strings.HasPrefix(modelID, "gemini-") {
-		requestBody, err = s.buildGeminiTestRequest(projectID, mappedModel, accountModelDetectionPrompt(ctx))
+	if shouldUseAntigravityGeminiTestRequest(modelID, mappedModel) {
+		requestBody, err = s.buildGeminiTestRequestWithPrompt(projectID, mappedModel, prompt, accountModelDetectionPrompt(ctx))
 	} else {
 		requestBody, err = s.buildClaudeTestRequest(projectID, mappedModel, accountModelDetectionPrompt(ctx))
 	}
@@ -455,8 +471,8 @@ func (s *AntigravityGatewayService) TestConnection(ctx context.Context, account 
 	if accountModelDetectionPrompt(ctx) != "" && !modelDetectionGeminiComplete(respBody) {
 		return nil, errors.New("模型检测响应未正常结束，本次不计入能力评分")
 	}
-	text := extractTextFromSSEResponse(respBody, accountModelDetectionPrompt(ctx) != "")
-	return &TestConnectionResult{Text: text, MappedModel: mappedModel}, nil
+	text, images := extractContentFromSSEResponse(respBody, accountModelDetectionPrompt(ctx) != "")
+	return &TestConnectionResult{Text: text, Images: images, MappedModel: mappedModel}, nil
 }
 
 // testConnectionHandleError 是 TestConnection 使用的轻量 handleError 回调。
@@ -472,9 +488,44 @@ func testConnectionHandleError(
 	return nil
 }
 
-// buildGeminiTestRequest 构建 Gemini 格式测试请求
-// 使用最小 token 消耗：输入 "." + maxOutputTokens: 1
+// buildGeminiTestRequest 保留原有文本测试请求入口，支持模型检测提示词。
 func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string, detectionPrompt ...string) ([]byte, error) {
+	return s.buildGeminiTestRequestWithPrompt(projectID, model, "", detectionPrompt...)
+}
+
+// buildGeminiTestRequestWithPrompt 构建 Gemini 格式测试请求
+// 文本模型使用最小 token 消耗：输入 "." + maxOutputTokens: 1；图片模型使用图片生成配置
+func (s *AntigravityGatewayService) buildGeminiTestRequestWithPrompt(projectID, model, prompt string, detectionPrompt ...string) ([]byte, error) {
+	if isImageGenerationModel(model) && (len(detectionPrompt) == 0 || detectionPrompt[0] == "") {
+		imagePrompt := strings.TrimSpace(prompt)
+		if imagePrompt == "" {
+			imagePrompt = defaultGeminiImageTestPrompt
+		}
+		payload := map[string]any{
+			"contents": []map[string]any{
+				{
+					"role": "user",
+					"parts": []map[string]any{
+						{"text": imagePrompt},
+					},
+				},
+			},
+			"systemInstruction": map[string]any{
+				"parts": []map[string]any{
+					{"text": antigravity.GetDefaultIdentityPatch()},
+				},
+			},
+			"generationConfig": map[string]any{
+				"responseModalities": []string{"TEXT", "IMAGE"},
+				"imageConfig": map[string]any{
+					"aspectRatio": "1:1",
+				},
+			},
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		return s.wrapV1InternalRequest(projectID, model, payloadBytes)
+	}
+
 	payload := map[string]any{
 		"contents": []map[string]any{
 			{
@@ -492,6 +543,11 @@ func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model stri
 		},
 		"generationConfig": map[string]any{
 			"maxOutputTokens": 1,
+		},
+		"toolConfig": map[string]any{
+			"functionCallingConfig": map[string]any{
+				"mode": "VALIDATED",
+			},
 		},
 	}
 	if len(detectionPrompt) > 0 && detectionPrompt[0] != "" {
@@ -536,7 +592,14 @@ func (s *AntigravityGatewayService) getClaudeTransformOptions(ctx context.Contex
 
 // extractTextFromSSEResponse 从 SSE 流式响应中提取文本
 func extractTextFromSSEResponse(respBody []byte, excludeThoughts ...bool) string {
+	text, _ := extractContentFromSSEResponse(respBody, excludeThoughts...)
+	return text
+}
+
+// extractContentFromSSEResponse 从 SSE 流式响应中提取文本和内联图片
+func extractContentFromSSEResponse(respBody []byte, excludeThoughts ...bool) (string, []TestConnectionImage) {
 	var texts []string
+	var images []TestConnectionImage
 	lines := bytes.Split(respBody, []byte("\n"))
 
 	for _, line := range lines {
@@ -562,7 +625,7 @@ func extractTextFromSSEResponse(respBody []byte, excludeThoughts ...bool) string
 			continue
 		}
 
-		// 尝试从 response.candidates[0].content.parts[].text 提取
+		// 尝试从 response.candidates[0].content.parts[] 提取
 		response, ok := data["response"].(map[string]any)
 		if !ok {
 			// 尝试直接从 candidates 提取（某些响应格式）
@@ -598,11 +661,21 @@ func extractTextFromSSEResponse(respBody []byte, excludeThoughts ...bool) string
 				if text, ok := partMap["text"].(string); ok && text != "" {
 					texts = append(texts, text)
 				}
+				if inlineData, ok := partMap["inlineData"].(map[string]any); ok {
+					mimeType, _ := inlineData["mimeType"].(string)
+					b64Data, _ := inlineData["data"].(string)
+					if strings.HasPrefix(strings.ToLower(mimeType), "image/") && b64Data != "" {
+						images = append(images, TestConnectionImage{
+							ImageURL: fmt.Sprintf("data:%s;base64,%s", mimeType, b64Data),
+							MimeType: mimeType,
+						})
+					}
+				}
 			}
 		}
 	}
 
-	return strings.Join(texts, "")
+	return strings.Join(texts, ""), images
 }
 
 // injectIdentityPatchToGeminiRequest 为 Gemini 格式请求注入身份提示词

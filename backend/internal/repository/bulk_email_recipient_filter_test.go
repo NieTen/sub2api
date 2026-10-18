@@ -32,7 +32,7 @@ func TestBulkEmailSnapshotAppliesBalanceAndPaidOrderConditions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			mock.ExpectBegin()
 			mock.ExpectQuery(`INSERT INTO bulk_email_batches.*recipient_filter`).WithArgs(int64(7), "标题", "正文", "[]", 0, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(1), time.Now(), time.Now()))
 			args := []driver.Value{int64(1), tc.allActive, "{2}", sqlmock.AnyArg()}
@@ -53,7 +53,7 @@ func TestBulkEmailSnapshotAppliesBalanceAndPaidOrderConditions(t *testing.T) {
 func TestBulkEmailInvalidFilterNeverCreatesTransaction(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	err = NewBulkEmailRepository(db).CreateDraft(context.Background(), &service.BulkEmailBatch{RecipientFilter: service.BulkEmailRecipientFilter{RechargeCondition: "gifted"}}, nil, true)
 	require.ErrorIs(t, err, service.ErrBulkEmailRecipientFilter)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -64,7 +64,7 @@ func TestBulkEmailStoredFiltersAndLegacyBatchesRemainReadable(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			columns := []string{"id", "created_by", "subject", "body", "status", "created_at", "updated_at", "image_count", "total", "sent", "failed", "recipient_filter", "images"}
 			mock.ExpectQuery(`(?s)SELECT .*b.recipient_filter,b.images FROM bulk_email_batches b WHERE b.id=\$1`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows(columns).AddRow(1, 7, "标题", "正文", "draft", time.Now(), time.Now(), 0, 1, 0, 0, raw, `[]`))
 			batch, err := NewBulkEmailRepository(db).Get(context.Background(), 1)
@@ -84,7 +84,7 @@ func TestBulkEmailStoredFiltersAndLegacyBatchesRemainReadable(t *testing.T) {
 func TestBulkEmailFilterSnapshotIsStoredWithDraft(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	filter := service.BulkEmailRecipientFilter{BalanceCondition: "non_positive", RechargeCondition: "recharged"}
 	encoded, err := json.Marshal(filter)
 	require.NoError(t, err)

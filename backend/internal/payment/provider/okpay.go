@@ -589,7 +589,7 @@ func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpay
 	if err != nil {
 		return nil, okpayClassifiedFailure(okpayCheckRequestFailed, fmt.Errorf("OKPay 请求失败: %w", err))
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, okpayMaxResponseSize+1))
 	if debug != nil {
 		debug.responseBytes = len(body)
