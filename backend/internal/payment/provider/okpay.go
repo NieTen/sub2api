@@ -499,9 +499,10 @@ func (o *OKPay) post(ctx context.Context, path string, fields okpayArray) (okpay
 func (o *OKPay) postWithTransport(ctx context.Context, path string, fields okpayArray, mode string) (result okpayArray, err error) {
 	// 诊断可以单独选择协议；正式支付严格使用配置，不因失败自动降级或重复下单。
 	algorithm := o.config["signatureAlgorithm"]
-	if mode == okpayTransportPHPReference {
+	switch mode {
+	case okpayTransportPHPReference:
 		algorithm = OKPaySignatureLegacyMD5
-	} else if mode == okpayTransportHMAC {
+	case okpayTransportHMAC:
 		algorithm = OKPaySignatureHMACSHA256
 	}
 	var debug *okpayDebugRequest

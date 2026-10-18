@@ -233,6 +233,7 @@ func TestOKPayReturnURLIntegrationInvalidSavedConfigNeverCallsGateway(t *testing
 }
 
 func TestResolveCreateOrderReturnURLPreservesFallbackAndOtherProviders(t *testing.T) {
+	// 客户端查询参数统一清理，防止支付签名参数夹带；管理员配置地址的普通参数由前面的集成测试覆盖。
 	for _, tc := range []struct {
 		name       string
 		selection  *payment.InstanceSelection
@@ -241,9 +242,9 @@ func TestResolveCreateOrderReturnURLPreservesFallbackAndOtherProviders(t *testin
 		expectFail bool
 	}{
 		{
-			name: "OKPay空配置保持同源HTTP规则", selection: &payment.InstanceSelection{ProviderKey: payment.TypeOKPay, Config: map[string]string{}},
+			name: "OKPay空配置保持同源HTTP并清理客户端参数", selection: &payment.InstanceSelection{ProviderKey: payment.TypeOKPay, Config: map[string]string{}},
 			request:  CreateOrderRequest{SrcHost: "client.example", ReturnURL: "http://client.example/payment/result?lang=zh#fragment"},
-			expected: "http://client.example/payment/result?lang=zh",
+			expected: "http://client.example/payment/result",
 		},
 		{
 			name: "空白配置保持浏览器来源规则", selection: &payment.InstanceSelection{ProviderKey: payment.TypeOKPay, Config: map[string]string{"returnUrl": " \t "}},
@@ -255,9 +256,9 @@ func TestResolveCreateOrderReturnURLPreservesFallbackAndOtherProviders(t *testin
 			request: CreateOrderRequest{SrcHost: "client.example", ReturnURL: "https://external.example/payment/result"}, expectFail: true,
 		},
 		{
-			name: "其他服务商不采用配置覆盖", selection: &payment.InstanceSelection{ProviderKey: payment.TypeEasyPay, Config: map[string]string{"returnUrl": "https://configured.example/another/path"}},
+			name: "其他服务商不采用配置覆盖并清理客户端参数", selection: &payment.InstanceSelection{ProviderKey: payment.TypeEasyPay, Config: map[string]string{"returnUrl": "https://configured.example/another/path"}},
 			request:  CreateOrderRequest{PaymentType: payment.TypeOKPay, SrcHost: "client.example", ReturnURL: "https://client.example/payment/result?lang=zh"},
-			expected: "https://client.example/payment/result?lang=zh",
+			expected: "https://client.example/payment/result",
 		},
 		{
 			name: "其他服务商仍拒绝外域客户端地址", selection: &payment.InstanceSelection{ProviderKey: payment.TypeEasyPay, Config: map[string]string{"returnUrl": "https://external.example/payment/result"}},

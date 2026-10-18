@@ -40,7 +40,7 @@ func (r *paymentTRC20Repository) Allocate(ctx context.Context, input service.Pay
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var orderID int64
 	// 绑定已存在账单及实例，前端或其他调用方不能为不同金额的订单分配链上意图。
 	err = tx.QueryRowContext(ctx, `SELECT id FROM payment_orders WHERE id=$1 AND out_trade_no=$2 AND provider_key='usdt_trc20' AND pay_amount=$3 AND provider_instance_id=$4 AND created_at=$5 AND expires_at=$6 FOR UPDATE`, input.OrderID, input.OutTradeNo, input.BaseAmount, input.ProviderInstanceID, input.CreatedAt, input.ExpiresAt).Scan(&orderID)
@@ -97,7 +97,7 @@ func (r *paymentTRC20Repository) ClaimTransfer(ctx context.Context, orderID int6
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	intent, err := scanTRC20Intent(tx.QueryRowContext(ctx, `SELECT `+trc20IntentColumns+` FROM payment_trc20_intents WHERE order_id=$1 FOR UPDATE`, orderID))
 	if err != nil {
 		return nil, err
@@ -133,7 +133,7 @@ func (r *paymentTRC20Repository) ListForPoll(ctx context.Context, limit int) ([]
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	intents := []service.PaymentTRC20Intent{}
 	for rows.Next() {
 		intent, scanErr := scanTRC20Intent(rows)

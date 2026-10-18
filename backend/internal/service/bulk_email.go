@@ -219,9 +219,10 @@ func (s *BulkEmailService) process(ctx context.Context) {
 
 func supportEmailHTML(body string, images []EmailInlineImage) string {
 	var b strings.Builder
-	b.WriteString("<div style=\"white-space:pre-wrap\">")
-	b.WriteString(html.EscapeString(body))
-	b.WriteString("</div>")
+	// strings.Builder.WriteString 始终返回 nil，显式忽略其错误值。
+	_, _ = b.WriteString("<div style=\"white-space:pre-wrap\">")
+	_, _ = b.WriteString(html.EscapeString(body))
+	_, _ = b.WriteString("</div>")
 	for i := range images {
 		fmt.Fprintf(&b, "<p><img src=\"cid:image-%d\" style=\"max-width:100%%\" alt=\"附件图片\"></p>", i)
 	}

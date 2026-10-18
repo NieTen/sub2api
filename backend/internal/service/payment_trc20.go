@@ -151,7 +151,6 @@ func (s *PaymentTRC20Service) Poll(ctx context.Context, resolve func(context.Con
 	completed := 0
 	var firstErr error
 	for _, intent := range intents {
-		err = nil
 		if err = ctx.Err(); err != nil {
 			return completed, err
 		}

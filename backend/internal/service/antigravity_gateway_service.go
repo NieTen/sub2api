@@ -488,11 +488,6 @@ func testConnectionHandleError(
 	return nil
 }
 
-// buildGeminiTestRequest 保留原有文本测试请求入口，支持模型检测提示词。
-func (s *AntigravityGatewayService) buildGeminiTestRequest(projectID, model string, detectionPrompt ...string) ([]byte, error) {
-	return s.buildGeminiTestRequestWithPrompt(projectID, model, "", detectionPrompt...)
-}
-
 // buildGeminiTestRequestWithPrompt 构建 Gemini 格式测试请求
 // 文本模型使用最小 token 消耗：输入 "." + maxOutputTokens: 1；图片模型使用图片生成配置
 func (s *AntigravityGatewayService) buildGeminiTestRequestWithPrompt(projectID, model, prompt string, detectionPrompt ...string) ([]byte, error) {
@@ -588,12 +583,6 @@ func (s *AntigravityGatewayService) getClaudeTransformOptions(ctx context.Contex
 	opts.EnableIdentityPatch = s.settingService.IsIdentityPatchEnabled(ctx)
 	opts.IdentityPatch = s.settingService.GetIdentityPatchPrompt(ctx)
 	return opts
-}
-
-// extractTextFromSSEResponse 从 SSE 流式响应中提取文本
-func extractTextFromSSEResponse(respBody []byte, excludeThoughts ...bool) string {
-	text, _ := extractContentFromSSEResponse(respBody, excludeThoughts...)
-	return text
 }
 
 // extractContentFromSSEResponse 从 SSE 流式响应中提取文本和内联图片

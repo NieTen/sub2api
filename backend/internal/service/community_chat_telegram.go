@@ -222,18 +222,18 @@ func (s *CommunityService) downloadCommunityFile(ctx context.Context, token, fil
 	}
 	response, err := s.delivery.client.Do(request)
 	if err != nil {
-		return nil, errors.New("Telegram 附件下载失败")
+		return nil, errors.New("下载 Telegram 附件失败")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Telegram 附件读取失败（状态 %d）", response.StatusCode)
+		return nil, fmt.Errorf("读取 Telegram 附件失败（状态 %d）", response.StatusCode)
 	}
 	if response.ContentLength > limit {
 		return nil, ErrCommunityInvalid
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil || int64(len(data)) > limit {
-		return nil, errors.New("Telegram 附件读取失败或超过大小限制")
+		return nil, errors.New("读取 Telegram 附件失败或超过大小限制")
 	}
 	mime := http.DetectContentType(data)
 	switch mime {

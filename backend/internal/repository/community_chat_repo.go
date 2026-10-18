@@ -71,7 +71,7 @@ func (r *communityRepository) ListChatMessages(ctx context.Context, group int64,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &service.CommunityChatPage{Items: []service.CommunityChatMessage{}, LatestID: f.AfterID}
 	for rows.Next() {
 		m, err := scanCommunityChat(rows)

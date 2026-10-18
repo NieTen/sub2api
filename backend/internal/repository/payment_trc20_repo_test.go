@@ -30,7 +30,7 @@ func trc20RepoTestAmountRows(start time.Time, hash string, amountUnits int64) *s
 func TestTRC20AllocationSerializesWalletAndPermanentlyExcludesUsedAmounts(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	r := NewPaymentTRC20Repository(db)
 	start := time.Now().Truncate(time.Millisecond)
 	input := service.PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order-1", ProviderInstanceID: "2", WalletAddress: "wallet", BaseAmount: 10, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
@@ -51,7 +51,7 @@ func TestTRC20AllocationSerializesWalletAndPermanentlyExcludesUsedAmounts(t *tes
 func TestTRC20AllocationReturnsLegacyIntentWithoutReallocating(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	start := time.Now().Truncate(time.Millisecond)
 	input := service.PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order-1", ProviderInstanceID: "2", WalletAddress: "wallet", BaseAmount: 10, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
 	mock.ExpectBegin()
@@ -67,7 +67,7 @@ func TestTRC20AllocationReturnsLegacyIntentWithoutReallocating(t *testing.T) {
 func TestTRC20AllocationExhaustionRollsBackWithoutIncreasingLimit(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	start := time.Now().Truncate(time.Millisecond)
 	input := service.PaymentTRC20CreateInput{OrderID: 1, OutTradeNo: "order-1", ProviderInstanceID: "2", WalletAddress: "wallet", BaseAmount: 10, CreatedAt: start, ExpiresAt: start.Add(time.Hour)}
 	mock.ExpectBegin()
@@ -99,14 +99,14 @@ func TestTRC20ClaimValidatesExactAmountAddressAndWindowBeforeWriting(t *testing.
 		_, err = NewPaymentTRC20Repository(db).ClaimTransfer(context.Background(), 1, transfer)
 		require.Error(t, err)
 		require.NoError(t, mock.ExpectationsWereMet())
-		db.Close()
+		_ = db.Close()
 	}
 }
 
 func TestTRC20DuplicateTransactionCannotBeCreditedToAnotherOrder(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	start := time.Now().Truncate(time.Millisecond)
 	transfer := payment.TRC20Transfer{TransactionHash: strings.Repeat("a", 64), WalletAddress: "wallet", AmountUnits: 10000001, BlockTimestamp: start.Add(time.Minute)}
 	mock.ExpectBegin()
@@ -121,7 +121,7 @@ func TestTRC20DuplicateTransactionCannotBeCreditedToAnotherOrder(t *testing.T) {
 func TestTRC20RepeatedClaimForSameOrderIsIdempotent(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	start := time.Now().Truncate(time.Millisecond)
 	transfer := payment.TRC20Transfer{TransactionHash: strings.Repeat("a", 64), WalletAddress: "wallet", AmountUnits: 10000001, BlockTimestamp: start.Add(time.Minute)}
 	mock.ExpectBegin()
@@ -136,7 +136,7 @@ func TestTRC20RepeatedClaimForSameOrderIsIdempotent(t *testing.T) {
 func TestTRC20PollIncludesDelayedConfirmationAndUnfulfilledClaims(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectQuery(`SELECT .* FROM payment_trc20_intents WHERE credited_at IS NULL AND \(transaction_hash IS NOT NULL OR expires_at>NOW\(\)-INTERVAL '30 minutes'\) ORDER BY checked_at ASC NULLS FIRST,order_id LIMIT \$1`).WithArgs(20).WillReturnRows(trc20RepoTestRows(time.Now(), ""))
 	intents, err := NewPaymentTRC20Repository(db).ListForPoll(context.Background(), 20)
 	require.NoError(t, err)

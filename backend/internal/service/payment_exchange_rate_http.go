@@ -55,7 +55,7 @@ func (s *PaymentExchangeRateService) fetchOKX(ctx context.Context, fetchedAt tim
 		}
 		return nil, errors.New("OKX 汇率网络请求失败")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("OKX 汇率接口返回 HTTP %d", response.StatusCode)
 	}

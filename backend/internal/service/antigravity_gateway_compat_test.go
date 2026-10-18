@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -883,27 +884,32 @@ func TestAntigravityCompatHandlerPreContentKeepalive(t *testing.T) {
 }
 
 func TestAntigravityCompatHandlerRepeatsPreContentKeepalive(t *testing.T) {
-	svc := newAntigravityCompatService(config.GatewayConfig{
-		MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, StreamKeepaliveInterval: 0,
-	}, nil)
-	c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
-	reader, pipeWriter := io.Pipe()
-	defer func() { _ = reader.Close() }()
-	resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
-	done := make(chan error, 1)
-	go func() {
-		_, err := svc.handleAntigravityCompatStreamWithKeepaliveInterval(
-			c, resp, time.Now().Add(-15*time.Millisecond), "gemini-3.1-pro",
-			newAntigravityResponsesStreamAdapter("gemini-3.1-pro"), "test", 15*time.Millisecond, time.Second,
-		)
-		done <- err
-	}()
-	time.Sleep(55 * time.Millisecond)
-	require.NoError(t, pipeWriter.Close())
-	require.Error(t, <-done)
-	require.GreaterOrEqual(t, strings.Count(recorder.Body.String(), ": ping\n\n"), 3)
-	require.Contains(t, recorder.Body.String(), "event: error")
-	require.True(t, IsResponseCommitted(c))
+	// 使用虚拟时间，避免系统定时器粒度和负载导致 55ms 内不足三轮保活。
+	synctest.Test(t, func(t *testing.T) {
+		svc := newAntigravityCompatService(config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, StreamKeepaliveInterval: 0,
+		}, nil)
+		c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
+		reader, pipeWriter := io.Pipe()
+		defer func() { _ = reader.Close() }()
+		resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
+		done := make(chan error, 1)
+		go func() {
+			_, err := svc.handleAntigravityCompatStreamWithKeepaliveInterval(
+				c, resp, time.Now().Add(-15*time.Millisecond), "gemini-3.1-pro",
+				newAntigravityResponsesStreamAdapter("gemini-3.1-pro"), "test", 15*time.Millisecond, time.Second,
+			)
+			done <- err
+		}()
+		// 先等待处理器和上游读取进入阻塞状态，再推进保活计时。
+		synctest.Wait()
+		time.Sleep(55 * time.Millisecond)
+		require.NoError(t, pipeWriter.Close())
+		require.Error(t, <-done)
+		require.GreaterOrEqual(t, strings.Count(recorder.Body.String(), ": ping\n\n"), 3)
+		require.Contains(t, recorder.Body.String(), "event: error")
+		require.True(t, IsResponseCommitted(c))
+	})
 }
 
 func TestAntigravityCompatHandlerPreContentDeadlineWithCommentOnlyStream(t *testing.T) {

@@ -45,13 +45,13 @@ func (r *bulkEmailRepository) CreateDraft(ctx context.Context, b *service.BulkEm
 		for rows.Next() {
 			var id int64
 			if err = rows.Scan(&id); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 			count++
 		}
 		err = rows.Err()
-		rows.Close()
+		_ = rows.Close()
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ func (r *bulkEmailRepository) List(ctx context.Context, page, pageSize int) ([]s
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.BulkEmailBatch{}
 	for rows.Next() {
 		var b service.BulkEmailBatch
@@ -203,7 +203,7 @@ func (r *bulkEmailRepository) Recipients(ctx context.Context, id int64, page, pa
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.BulkEmailRecipient{}
 	for rows.Next() {
 		var v service.BulkEmailRecipient
@@ -269,7 +269,7 @@ func (r *bulkEmailRepository) Claim(ctx context.Context, limit int, lease time.D
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.BulkEmailRecipient{}
 	for rows.Next() {
 		var v service.BulkEmailRecipient

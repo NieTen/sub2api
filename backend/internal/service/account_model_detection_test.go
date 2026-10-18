@@ -159,8 +159,10 @@ func TestModelDetectionStrictClaudeNeedsNormalStopReason(t *testing.T) {
 
 func TestModelDetectionAntigravityExcludesThoughtsOnlyForDetection(t *testing.T) {
 	body := []byte(`data: {"response":{"candidates":[{"content":{"parts":[{"text":"thinking", "thought":true},{"text":"answer"}]},"finishReason":"STOP"}]}}`)
-	require.Equal(t, "answer", extractTextFromSSEResponse(body, true))
-	require.Equal(t, "thinkinganswer", extractTextFromSSEResponse(body))
+	text, _ := extractContentFromSSEResponse(body, true)
+	require.Equal(t, "answer", text)
+	text, _ = extractContentFromSSEResponse(body)
+	require.Equal(t, "thinkinganswer", text)
 }
 
 func TestModelDetectionAntigravityDoesNotRetryOrChangeScheduling(t *testing.T) {
@@ -243,7 +245,7 @@ func TestModelDetectionAntigravityCarriesPromptAndOutputBudget(t *testing.T) {
 		var raw []byte
 		var err error
 		if kind == "gemini" {
-			raw, err = s.buildGeminiTestRequest("fixture-project", "gemini-2.5-flash", "benchmark question")
+			raw, err = s.buildGeminiTestRequestWithPrompt("fixture-project", "gemini-2.5-flash", "", "benchmark question")
 		} else {
 			raw, err = s.buildClaudeTestRequest("fixture-project", "claude-sonnet-4-6", "benchmark question")
 		}

@@ -19,7 +19,7 @@ func TestCommunityPaidBalanceRechargeUsesVerifiedPaymentHistory(t *testing.T) {
 		t.Run(map[bool]string{true: "存在成功支付的余额充值", false: "不存在符合条件的充值"}[paid], func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			mock.ExpectQuery(regexp.QuoteMeta(query)).WithArgs(int64(42)).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(paid))
 			result, err := (&communityRepository{db: db}).HasPaidBalanceRecharge(context.Background(), 42)
 			require.NoError(t, err)
@@ -32,7 +32,7 @@ func TestCommunityPaidBalanceRechargeUsesVerifiedPaymentHistory(t *testing.T) {
 func TestCommunityPaidBalanceRechargeDoesNotHideDatabaseErrors(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	dbErr := errors.New("数据库暂时不可用")
 	mock.ExpectQuery(`SELECT EXISTS .*po.user_id=\$1`).WithArgs(int64(42)).WillReturnError(dbErr)
 	paid, err := (&communityRepository{db: db}).HasPaidBalanceRecharge(context.Background(), 42)

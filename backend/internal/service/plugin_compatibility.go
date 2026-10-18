@@ -78,9 +78,7 @@ func normalizeHostCompatibilitySemver(version string) string {
 	if raw == "" {
 		return ""
 	}
-	if strings.HasPrefix(raw, "v") {
-		raw = strings.TrimPrefix(raw, "v")
-	}
+	raw = strings.TrimPrefix(raw, "v")
 
 	coreEnd := len(raw)
 	if idx := strings.IndexAny(raw, "-+"); idx >= 0 {

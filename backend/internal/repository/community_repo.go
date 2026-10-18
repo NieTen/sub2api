@@ -67,7 +67,7 @@ func (r *communityRepository) transaction(ctx context.Context, fn func(*sql.Tx) 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = fn(tx); err != nil {
 		return communityError(err)
 	}
@@ -480,7 +480,7 @@ func (r *communityRepository) ListMembers(ctx context.Context, groupID, botID in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item service.CommunityMemberItem
 		if err := rows.Scan(&item.UserID, &item.Email, &item.Username, &item.UserStatus, &item.TelegramUserID, &item.TelegramUsername, &item.TelegramName, &item.Status, &item.JoinedAt, &item.InviteExpiresAt); err != nil {
@@ -512,7 +512,7 @@ func (r *communityRepository) ClaimRevocations(ctx context.Context, limit int, l
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.CommunityInvite{}
 	for rows.Next() {
 		i, err := scanCommunityInvite(rows)
@@ -539,7 +539,7 @@ func (r *communityRepository) ClaimWebhooks(ctx context.Context, limit int, leas
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.CommunityWebhookEvent{}
 	for rows.Next() {
 		var e service.CommunityWebhookEvent

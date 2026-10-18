@@ -113,9 +113,10 @@ func (s *BillingService) populateHomeImagePrice(result *HomeModelSystemPrice) {
 		if !hasGrokPrice {
 			// 与 getDefaultImagePrice 的尺寸倍率一致，只对首页展示采用十进制换算。
 			multiplier := 1.0
-			if size == ImageBillingSize2K {
+			switch size {
+			case ImageBillingSize2K:
 				multiplier = 1.5
-			} else if size == ImageBillingSize4K {
+			case ImageBillingSize4K:
 				multiplier = 2
 			}
 			price = scaleHomeModelDisplayPrice(identified.OutputCostPerImage, multiplier)

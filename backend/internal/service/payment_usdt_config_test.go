@@ -101,6 +101,11 @@ func TestTRC20PublicConfigurationAndExplicitKeyClearing(t *testing.T) {
 	require.NotContains(t, responses[0].Config, "apiKey")
 }
 
+// 各渠道余额充值统一以输入的充值本金应用全局倍率，网关换汇不改变入账余额。
+func balanceRechargeMultiplierForCurrency(_ string, configured float64) float64 {
+	return normalizeBalanceRechargeMultiplier(configured)
+}
+
 func TestUSDTCurrencyAndBalanceUseConfiguredMultiplier(t *testing.T) {
 	for _, key := range []string{payment.TypeOKPay, payment.TypeUSDTTRC20} {
 		currency := paymentProviderConfigCurrency(key, map[string]string{"currency": "CNY"})

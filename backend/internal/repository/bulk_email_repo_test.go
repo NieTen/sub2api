@@ -13,7 +13,7 @@ import (
 func TestBulkEmailDraftRollsBackWhenAudienceIsEmpty(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO bulk_email_batches`).WithArgs(int64(7), "标题", "正文", "[]", 0, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(1), time.Now(), time.Now()))
 	mock.ExpectExec(`(?s)INSERT INTO bulk_email_recipients.*DISTINCT ON.*deleted_at IS NULL AND status='active'.*id=ANY.*LIKE ANY`).WithArgs(int64(1), false, "{2}", sqlmock.AnyArg()).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -26,7 +26,7 @@ func TestBulkEmailDraftRollsBackWhenAudienceIsEmpty(t *testing.T) {
 func TestBulkEmailDraftConsumesOnlyLockedOwnedAttachments(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`(?s)SELECT id FROM support_ticket_attachments.*owner_id=\$2 AND message_id IS NULL.*FOR UPDATE`).WithArgs("{11}", int64(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(11)))
 	mock.ExpectQuery(`INSERT INTO bulk_email_batches`).WithArgs(int64(7), "标题", "正文", sqlmock.AnyArg(), 1, sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at"}).AddRow(int64(1), time.Now(), time.Now()))
@@ -42,7 +42,7 @@ func TestBulkEmailDraftConsumesOnlyLockedOwnedAttachments(t *testing.T) {
 func TestBulkEmailDraftRejectsAlreadyConsumedAttachment(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM support_ticket_attachments`).WithArgs("{11}", int64(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectRollback()
@@ -54,7 +54,7 @@ func TestBulkEmailDraftRejectsAlreadyConsumedAttachment(t *testing.T) {
 func TestBulkEmailCompleteRejectsExpiredLease(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	retryAt := time.Now()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT id FROM bulk_email_batches WHERE id=\$1 FOR UPDATE`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
@@ -68,7 +68,7 @@ func TestBulkEmailCompleteRejectsExpiredLease(t *testing.T) {
 func TestBulkEmailClaimOnlyConfirmedBatchesAndUsesLease(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectQuery(`(?s)WITH picked AS.*b.status IN \('queued','sending'\).*r.lease_until<NOW\(\).*FOR UPDATE OF r SKIP LOCKED.*lease_token=\$3`).WithArgs(1, float64(180), sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "batch_id", "user_id", "email", "status", "attempts", "last_error", "sent_at", "lease_token"}).AddRow(int64(1), int64(2), int64(3), "to@example.com", "sending", 1, "", nil, "lease"))
 	items, err := NewBulkEmailRepository(db).Claim(context.Background(), 1, 3*time.Minute)
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestBulkEmailClaimOnlyConfirmedBatchesAndUsesLease(t *testing.T) {
 func TestBulkEmailRetryDoesNotResendSuccessfulRecipients(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT status FROM bulk_email_batches WHERE id=\$1 FOR UPDATE`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow("partial_failed"))
 	mock.ExpectExec(`(?s)UPDATE bulk_email_recipients.*WHERE batch_id=\$1 AND status='failed'`).WithArgs(int64(1)).WillReturnResult(sqlmock.NewResult(0, 2))

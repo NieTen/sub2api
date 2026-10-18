@@ -85,7 +85,7 @@ func (r *modelDetectionRepository) SavePlan(ctx context.Context, p *service.Mode
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	id := p.ID
 	if id == 0 {
 		var accountID int64
@@ -146,7 +146,7 @@ func (r *modelDetectionRepository) ListPlans(ctx context.Context, accountID int6
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []*service.ModelDetectionPlan{}
 	for rows.Next() {
 		p, e := scanDetectionPlan(rows)
@@ -195,7 +195,7 @@ func (r *modelDetectionRepository) Enqueue(ctx context.Context, id int64, trigge
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	p, err := detectionPlan(ctx, tx, id, true)
 	if err != nil {
 		return nil, err
@@ -216,7 +216,7 @@ func (r *modelDetectionRepository) RunAccount(ctx context.Context, p *service.Mo
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var accountID int64
 	if err = tx.QueryRowContext(ctx, `SELECT id FROM accounts WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, p.AccountID).Scan(&accountID); errors.Is(err, sql.ErrNoRows) {
 		return nil, service.ErrAccountNotFound
@@ -255,7 +255,7 @@ func (r *modelDetectionRepository) EnqueueDue(ctx context.Context, limit int) er
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	rows, err := tx.QueryContext(ctx, `SELECT `+detectionPlanColumns+` FROM model_detection_plans p JOIN accounts a ON a.id=p.account_id WHERE p.enabled=TRUE AND p.next_run_at<=NOW() AND a.deleted_at IS NULL AND NOT EXISTS(SELECT 1 FROM model_detection_runs r WHERE r.plan_id=p.id AND r.status IN ('queued','running')) ORDER BY p.next_run_at,p.id LIMIT $1 FOR UPDATE OF p SKIP LOCKED`, limit)
 	if err != nil {
 		return err
@@ -264,13 +264,13 @@ func (r *modelDetectionRepository) EnqueueDue(ctx context.Context, limit int) er
 	for rows.Next() {
 		p, e := scanDetectionPlan(rows)
 		if e != nil {
-			rows.Close()
+			_ = rows.Close()
 			return e
 		}
 		plans = append(plans, p)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return err
 	}
@@ -287,7 +287,7 @@ func (r *modelDetectionRepository) Claim(ctx context.Context, lease time.Duratio
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// 跨实例串行化认领的短事务，整个集群最多同时运行两轮，网络请求不持有事务锁。
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(241,1)`); err != nil {
 		return nil, err
@@ -361,7 +361,7 @@ func (r *modelDetectionRepository) Complete(ctx context.Context, run *service.Mo
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	p, err := detectionPlan(ctx, tx, run.PlanID, true)
 	if err != nil {
 		return err
@@ -427,13 +427,13 @@ func (r *modelDetectionRepository) ExpireLeases(ctx context.Context) error {
 	for rows.Next() {
 		var id int64
 		if err = rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return err
 		}
 		ids = append(ids, id)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (r *modelDetectionRepository) expirePlan(ctx context.Context, id int64) err
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// 删除账号仍保留可查看的失败记录，避免排队任务占住唯一索引。
 	p, err := scanDetectionPlan(tx.QueryRowContext(ctx, `SELECT `+detectionPlanColumns+` FROM model_detection_plans p JOIN accounts a ON a.id=p.account_id WHERE p.id=$1 FOR UPDATE OF p`, id))
 	if err != nil {
@@ -487,7 +487,7 @@ func (r *modelDetectionRepository) listProjectedRuns(ctx context.Context, column
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []*service.ModelDetectionRun{}
 	for rows.Next() {
 		run, e := scanDetectionRun(rows)
@@ -513,13 +513,13 @@ func (r *modelDetectionRepository) Summaries(ctx context.Context, ids []int64) (
 	for rows.Next() {
 		var item service.ModelDetectionSummary
 		if err = rows.Scan(&item.AccountID, &item.PlanCount, &item.RunningCount); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		items = append(items, item)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return nil, err
 	}

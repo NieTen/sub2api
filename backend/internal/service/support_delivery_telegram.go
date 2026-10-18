@@ -70,31 +70,31 @@ func (e *SupportTelegramAPIError) Error() string {
 func (s *SupportDeliveryService) telegramRequest(ctx context.Context, token, method, contentType string, body io.Reader, result any) error {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.telegram.org/bot"+token+"/"+method, body)
 	if err != nil {
-		return errors.New("Telegram 请求构造失败")
+		return errors.New("构造 Telegram 请求失败")
 	}
 	request.Header.Set("Content-Type", contentType)
 	response, err := s.client.Do(request)
 	if err != nil {
-		return errors.New("Telegram 网络请求失败")
+		return errors.New("发送 Telegram 网络请求失败")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return &SupportTelegramAPIError{StatusCode: response.StatusCode}
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, 1024*1024+1))
 	if err != nil || len(data) > 1024*1024 {
-		return errors.New("Telegram 响应过大或读取失败")
+		return errors.New("读取 Telegram 响应失败或响应过大")
 	}
 	var envelope supportTelegramResponse
 	if err = json.Unmarshal(data, &envelope); err != nil {
-		return errors.New("Telegram 返回无效响应")
+		return errors.New("收到 Telegram 无效响应")
 	}
 	if !envelope.OK {
 		return &SupportTelegramAPIError{StatusCode: envelope.ErrorCode}
 	}
 	if result != nil {
 		if err = json.Unmarshal(envelope.Result, result); err != nil {
-			return errors.New("Telegram 响应解析失败")
+			return errors.New("解析 Telegram 响应失败")
 		}
 	}
 	return nil
@@ -139,7 +139,7 @@ func (s *SupportDeliveryService) sendTicketTelegram(ctx context.Context, notific
 			return err
 		}
 		if result.MessageID <= 0 {
-			return errors.New("Telegram 未返回消息编号")
+			return errors.New("未收到 Telegram 消息编号")
 		}
 		if err = s.repo.SaveTelegramMapping(ctx, chatID, result.MessageID, ticket.ID); err != nil {
 			return err
@@ -186,7 +186,7 @@ func (s *SupportDeliveryService) sendTicketTelegram(ctx context.Context, notific
 			return err
 		}
 		if result.MessageID <= 0 {
-			return errors.New("Telegram 未返回图片消息编号")
+			return errors.New("未收到 Telegram 图片消息编号")
 		}
 		if err = s.repo.SaveTelegramMapping(ctx, chatID, result.MessageID, ticket.ID); err != nil {
 			return err
@@ -342,18 +342,18 @@ func (s *SupportDeliveryService) downloadTelegramImage(ctx context.Context, toke
 	}
 	response, err := s.client.Do(request)
 	if err != nil {
-		return result, errors.New("Telegram 图片下载失败")
+		return result, errors.New("下载 Telegram 图片失败")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
-		return result, errors.New("Telegram 图片下载失败")
+		return result, errors.New("下载 Telegram 图片失败")
 	}
 	if response.ContentLength > SupportTicketMaxImageBytes {
 		return result, ErrSupportAttachmentInvalid
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, SupportTicketMaxImageBytes+1))
 	if err != nil {
-		return result, errors.New("Telegram 图片读取失败")
+		return result, errors.New("读取 Telegram 图片失败")
 	}
 	if len(data) > SupportTicketMaxImageBytes {
 		return result, ErrSupportAttachmentInvalid

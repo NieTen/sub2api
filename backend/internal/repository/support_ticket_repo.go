@@ -55,7 +55,7 @@ func (r *supportTicketRepository) ListTickets(ctx context.Context, ownerID int64
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		t, err := scanSupportTicket(rows)
 		if err != nil {
@@ -105,7 +105,7 @@ func (r *supportTicketRepository) loadAttachments(ctx context.Context, messages 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var a service.SupportTicketAttachment
 		if err := rows.Scan(&a.ID, &a.OwnerID, &a.MessageID, &a.FileName, &a.MimeType, &a.Size, &a.CreatedAt); err != nil {
@@ -123,7 +123,7 @@ func (r *supportTicketRepository) CreateTicket(ctx context.Context, ticket *serv
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	err = tx.QueryRowContext(ctx, `INSERT INTO support_tickets (user_id, subject, status) VALUES ($1, $2, 'open') RETURNING id, created_at, updated_at, last_message_at`, ticket.UserID, ticket.Subject).Scan(&ticket.ID, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.LastMessageAt)
 	if err != nil {
 		return err
@@ -140,7 +140,7 @@ func (r *supportTicketRepository) AddMessage(ctx context.Context, message *servi
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var status string
 	var userID int64
 	err = tx.QueryRowContext(ctx, `SELECT status, user_id FROM support_tickets WHERE id = $1 FOR UPDATE`, message.TicketID).Scan(&status, &userID)
@@ -228,7 +228,7 @@ func (r *supportTicketRepository) CreateAttachment(ctx context.Context, a *servi
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var ownerID int64
 	// 用户行锁使草稿数量限制在并发上传时仍然有效。
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, a.OwnerID).Scan(&ownerID); err != nil {
@@ -316,7 +316,7 @@ func (r *supportTicketRepository) ClaimNotifications(ctx context.Context, limit 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	items := []service.SupportTicketNotification{}
 	for rows.Next() {
 		var n service.SupportTicketNotification

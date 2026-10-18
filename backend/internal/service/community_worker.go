@@ -112,7 +112,7 @@ func (s *CommunityService) process(ctx context.Context) {
 		}
 		workCancel()
 		finishCtx, finishCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		retryNeeded := revokeErr != nil && !(revokeAttempted && communityTelegramBadRequest(revokeErr))
+		retryNeeded := revokeErr != nil && (!revokeAttempted || !communityTelegramBadRequest(revokeErr))
 		if !retryNeeded {
 			err = s.repo.CompleteRevocation(finishCtx, invite.ID, invite.LeaseToken)
 		} else {

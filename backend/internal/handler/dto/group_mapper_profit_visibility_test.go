@@ -24,16 +24,16 @@ var codexOverdraftJSONFields = []string{
 func profitControlServiceGroup() *service.Group {
 	nextGroupID := int64(9)
 	return &service.Group{
-		ID:                         7,
-		Name:                       "profit-gated",
-		Platform:                   service.PlatformOpenAI,
-		RateMultiplier:             2.0,
-		Status:                     service.StatusActive,
-		ProfitControlEnabled:       true,
-		ProfitMinMargin:            0.3,
-		ProfitSafetyBuffer:         0.05,
-		CodexOverdraftEnabled:      true,
-		CodexOverdraftNextGroupID:  &nextGroupID,
+		ID:                        7,
+		Name:                      "profit-gated",
+		Platform:                  service.PlatformOpenAI,
+		RateMultiplier:            2.0,
+		Status:                    service.StatusActive,
+		ProfitControlEnabled:      true,
+		ProfitMinMargin:           0.3,
+		ProfitSafetyBuffer:        0.05,
+		CodexOverdraftEnabled:     true,
+		CodexOverdraftNextGroupID: &nextGroupID,
 	}
 }
 

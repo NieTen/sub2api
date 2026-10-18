@@ -14,7 +14,7 @@ import (
 func TestSupportTicketCreateCommitsMessageWithOutbox(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	now := time.Now()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO support_tickets`).WithArgs(int64(2), "工单").WillReturnRows(sqlmock.NewRows([]string{"id", "created_at", "updated_at", "last_message_at"}).AddRow(5, now, now, now))
@@ -32,7 +32,7 @@ func TestSupportTicketCreateCommitsMessageWithOutbox(t *testing.T) {
 func TestSupportTicketWrongOwnerAttachmentRollsBackEntireMessage(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT status, user_id FROM support_tickets WHERE id = \$1 FOR UPDATE`).WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"status", "user_id"}).AddRow("open", 2))
 	mock.ExpectQuery(`INSERT INTO support_ticket_messages`).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(7, time.Now()))
@@ -46,7 +46,7 @@ func TestSupportTicketWrongOwnerAttachmentRollsBackEntireMessage(t *testing.T) {
 func TestSupportTicketDuplicateTelegramRollsBackWithoutOutbox(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	mock.ExpectQuery(`SELECT status, user_id`).WithArgs(int64(5)).WillReturnRows(sqlmock.NewRows([]string{"status", "user_id"}).AddRow("open", 2))
 	mock.ExpectQuery(`INSERT INTO support_ticket_messages`).WillReturnError(&pq.Error{Code: "23505", Constraint: "idx_support_ticket_messages_external"})
@@ -59,7 +59,7 @@ func TestSupportTicketDuplicateTelegramRollsBackWithoutOutbox(t *testing.T) {
 func TestSupportTicketNotificationRequiresCurrentLease(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectExec(`UPDATE support_ticket_notifications SET delivered_at = NOW\(\).*WHERE id = \$1 AND lease_token = \$2 AND delivered_at IS NULL`).WithArgs(int64(7), "旧租约").WillReturnResult(sqlmock.NewResult(0, 0))
 	err = NewSupportTicketRepository(db).CompleteNotification(context.Background(), 7, "旧租约")
 	require.Error(t, err)
@@ -69,7 +69,7 @@ func TestSupportTicketNotificationRequiresCurrentLease(t *testing.T) {
 func TestSupportTicketNotificationClaimUsesSkipLocked(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectQuery(`WITH pending AS .*FOR UPDATE SKIP LOCKED.*attempts = n.attempts \+ 1`).WithArgs(10, sqlmock.AnyArg(), int64(60)).WillReturnRows(sqlmock.NewRows([]string{"id", "ticket_id", "message_id", "channel", "attempts", "lease_token"}).AddRow(1, 5, 7, "email", 1, "租约"))
 	items, err := NewSupportTicketRepository(db).ClaimNotifications(context.Background(), 10, time.Minute)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestSupportTicketNotificationClaimUsesSkipLocked(t *testing.T) {
 func TestSupportTicketDeleteDraftRequiresOwnerAndUnboundMessage(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectExec(`DELETE FROM support_ticket_attachments WHERE id = \$1 AND owner_id = \$2 AND message_id IS NULL`).WithArgs(int64(8), int64(2)).WillReturnResult(sqlmock.NewResult(0, 0))
 	require.ErrorIs(t, NewSupportTicketRepository(db).DeleteDraftAttachment(context.Background(), 2, 8), service.ErrSupportAttachmentNotFound)
 	require.NoError(t, mock.ExpectationsWereMet())

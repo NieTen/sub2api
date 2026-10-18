@@ -61,7 +61,7 @@ func (r *paymentExchangeRateRepository) History(ctx context.Context, since, unti
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	points := []service.PaymentExchangeRatePoint{}
 	for rows.Next() {
 		point, err := scanPaymentExchangeRate(rows)
