@@ -3,12 +3,14 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -60,13 +62,68 @@ func TestOKPayDebugLoggingRequiresExplicitInstanceOptIn(t *testing.T) {
 			require.Equal(t, "payLink", fields["operation"])
 			require.Equal(t, OKPaySignatureHMACSHA256, fields["signature_algorithm"])
 			require.EqualValues(t, 200, fields["http_status"])
-			require.Equal(t, "400", fields["business_code"])
 			require.Equal(t, "rejected", fields["result"])
 			require.Equal(t, true, fields["request_sent"])
 			require.Contains(t, okpayDebugTestJSON(t, entries[0]), "amount 必须大于 1 USDT")
 		})
 	}
 	require.Equal(t, 4, requests, "开启调试不能追加下单或重试")
+}
+
+func TestOKPayDebugBusinessCodeRedactsSensitiveSubstrings(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		nonce        string
+		sign         string
+		apiBase      string
+		wantRedacted bool
+	}{
+		{name: "安全业务码正常输出"},
+		{name: "nonce包含业务码", nonce: "400" + strings.Repeat("a", 29), wantRedacted: true},
+		{name: "签名包含业务码", sign: "400" + strings.Repeat("b", 61), wantRedacted: true},
+		{name: "API地址包含业务码", apiBase: "https://gateway.example:4001/shop", wantRedacted: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, err := NewOKPay("4", map[string]string{
+				"id": "shop-123", "token": okpayTestToken, "debugLogging": "true",
+				"apiBase": "https://gateway.example/shop",
+			})
+			require.NoError(t, err)
+			request := &okpayDebugRequest{
+				started: time.Now(), operation: "/payLink", algorithm: OKPaySignatureHMACSHA256,
+				transport: okpayTransportCurrent, requestSent: true, httpStatus: http.StatusOK,
+				payload: url.Values{
+					"nonce": {strings.Repeat("a", 32)}, "sign": {strings.Repeat("b", 64)},
+				},
+				response: okpayArray{
+					{key: "status", value: "warning"},
+					{key: "code", value: json.Number("400")},
+				},
+			}
+			if tc.nonce != "" {
+				request.payload.Set("nonce", tc.nonce)
+			}
+			if tc.sign != "" {
+				request.payload.Set("sign", tc.sign)
+			}
+			if tc.apiBase != "" {
+				provider.config["apiBase"] = tc.apiBase
+			}
+			ctx, logs := okpayDebugTestContext()
+			provider.logDebugRequest(ctx, request, okpayClassifiedFailure(okpayCheckRejected, errors.New("code=400")))
+			entries := logs.FilterMessage("OKPay debug").All()
+			require.Len(t, entries, 1)
+			require.Equal(t, zapcore.WarnLevel, entries[0].Level)
+			fields := entries[0].ContextMap()
+			require.Equal(t, "rejected", fields["result"])
+			require.Equal(t, "warning", fields["upstream_status"])
+			if tc.wantRedacted {
+				require.NotContains(t, fields, "business_code")
+			} else {
+				require.Equal(t, "400", fields["business_code"])
+			}
+		})
+	}
 }
 
 func TestOKPayDebugRedactsReflectedCredentialsAndResumeURL(t *testing.T) {
