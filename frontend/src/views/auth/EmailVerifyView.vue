@@ -786,9 +786,15 @@ function buildEmailSuffixNotAllowedMessage(): string {
 
 function buildRegistrationErrorMessage(error: unknown, fallback: string): string {
   return buildAuthErrorMessage(error, {
-    fallback: () => extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT'
-      ? t('auth.emailDomainRegistrationLimit')
-      : fallback
+    fallback: () => {
+      if (extractApiErrorCode(error) === 'EMAIL_DOMAIN_REGISTRATION_LIMIT') {
+        return t('auth.emailDomainRegistrationLimit')
+      }
+      if (extractApiErrorCode(error) === 'EMAIL_BLOCKED') {
+        return t('auth.errors.EMAIL_BLOCKED')
+      }
+      return fallback
+    }
   })
 }
 </script>

@@ -245,12 +245,13 @@ func TestModelDetectionAntigravityCarriesPromptAndOutputBudget(t *testing.T) {
 		var raw []byte
 		var err error
 		if kind == "gemini" {
-			raw, err = s.buildGeminiTestRequestWithPrompt("fixture-project", "gemini-2.5-flash", "", "benchmark question")
+			raw, err = s.buildGeminiTestRequestWithPrompt("fixture-project", "gemini-2.5-flash", "regular probe prompt", "benchmark question")
 		} else {
-			raw, err = s.buildClaudeTestRequest("fixture-project", "claude-sonnet-4-6", "benchmark question")
+			raw, err = s.buildClaudeTestRequest("fixture-project", "claude-sonnet-4-6", "regular probe prompt", "benchmark question")
 		}
 		require.NoError(t, err)
 		require.Contains(t, string(raw), "benchmark question")
+		require.NotContains(t, string(raw), "regular probe prompt", "能力检测提示词应优先于普通连通性提示词")
 		require.Contains(t, string(raw), "4096")
 		var payload map[string]any
 		require.NoError(t, json.Unmarshal(raw, &payload))

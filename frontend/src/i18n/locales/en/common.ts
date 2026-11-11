@@ -289,6 +289,7 @@ export default {
       INVALID_VERIFY_CODE: 'The email verification code is invalid or expired. Please check it and try again.',
       VERIFY_CODE_TOO_FREQUENT: 'Verification codes were requested too frequently. Please try again later.',
       VERIFY_CODE_MAX_ATTEMPTS: 'Too many verification attempts. Please request a new code.',
+      EMAIL_BLOCKED: 'This email address is not allowed. Please use a different one.',
     },
     registrationFailed: 'Registration failed. Please try again.',
     registrationSettingsLoadFailed: 'Registration settings could not be loaded. Please reload them before registering.',

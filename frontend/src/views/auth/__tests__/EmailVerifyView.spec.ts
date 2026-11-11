@@ -442,6 +442,8 @@ describe('EmailVerifyView', () => {
     [{ reason: 'EMAIL_EXISTS', message: '该邮箱已有账号，请返回登录页面。' }, '该邮箱已有账号，请返回登录页面。'],
     [{ message: 'Request failed with status code 400', response: { data: { detail: '验证码发送时间过久，请重新获取。' } } }, '验证码发送时间过久，请重新获取。'],
     [{ reason: 'CUSTOM_VERIFY_POLICY', message: '验证服务正在维护，请稍后继续。' }, '验证服务正在维护，请稍后继续。'],
+    [{ reason: 'EMAIL_BLOCKED', message: '此邮箱已被管理员禁用，请联系支持。' }, '此邮箱已被管理员禁用，请联系支持。'],
+    [{ reason: 'EMAIL_BLOCKED' }, 'auth.errors.EMAIL_BLOCKED'],
     [{ reason: 'UNKNOWN_REASON' }, 'auth.verifyFailed']
   ])('验证码提交失败展示原文且不会当作注册成功：%j', async (error, expected) => {
     sessionStorage.setItem('register_data', JSON.stringify({ email: 'user@example.com', password: 'secret-123' }))
@@ -464,6 +466,8 @@ describe('EmailVerifyView', () => {
 
   it.each([
     [{ reason: 'CUSTOM_MAIL_PROVIDER_ERROR', message: '邮件暂时无法送达，请核对邮箱后再发送。' }, '邮件暂时无法送达，请核对邮箱后再发送。'],
+    [{ reason: 'EMAIL_BLOCKED', message: '此邮箱不允许接收验证码。' }, '此邮箱不允许接收验证码。'],
+    [{ reason: 'EMAIL_BLOCKED' }, 'auth.errors.EMAIL_BLOCKED'],
     [{ reason: 'UNKNOWN_REASON' }, 'auth.sendCodeFailed']
   ])('验证码发送失败展示原文或缺失原文的兼容提示：%j', async (error, expected) => {
     sessionStorage.setItem('register_data', JSON.stringify({ email: 'user@example.com', password: 'secret-123' }))

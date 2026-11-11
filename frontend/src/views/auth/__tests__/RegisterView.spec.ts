@@ -756,6 +756,8 @@ describe('RegisterView', () => {
     [{ message: 'Request failed with status code 400', response: { data: { detail: '当前邀请已失效，请联系邀请人。' } } }, '当前邀请已失效，请联系邀请人。'],
     [{ reason: 'CUSTOM_REGISTRATION_POLICY', message: '本站今日暂停新用户注册。' }, '本站今日暂停新用户注册。'],
     [{ reason: 'EMAIL_EXISTS' }, '固定的邮箱已注册提示'],
+    [{ reason: 'EMAIL_BLOCKED', message: '此邮箱已被管理员禁用，请联系支持。' }, '此邮箱已被管理员禁用，请联系支持。'],
+    [{ reason: 'EMAIL_BLOCKED' }, 'auth.errors.EMAIL_BLOCKED'],
     [{ reason: 'UNKNOWN_REASON' }, 'auth.registrationFailed']
   ])('注册提交失败在页面和提示中保留原始错误：%j', async (error, expected) => {
     getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false, email_verify_enabled: true })
