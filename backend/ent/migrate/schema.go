@@ -957,6 +957,7 @@ var (
 		{Name: "allow_messages_dispatch", Type: field.TypeBool, Default: false},
 		{Name: "allow_live", Type: field.TypeBool, Default: false},
 		{Name: "force_openai_fast", Type: field.TypeBool, Default: false},
+		{Name: "force_openai_ultrafast", Type: field.TypeBool, Default: false},
 		{Name: "free_openai_fast", Type: field.TypeBool, Default: false},
 		{Name: "require_oauth_only", Type: field.TypeBool, Default: false},
 		{Name: "require_privacy_set", Type: field.TypeBool, Default: false},
@@ -1021,7 +1022,7 @@ var (
 			{
 				Name:    "idx_groups_codex_overdraft_enabled_active",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[69]},
+				Columns: []*schema.Column{GroupsColumns[70]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "codex_overdraft_enabled = TRUE AND deleted_at IS NULL",
 				},
@@ -1029,7 +1030,7 @@ var (
 			{
 				Name:    "idx_groups_codex_overdraft_next_group_id_active",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[70]},
+				Columns: []*schema.Column{GroupsColumns[71]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "codex_overdraft_next_group_id IS NOT NULL AND deleted_at IS NULL",
 				},
