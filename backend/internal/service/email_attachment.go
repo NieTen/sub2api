@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -11,6 +12,8 @@ import (
 	"net/textproto"
 	"strings"
 )
+
+var errSMTPAcceptanceUnconfirmed = errors.New("SMTP 正文提交后未取得接收确认")
 
 // EmailInlineImage 使用邮件内嵌附件，避免收件人访问站点鉴权链接。
 type EmailInlineImage struct {
@@ -111,7 +114,12 @@ func (s *EmailService) SendEmailWithImages(ctx context.Context, to, subject, bod
 		return err
 	}
 	if err = w.Close(); err != nil {
-		return err
+		// 结束 DATA 时，服务器可能已经接收邮件。只有明确的拒收回复才能安全重试。
+		var reply *textproto.Error
+		if errors.As(err, &reply) && reply.Code >= 400 && reply.Code < 600 {
+			return err
+		}
+		return fmt.Errorf("%w: %w", errSMTPAcceptanceUnconfirmed, err)
 	}
 	_ = client.Quit()
 	return nil

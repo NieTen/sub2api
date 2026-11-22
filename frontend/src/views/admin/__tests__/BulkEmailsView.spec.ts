@@ -191,4 +191,34 @@ describe('批量邮件确认流程', () => {
     expect(wrapper.find('[data-test="recipient-filter-summary"]').text()).toBe('bulkMail.filters.unrestricted')
     wrapper.unmount()
   })
+
+  it.each([
+    { status: 'needs_review', failed: 0, retryable: false },
+    { status: 'needs_review', failed: 2, retryable: true },
+    { status: 'sending', failed: 2, retryable: false }
+  ])('$status 批次有 $failed 次确认失败时准确显示进度和重试入口', async ({ status, failed, retryable }) => {
+    const batch = { ...draft, status, total_count: status === 'sending' ? 12 : 6 + failed, sent_count: 3, failed_count: failed, unconfirmed_count: 3 }
+    const recipient = { id: 1, user_id: 9, email: 'recipient@example.com', status: 'unconfirmed', attempts: 258, last_error: '' }
+    vi.mocked(bulkEmailAPI.list).mockResolvedValue({ items: [batch], total: 1, page: 1, page_size: 20 })
+    vi.mocked(bulkEmailAPI.detail).mockResolvedValue({ batch, recipients: { items: [recipient], total: batch.total_count, page: 1, page_size: 20 } })
+    state.params = { id: '7' }
+
+    const wrapper = render()
+    await flushPromises()
+    const row = wrapper.get('tbody tr')
+    expect(row.text()).toContain('bulkMail.reviewDeliveryHint')
+    expect(row.text()).toContain(`${6 + failed} / ${batch.total_count}`)
+    expect(row.get('progress').element.value).toBe(6 + failed)
+    const dialog = wrapper.get('[data-test="dialog"]')
+    expect(dialog.text()).toContain('bulkMail.reviewDeliveryHint')
+    expect(dialog.get('tbody tr').text()).toContain('bulkMail.statuses.unconfirmed')
+    const retry = dialog.findAll('button').find(button => button.text() === 'bulkMail.retry')
+    expect(Boolean(retry)).toBe(retryable)
+    if (retry) {
+      await retry.trigger('click')
+      await flushPromises()
+      expect(bulkEmailAPI.retry).toHaveBeenCalledWith(7)
+    }
+    wrapper.unmount()
+  })
 })

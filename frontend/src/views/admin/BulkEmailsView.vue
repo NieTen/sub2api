@@ -78,12 +78,16 @@
         <div v-else-if="!batches.length" class="space-y-2 p-10 text-center"><p class="font-medium">{{ t('bulkMail.noBatches') }}</p><p class="text-sm text-gray-500 dark:text-dark-300">{{ t('bulkMail.noBatchesHint') }}</p></div>
         <div v-else class="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.history')">
           <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.total') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th></tr></thead>
+            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.sent') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th><th class="px-4 py-3">{{ t('bulkMail.statuses.unconfirmed') }}</th></tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="batch in batches" :key="batch.id" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
               <td class="max-w-sm px-5 py-4"><router-link :to="`/admin/bulk-emails/${batch.id}`" class="block break-words rounded font-medium [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 text-primary-600 hover:underline dark:text-primary-400">{{ batch.subject }}</router-link><p class="mt-1 text-xs text-gray-500 dark:text-dark-300">#{{ batch.id }} · {{ date(batch.created_at) }}</p></td>
               <td class="px-4 py-4"><span :class="['badge', statusClass(batch.status)]">{{ statusLabel(batch.status) }}</span></td>
-              <td class="min-w-32 px-4 py-4"><div class="mb-1 text-xs text-gray-500 dark:text-dark-300">{{ batch.sent_count }} / {{ batch.total_count }}</div><progress class="h-1.5 w-full accent-primary-500" :value="batch.sent_count + batch.failed_count" :max="batch.total_count || 1" :aria-label="t('bulkMail.progress')"></progress></td>
-              <td class="px-4 py-4 tabular-nums">{{ batch.total_count }}</td><td class="px-4 py-4 tabular-nums" :class="batch.failed_count ? 'text-red-600' : 'text-gray-500'">{{ batch.failed_count }}</td>
+              <td class="min-w-32 px-4 py-4"><div class="mb-1 text-xs text-gray-500 dark:text-dark-300">{{ processedRecipients(batch) }} / {{ batch.total_count }}</div><progress class="h-1.5 w-full accent-primary-500" :value="processedRecipients(batch)" :max="batch.total_count || 1" :aria-label="t('bulkMail.progress')"></progress></td>
+              <td class="px-4 py-4 tabular-nums">{{ batch.sent_count }}</td><td class="px-4 py-4 tabular-nums" :class="batch.failed_count ? 'text-red-600' : 'text-gray-500'">{{ batch.failed_count }}</td>
+              <td class="px-4 py-4 tabular-nums">
+                {{ batch.unconfirmed_count ?? 0 }}
+                <p v-if="batch.unconfirmed_count" class="mt-1 max-w-xs text-xs text-amber-700 dark:text-amber-300">{{ t('bulkMail.reviewDeliveryHint') }}</p>
+              </td>
             </tr></tbody>
           </table>
         </div>
@@ -100,15 +104,22 @@
           <p class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.filters.summary') }}</p>
           <p data-test="recipient-filter-summary" class="mt-1 text-sm font-medium">{{ recipientFilterSummary(detail.batch.recipient_filter) }}</p>
         </div>
-        <div class="flex flex-wrap gap-5 rounded-lg bg-gray-50 p-4 dark:bg-dark-900/50"><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.total') }}</span><p class="text-lg font-semibold tabular-nums">{{ detail.batch.total_count }}</p></div><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.sent') }}</span><p class="text-lg font-semibold tabular-nums text-green-600">{{ detail.batch.sent_count }}</p></div><div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.failed') }}</span><p class="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">{{ detail.batch.failed_count }}</p></div><span :class="['badge ml-auto self-center', statusClass(detail.batch.status)]">{{ statusLabel(detail.batch.status) }}</span></div>
+        <div class="flex flex-wrap gap-5 rounded-lg bg-gray-50 p-4 dark:bg-dark-900/50">
+          <div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.total') }}</span><p class="text-lg font-semibold tabular-nums">{{ detail.batch.total_count }}</p></div>
+          <div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.sent') }}</span><p class="text-lg font-semibold tabular-nums text-green-600">{{ detail.batch.sent_count }}</p></div>
+          <div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.failed') }}</span><p class="text-lg font-semibold tabular-nums text-red-600 dark:text-red-400">{{ detail.batch.failed_count }}</p></div>
+          <div><span class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.statuses.unconfirmed') }}</span><p class="text-lg font-semibold tabular-nums text-amber-700 dark:text-amber-300">{{ detail.batch.unconfirmed_count ?? 0 }}</p></div>
+          <span :class="['badge ml-auto self-center', statusClass(detail.batch.status)]">{{ statusLabel(detail.batch.status) }}</span>
+        </div>
+        <p v-if="detail.batch.unconfirmed_count" class="rounded-lg bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('bulkMail.reviewDeliveryHint') }}</p>
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"><h3 class="break-words font-semibold [overflow-wrap:anywhere]">{{ detail.batch.subject }}</h3><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{{ detail.batch.body }}</p><div v-if="detail.batch.attachments?.length" class="mt-4 flex flex-wrap gap-3"><SupportImage v-for="attachment in detail.batch.attachments" :key="attachment.id" :attachment="attachment" :admin="true" :bulk-id="detail.batch.id" /></div></div>
         <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"><div class="max-h-80 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.recipients')"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-4 py-3">{{ t('bulkMail.email') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.attempts') }}</th><th class="px-4 py-3">{{ t('bulkMail.lastError') }}</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="recipient in detail.recipients.items" :key="recipient.id"><td class="min-w-40 max-w-xs break-all px-4 py-3">{{ recipient.email }}</td><td class="px-4 py-3"><span :class="['badge', statusClass(recipient.status)]">{{ statusLabel(recipient.status) }}</span></td><td class="px-4 py-3 tabular-nums">{{ recipient.attempts }}</td><td class="max-w-sm break-words [overflow-wrap:anywhere] px-4 py-3 text-xs text-red-600 dark:text-red-400">{{ recipient.last_error || '—' }}</td></tr></tbody></table></div><Pagination v-if="detail.recipients.total > 0" :page="recipientPage" :page-size="20" :total="detail.recipients.total" :show-page-size-selector="false" @update:page="changeRecipientPage" /></div>
-        <p v-if="detail.batch.failed_count > 0" class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.retryHint') }}</p>
+        <p v-if="canRetryFailures" class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.retryHint') }}</p>
       </div>
       <template #footer>
         <button class="btn btn-secondary cursor-pointer" :disabled="busy" @click="closeDetail">{{ t(detail?.batch.status === 'draft' ? 'bulkMail.cancelReview' : 'common.close') }}</button>
         <button v-if="detail?.batch.status === 'draft'" class="btn btn-primary cursor-pointer" :disabled="busy || !detail.batch.total_count" @click="startBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.send') }}</button>
-        <button v-else-if="detail && detail.batch.failed_count > 0 && !activeStatus(detail.batch.status)" class="btn btn-primary cursor-pointer" :disabled="busy" @click="retryBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.retry') }}</button>
+        <button v-else-if="canRetryFailures" class="btn btn-primary cursor-pointer" :disabled="busy" @click="retryBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.retry') }}</button>
       </template>
     </BaseDialog>
   </CommunicationsLayout>
@@ -156,6 +167,10 @@ const usersTotal = ref(0)
 const usersLoading = ref(false)
 const usersError = ref('')
 const detail = ref<BulkEmailDetail | null>(null)
+const canRetryFailures = computed(() => {
+  const batch = detail.value?.batch
+  return batch && batch.failed_count > 0 && ['failed', 'partial_failed', 'needs_review'].includes(batch.status)
+})
 const detailLoading = ref(false)
 const detailError = ref('')
 const recipientPage = ref(1)
@@ -169,8 +184,14 @@ let poll: ReturnType<typeof setInterval> | undefined
 
 const date = (value: string) => value ? new Date(value).toLocaleString(locale.value) : '—'
 const activeStatus = (status: string) => ['queued', 'sending', 'processing', 'running'].includes(status)
+const processedRecipients = (batch: BulkEmailBatch) => batch.sent_count + batch.failed_count + (batch.unconfirmed_count ?? 0)
 const statusLabel = (status: string) => te(`bulkMail.statuses.${status}`) ? t(`bulkMail.statuses.${status}`) : status
-const statusClass = (status: string) => ['failed', 'partial_failed'].includes(status) ? 'badge-danger' : ['completed', 'sent'].includes(status) ? 'badge-success' : activeStatus(status) ? 'badge-warning' : 'badge-gray'
+function statusClass(status: string) {
+  if (['failed', 'partial_failed'].includes(status)) return 'badge-danger'
+  if (['completed', 'sent'].includes(status)) return 'badge-success'
+  if (activeStatus(status) || ['unconfirmed', 'needs_review'].includes(status)) return 'badge-warning'
+  return 'badge-gray'
+}
 
 function recipientFilterSummary(filter?: BulkEmailRecipientFilter | null) {
   const parts: string[] = []
@@ -291,7 +312,7 @@ async function startBatch() {
 }
 
 async function retryBatch() {
-  if (!detail.value || busy.value) return
+  if (!detail.value || busy.value || !canRetryFailures.value) return
   busy.value = true
   try {
     await bulkEmailAPI.retry(detail.value.batch.id)

@@ -4,6 +4,7 @@ package service
 
 import (
 	"bufio"
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -12,11 +13,14 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // newSMTPTestCert 生成 127.0.0.1/localhost 的自签证书及其信任池。
@@ -57,6 +61,7 @@ type fakeSMTPServer struct {
 	listener          net.Listener
 	tlsConfig         *tls.Config
 	advertiseStartTLS bool
+	dataReply         string
 
 	mu       sync.Mutex
 	commands []string
@@ -65,6 +70,11 @@ type fakeSMTPServer struct {
 }
 
 func startFakeSMTPServer(t *testing.T, implicitTLS, advertiseStartTLS bool) (*fakeSMTPServer, int) {
+	t.Helper()
+	return startFakeSMTPServerWithDataReply(t, implicitTLS, advertiseStartTLS, "250 message accepted")
+}
+
+func startFakeSMTPServerWithDataReply(t *testing.T, implicitTLS, advertiseStartTLS bool, dataReply string) (*fakeSMTPServer, int) {
 	t.Helper()
 	cert, pool := newSMTPTestCert(t)
 	prevPool := smtpTestRootCAs
@@ -79,6 +89,7 @@ func startFakeSMTPServer(t *testing.T, implicitTLS, advertiseStartTLS bool) (*fa
 		listener:          listener,
 		tlsConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 		advertiseStartTLS: advertiseStartTLS,
+		dataReply:         dataReply,
 	}
 	if implicitTLS {
 		srv.listener = tls.NewListener(listener, srv.tlsConfig)
@@ -188,7 +199,7 @@ func (srv *fakeSMTPServer) serve(conn net.Conn, allowStartTLS bool) {
 					break
 				}
 			}
-			if !writeLine("250 message accepted") {
+			if srv.dataReply == "" || !writeLine(srv.dataReply) {
 				return
 			}
 		case upper == "QUIT":
@@ -251,7 +262,7 @@ func (srv *fakeSMTPServer) serveCommands(reader *bufio.Reader, writer *bufio.Wri
 					break
 				}
 			}
-			if !writeLine("250 message accepted") {
+			if srv.dataReply == "" || !writeLine(srv.dataReply) {
 				return
 			}
 		case upper == "QUIT":
@@ -274,6 +285,33 @@ func smtpTestConfig(port int, useTLS bool) *SMTPConfig {
 		From:     "noreply@example.com",
 		FromName: "Test",
 		UseTLS:   useTLS,
+	}
+}
+
+func TestBulkEmailProcessPersistsSMTPResult(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply string
+		want  BulkEmailDeliveryResult
+	}{
+		{"收到接收确认", "250 accepted", BulkEmailDeliverySent},
+		{"服务器明确拒收", "451 try again later", BulkEmailDeliveryFailed},
+		{"接收正文后断开", "", BulkEmailDeliveryUnconfirmed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, port := startFakeSMTPServerWithDataReply(t, false, false, tc.reply)
+			settings := newNotificationEmailMemorySettingRepo()
+			ctx := context.Background()
+			require.NoError(t, settings.SetMultiple(ctx, map[string]string{
+				SettingKeySMTPHost: "127.0.0.1", SettingKeySMTPPort: strconv.Itoa(port),
+				SettingKeySMTPUsername: "test", SettingKeySMTPPassword: "test",
+				SettingKeySMTPFrom: "sender@example.com",
+			}))
+			repo := &bulkEmailTestRepository{batch: &BulkEmailBatch{ID: 1, Subject: "标题", Body: "正文"}}
+			NewBulkEmailService(repo, NewEmailService(settings, nil), nil).process(ctx)
+			require.True(t, srv.sawCommand("DATA"))
+			require.Equal(t, []BulkEmailDeliveryResult{tc.want}, repo.results)
+		})
 	}
 }
 

@@ -77,6 +77,7 @@ export interface BulkEmailBatch {
   total_count: number
   sent_count: number
   failed_count: number
+  unconfirmed_count?: number
   created_at: string
   attachments?: SupportAttachment[]
   recipient_filter?: BulkEmailRecipientFilter | null

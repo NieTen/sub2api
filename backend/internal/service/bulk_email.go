@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"log/slog"
@@ -37,6 +38,7 @@ type BulkEmailBatch struct {
 	TotalCount         int64                     `json:"total_count"`
 	SentCount          int64                     `json:"sent_count"`
 	FailedCount        int64                     `json:"failed_count"`
+	UnconfirmedCount   int64                     `json:"unconfirmed_count"`
 	Images             []EmailInlineImage        `json:"-"`
 	ImageCount         int                       `json:"image_count"`
 	Attachments        []SupportTicketAttachment `json:"attachments"`
@@ -57,6 +59,15 @@ type BulkEmailRecipient struct {
 	LeaseToken string     `json:"-"`
 }
 
+// BulkEmailDeliveryResult 表示本次 SMTP 投递结果，只有明确失败的投递可以重试。
+type BulkEmailDeliveryResult string
+
+const (
+	BulkEmailDeliverySent        BulkEmailDeliveryResult = "sent"
+	BulkEmailDeliveryFailed      BulkEmailDeliveryResult = "failed"
+	BulkEmailDeliveryUnconfirmed BulkEmailDeliveryResult = "unconfirmed"
+)
+
 type BulkEmailRepository interface {
 	CreateDraft(ctx context.Context, batch *BulkEmailBatch, userIDs []int64, allActive bool) error
 	List(ctx context.Context, page, pageSize int) ([]BulkEmailBatch, int64, error)
@@ -65,7 +76,7 @@ type BulkEmailRepository interface {
 	StartBatch(ctx context.Context, id int64) error
 	Retry(ctx context.Context, id int64) error
 	Claim(ctx context.Context, limit int, lease time.Duration) ([]BulkEmailRecipient, error)
-	Complete(ctx context.Context, item BulkEmailRecipient, sendErr string, retryAt time.Time) error
+	Complete(ctx context.Context, item BulkEmailRecipient, result BulkEmailDeliveryResult, retryAt time.Time) error
 }
 
 type BulkEmailService struct {
@@ -205,13 +216,17 @@ func (s *BulkEmailService) process(ctx context.Context) {
 			err = s.email.SendEmailWithImages(deliveryCtx, item.Email, batch.Subject, body, batch.Images)
 		}
 		deliveryCancel()
-		failure := ""
+		result := BulkEmailDeliverySent
 		if err != nil {
-			failure = "邮件发送失败，请检查 SMTP 配置或收件地址"
+			result = BulkEmailDeliveryFailed
+			if errors.Is(err, errSMTPAcceptanceUnconfirmed) {
+				result = BulkEmailDeliveryUnconfirmed
+			}
+			slog.Warn("批量邮件投递异常", "batch_id", item.BatchID, "recipient_id", item.ID, "attempts", item.Attempts, "result", result, "error", err)
 		}
 		completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		if err := s.repo.Complete(completeCtx, item, failure, time.Now().Add(time.Duration(1<<min(item.Attempts, 6))*time.Minute)); err != nil {
-			slog.Warn("批量邮件状态保存失败", "error", err)
+		if err := s.repo.Complete(completeCtx, item, result, time.Now().Add(time.Duration(1<<min(item.Attempts, 6))*time.Minute)); err != nil {
+			slog.Warn("批量邮件状态保存失败", "batch_id", item.BatchID, "recipient_id", item.ID, "attempts", item.Attempts, "result", result, "error", err)
 		}
 		cancel()
 	}

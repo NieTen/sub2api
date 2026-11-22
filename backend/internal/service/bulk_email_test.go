@@ -3,14 +3,16 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 type bulkEmailTestRepository struct {
 	BulkEmailRepository
-	batch  *BulkEmailBatch
-	drafts int
+	batch   *BulkEmailBatch
+	drafts  int
+	results []BulkEmailDeliveryResult
 }
 
 func (r *bulkEmailTestRepository) CreateDraft(_ context.Context, batch *BulkEmailBatch, _ []int64, _ bool) error {
@@ -22,6 +24,15 @@ func (r *bulkEmailTestRepository) CreateDraft(_ context.Context, batch *BulkEmai
 }
 func (r *bulkEmailTestRepository) Get(context.Context, int64) (*BulkEmailBatch, error) {
 	return r.batch, nil
+}
+
+func (r *bulkEmailTestRepository) Claim(context.Context, int, time.Duration) ([]BulkEmailRecipient, error) {
+	return []BulkEmailRecipient{{ID: 2, BatchID: r.batch.ID, Email: "recipient@example.com", Attempts: 1, LeaseToken: "lease"}}, nil
+}
+
+func (r *bulkEmailTestRepository) Complete(_ context.Context, _ BulkEmailRecipient, result BulkEmailDeliveryResult, _ time.Time) error {
+	r.results = append(r.results, result)
+	return nil
 }
 
 func TestBulkEmailCreateFreezesDraftAndAttachmentsWithoutSending(t *testing.T) {

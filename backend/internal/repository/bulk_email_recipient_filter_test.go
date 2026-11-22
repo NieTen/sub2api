@@ -65,8 +65,8 @@ func TestBulkEmailStoredFiltersAndLegacyBatchesRemainReadable(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
 			defer func() { _ = db.Close() }()
-			columns := []string{"id", "created_by", "subject", "body", "status", "created_at", "updated_at", "image_count", "total", "sent", "failed", "recipient_filter", "images"}
-			mock.ExpectQuery(`(?s)SELECT .*b.recipient_filter,b.images FROM bulk_email_batches b WHERE b.id=\$1`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows(columns).AddRow(1, 7, "标题", "正文", "draft", time.Now(), time.Now(), 0, 1, 0, 0, raw, `[]`))
+			columns := []string{"id", "created_by", "subject", "body", "status", "created_at", "updated_at", "image_count", "total", "sent", "failed", "unconfirmed", "recipient_filter", "images"}
+			mock.ExpectQuery(`(?s)SELECT .*b.recipient_filter,b.images FROM bulk_email_batches b WHERE b.id=\$1`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows(columns).AddRow(1, 7, "标题", "正文", "draft", time.Now(), time.Now(), 0, 1, 0, 0, 0, raw, `[]`))
 			batch, err := NewBulkEmailRepository(db).Get(context.Background(), 1)
 			require.NoError(t, err)
 			if raw == `{}` {
