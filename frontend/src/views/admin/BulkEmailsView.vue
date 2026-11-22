@@ -78,7 +78,7 @@
         <div v-else-if="!batches.length" class="space-y-2 p-10 text-center"><p class="font-medium">{{ t('bulkMail.noBatches') }}</p><p class="text-sm text-gray-500 dark:text-dark-300">{{ t('bulkMail.noBatchesHint') }}</p></div>
         <div v-else class="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.history')">
           <table class="w-full text-left text-sm">
-            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.sent') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th><th class="px-4 py-3">{{ t('bulkMail.statuses.unconfirmed') }}</th></tr></thead>
+            <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-5 py-3">{{ t('bulkMail.subject') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.progress') }}</th><th class="px-4 py-3">{{ t('bulkMail.sent') }}</th><th class="px-4 py-3">{{ t('bulkMail.failed') }}</th><th class="px-4 py-3">{{ t('bulkMail.statuses.unconfirmed') }}</th><th class="px-4 py-3">{{ t('common.actions') }}</th></tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="batch in batches" :key="batch.id" class="hover:bg-gray-50 dark:hover:bg-dark-700/40">
               <td class="max-w-sm px-5 py-4"><router-link :to="`/admin/bulk-emails/${batch.id}`" class="block break-words rounded font-medium [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 text-primary-600 hover:underline dark:text-primary-400">{{ batch.subject }}</router-link><p class="mt-1 text-xs text-gray-500 dark:text-dark-300">#{{ batch.id }} · {{ date(batch.created_at) }}</p></td>
               <td class="px-4 py-4"><span :class="['badge', statusClass(batch.status)]">{{ statusLabel(batch.status) }}</span></td>
@@ -87,6 +87,11 @@
               <td class="px-4 py-4 tabular-nums">
                 {{ batch.unconfirmed_count ?? 0 }}
                 <p v-if="batch.unconfirmed_count" class="mt-1 max-w-xs text-xs text-amber-700 dark:text-amber-300">{{ t('bulkMail.reviewDeliveryHint') }}</p>
+              </td>
+              <td class="px-4 py-4">
+                <button v-if="deliveryAction(batch.status)" type="button" class="btn btn-secondary btn-sm whitespace-nowrap" :disabled="changingDelivery.has(batch.id)" :title="t('bulkMail.pauseHint')" @click="changeDelivery(batch)">
+                  {{ t(`bulkMail.${deliveryAction(batch.status)}`) }}
+                </button>
               </td>
             </tr></tbody>
           </table>
@@ -112,6 +117,7 @@
           <span :class="['badge ml-auto self-center', statusClass(detail.batch.status)]">{{ statusLabel(detail.batch.status) }}</span>
         </div>
         <p v-if="detail.batch.unconfirmed_count" class="rounded-lg bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('bulkMail.reviewDeliveryHint') }}</p>
+        <p v-if="deliveryAction(detail.batch.status)" class="text-sm text-gray-500 dark:text-dark-300">{{ t('bulkMail.pauseHint') }}</p>
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"><h3 class="break-words font-semibold [overflow-wrap:anywhere]">{{ detail.batch.subject }}</h3><p class="mt-3 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{{ detail.batch.body }}</p><div v-if="detail.batch.attachments?.length" class="mt-4 flex flex-wrap gap-3"><SupportImage v-for="attachment in detail.batch.attachments" :key="attachment.id" :attachment="attachment" :admin="true" :bulk-id="detail.batch.id" /></div></div>
         <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"><div class="max-h-80 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500" tabindex="0" :aria-label="t('bulkMail.recipients')"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-900/50 dark:text-dark-300"><tr><th class="px-4 py-3">{{ t('bulkMail.email') }}</th><th class="px-4 py-3">{{ t('bulkMail.status') }}</th><th class="px-4 py-3">{{ t('bulkMail.attempts') }}</th><th class="px-4 py-3">{{ t('bulkMail.lastError') }}</th></tr></thead><tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="recipient in detail.recipients.items" :key="recipient.id"><td class="min-w-40 max-w-xs break-all px-4 py-3">{{ recipient.email }}</td><td class="px-4 py-3"><span :class="['badge', statusClass(recipient.status)]">{{ statusLabel(recipient.status) }}</span></td><td class="px-4 py-3 tabular-nums">{{ recipient.attempts }}</td><td class="max-w-sm break-words [overflow-wrap:anywhere] px-4 py-3 text-xs text-red-600 dark:text-red-400">{{ recipient.last_error || '—' }}</td></tr></tbody></table></div><Pagination v-if="detail.recipients.total > 0" :page="recipientPage" :page-size="20" :total="detail.recipients.total" :show-page-size-selector="false" @update:page="changeRecipientPage" /></div>
         <p v-if="canRetryFailures" class="text-xs text-gray-500 dark:text-dark-300">{{ t('bulkMail.retryHint') }}</p>
@@ -119,6 +125,7 @@
       <template #footer>
         <button class="btn btn-secondary cursor-pointer" :disabled="busy" @click="closeDetail">{{ t(detail?.batch.status === 'draft' ? 'bulkMail.cancelReview' : 'common.close') }}</button>
         <button v-if="detail?.batch.status === 'draft'" class="btn btn-primary cursor-pointer" :disabled="busy || !detail.batch.total_count" @click="startBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.send') }}</button>
+        <button v-else-if="detail && deliveryAction(detail.batch.status)" class="btn btn-primary cursor-pointer" :disabled="busy || changingDelivery.has(detail.batch.id)" @click="changeDelivery(detail.batch)">{{ t(`bulkMail.${deliveryAction(detail.batch.status)}`) }}</button>
         <button v-else-if="canRetryFailures" class="btn btn-primary cursor-pointer" :disabled="busy" @click="retryBatch">{{ t(busy ? 'bulkMail.sending' : 'bulkMail.retry') }}</button>
       </template>
     </BaseDialog>
@@ -175,6 +182,7 @@ const detailLoading = ref(false)
 const detailError = ref('')
 const recipientPage = ref(1)
 const busy = ref(false)
+const changingDelivery = ref(new Set<number>())
 const uploading = ref(false)
 let listGeneration = 0
 let usersGeneration = 0
@@ -183,13 +191,17 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined
 let poll: ReturnType<typeof setInterval> | undefined
 
 const date = (value: string) => value ? new Date(value).toLocaleString(locale.value) : '—'
-const activeStatus = (status: string) => ['queued', 'sending', 'processing', 'running'].includes(status)
+const shouldPollStatus = (status: string) => ['queued', 'sending', 'processing', 'running', 'paused'].includes(status)
+function deliveryAction(status: string) {
+  if (status === 'paused') return 'resume'
+  if (status === 'queued' || status === 'sending') return 'pause'
+}
 const processedRecipients = (batch: BulkEmailBatch) => batch.sent_count + batch.failed_count + (batch.unconfirmed_count ?? 0)
 const statusLabel = (status: string) => te(`bulkMail.statuses.${status}`) ? t(`bulkMail.statuses.${status}`) : status
 function statusClass(status: string) {
   if (['failed', 'partial_failed'].includes(status)) return 'badge-danger'
   if (['completed', 'sent'].includes(status)) return 'badge-success'
-  if (activeStatus(status) || ['unconfirmed', 'needs_review'].includes(status)) return 'badge-warning'
+  if (shouldPollStatus(status) || ['unconfirmed', 'needs_review'].includes(status)) return 'badge-warning'
   return 'badge-gray'
 }
 
@@ -322,6 +334,23 @@ async function retryBatch() {
   finally { busy.value = false }
 }
 
+async function changeDelivery(batch: BulkEmailBatch) {
+  const id = batch.id
+  const action = deliveryAction(batch.status)
+  if (!action || changingDelivery.value.has(id)) return
+  changingDelivery.value.add(id)
+  try {
+    await bulkEmailAPI[action](id)
+    app.showSuccess(t(`bulkMail.${action}Success`, { id }))
+  } catch (error) {
+    app.showError(supportError(error, t('support.saveFailed')))
+  } finally {
+    // 操作冲突或请求中断时也重新读取服务端状态；切换详情后只刷新对应的批次。
+    await Promise.all([loadBatches(), selectedId.value === id ? loadDetail() : undefined])
+    changingDelivery.value.delete(id)
+  }
+}
+
 watch(selectedId, () => {
   detailGeneration++
   detail.value = null
@@ -334,8 +363,8 @@ onMounted(() => {
   void loadBatches()
   poll = setInterval(() => {
     if (document.hidden || busy.value || detailLoading.value || loading.value) return
-    if (detail.value && activeStatus(detail.value.batch.status)) void loadDetail(true)
-    if (batches.value.some(batch => activeStatus(batch.status))) void loadBatches(true)
+    if (detail.value && shouldPollStatus(detail.value.batch.status)) void loadDetail(true)
+    if (batches.value.some(batch => shouldPollStatus(batch.status))) void loadBatches(true)
   }, 5000)
 })
 onBeforeUnmount(() => {

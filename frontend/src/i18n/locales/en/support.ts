@@ -65,9 +65,11 @@ export default {
     total: 'Total recipients', sent: 'Sent', failed: 'Failed', pending: 'Pending',
     progress: 'Processing progress', details: 'View details', retry: 'Retry confirmed failures', retryStarted: 'Recipients with confirmed failures queued again',
     retryHint: 'Retry applies only to recipients with confirmed delivery failures.',
+    pause: 'Pause sending', resume: 'Resume sending', pauseHint: 'Messages already in progress may still arrive after you pause. Resuming continues with pending recipients.',
+    pauseSuccess: 'Batch #{id} paused. Messages already in progress may still arrive.', resumeSuccess: 'Batch #{id} resumed. Sending will continue for pending recipients.',
     reviewDeliveryHint: 'Unconfirmed messages may already have been sent. Check the delivery log for each recipient with your SMTP provider.',
     email: 'Email', status: 'Status', attempts: 'Queue claims this round', lastError: 'Delivery notes',
-    statuses: { draft: 'Awaiting confirmation', pending: 'Pending', queued: 'Queued', running: 'Sending', sending: 'Sending', processing: 'Sending', completed: 'Completed', completed_with_errors: 'Partially failed', partial_failed: 'Partially failed', partial: 'Partially failed', sent: 'Sent', failed: 'Failed', needs_review: 'Review delivery logs', unconfirmed: 'Delivery unconfirmed', cancelled: 'Cancelled', skipped: 'Skipped' },
+    statuses: { draft: 'Awaiting confirmation', pending: 'Pending', queued: 'Queued', paused: 'Paused', running: 'Sending', sending: 'Sending', processing: 'Sending', completed: 'Completed', completed_with_errors: 'Partially failed', partial_failed: 'Partially failed', partial: 'Partially failed', sent: 'Sent', failed: 'Failed', needs_review: 'Review delivery logs', unconfirmed: 'Delivery unconfirmed', cancelled: 'Cancelled', skipped: 'Skipped' },
     required: 'Enter a subject and message and select at least one recipient.', noRecipients: 'This draft has no eligible recipients.',
     sending: 'Processing…', cancelReview: 'Confirm later', loadFailed: 'Could not load email batches. Please try again.'
   }

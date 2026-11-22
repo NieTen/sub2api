@@ -10,9 +10,10 @@ import (
 
 type bulkEmailTestRepository struct {
 	BulkEmailRepository
-	batch   *BulkEmailBatch
-	drafts  int
-	results []BulkEmailDeliveryResult
+	batch    *BulkEmailBatch
+	drafts   int
+	results  []BulkEmailDeliveryResult
+	released []BulkEmailRecipient
 }
 
 func (r *bulkEmailTestRepository) CreateDraft(_ context.Context, batch *BulkEmailBatch, _ []int64, _ bool) error {
@@ -32,6 +33,16 @@ func (r *bulkEmailTestRepository) Claim(context.Context, int, time.Duration) ([]
 
 func (r *bulkEmailTestRepository) Complete(_ context.Context, _ BulkEmailRecipient, result BulkEmailDeliveryResult, _ time.Time) error {
 	r.results = append(r.results, result)
+	return nil
+}
+
+func (r *bulkEmailTestRepository) ReleaseUnsent(_ context.Context, item BulkEmailRecipient) error {
+	r.released = append(r.released, item)
+	return nil
+}
+
+func (r *bulkEmailTestRepository) Resume(_ context.Context, _ int64) error {
+	r.batch.Status = "queued"
 	return nil
 }
 

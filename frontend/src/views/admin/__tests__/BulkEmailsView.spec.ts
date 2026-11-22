@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, reactive } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import BulkEmailsView from '../BulkEmailsView.vue'
-import { bulkEmailAPI, type BulkEmailRecipientFilter } from '@/api/support'
+import { bulkEmailAPI, type BulkEmailBatch, type BulkEmailRecipientFilter } from '@/api/support'
 import { list as listUsers } from '@/api/admin/users'
 import type { AdminUser } from '@/types'
 
@@ -10,16 +10,18 @@ const state = reactive({ params: {} as Record<string, string> })
 const push = vi.fn(async (path: string) => { state.params = path.match(/\/(\d+)$/) ? { id: path.split('/').pop()! } : {} })
 vi.mock('vue-router', () => ({ useRoute: () => state, useRouter: () => ({ push }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => params ? `${key}:${JSON.stringify(params)}` : key, te: () => true, locale: { value: 'zh' } }) }))
-vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess: vi.fn(), showError: vi.fn() }) }))
+const alerts = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => alerts }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 vi.mock('@/components/common/Pagination.vue', () => ({ default: { template: '<div />' } }))
 vi.mock('@/api/admin/users', () => ({ list: vi.fn(async () => ({ items: [], total: 0 })) }))
 vi.mock('@/api/support', () => ({
-  bulkEmailAPI: { list: vi.fn(), create: vi.fn(), detail: vi.fn(), start: vi.fn(), retry: vi.fn() },
+  bulkEmailAPI: { list: vi.fn(), create: vi.fn(), detail: vi.fn(), start: vi.fn(), retry: vi.fn(), pause: vi.fn(), resume: vi.fn() },
   supportError: (_error: unknown, fallback: string) => fallback
 }))
 
 const draft = { id: 7, subject: '<script>test</script>', body: '<img src=x onerror=alert(1)>', status: 'draft', total_count: 12, sent_count: 0, failed_count: 0, created_at: '2026-09-05T12:00:00Z' }
+const pageOf = <T,>(items: T[]) => ({ items, total: items.length, page: 1, page_size: 20 })
 const Composer = defineComponent({
   name: 'SupportComposer', props: ['modelValue', 'attachments'], emits: ['update:modelValue', 'update:attachments'],
   template: '<div><textarea data-test="body" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" /><button type="button" data-test="image" @click="$emit(\'update:attachments\', [{ id: 8, file_name: \'x.png\', mime_type: \'image/png\', size: 3 }])">图片</button></div>'
@@ -220,5 +222,107 @@ describe('批量邮件确认流程', () => {
       expect(bulkEmailAPI.retry).toHaveBeenCalledWith(7)
     }
     wrapper.unmount()
+  })
+
+  it('列表和详情按批次执行暂停和继续，防止重复提交', async () => {
+    const batch = { ...draft, status: 'queued' }
+    const completed = { ...draft, id: 8, status: 'completed' }
+    vi.mocked(bulkEmailAPI.list).mockImplementation(async () => pageOf([{ ...batch }, completed]))
+    vi.mocked(bulkEmailAPI.detail).mockImplementation(async () => ({ batch: { ...batch }, recipients: pageOf([]) }))
+    let confirmPause!: () => void
+    vi.mocked(bulkEmailAPI.pause).mockImplementationOnce(() => new Promise<void>(resolve => {
+      confirmPause = () => { batch.status = 'paused'; resolve() }
+    }))
+    vi.mocked(bulkEmailAPI.resume).mockImplementationOnce(async () => { batch.status = 'queued' })
+    state.params = { id: '7' }
+    const wrapper = render()
+    await flushPromises()
+    const dialog = wrapper.get('[data-test="dialog"]')
+    const rows = wrapper.findAll('section table')[0].findAll('tbody tr')
+    expect(rows[1].find('button').exists()).toBe(false)
+    const pause = rows[0].get('button')
+    const pauseInDialog = dialog.findAll('button').find(b => b.text() === 'bulkMail.pause')!
+    expect(pause.text()).toBe('bulkMail.pause')
+    await Promise.all([pause.trigger('click'), pauseInDialog.trigger('click')])
+    expect(bulkEmailAPI.pause).toHaveBeenCalledTimes(1)
+    expect(bulkEmailAPI.pause).toHaveBeenCalledWith(7)
+    expect(pauseInDialog.attributes('disabled')).toBeDefined()
+    confirmPause()
+    await flushPromises()
+    expect(rows[0].get('button').text()).toBe('bulkMail.resume')
+    expect(dialog.text()).toContain('bulkMail.statuses.paused')
+    await dialog.findAll('button').find(b => b.text() === 'bulkMail.resume')!.trigger('click')
+    await flushPromises()
+    expect(bulkEmailAPI.resume).toHaveBeenCalledWith(7)
+    expect(rows[0].get('button').text()).toBe('bulkMail.pause')
+    wrapper.unmount()
+  })
+
+  it('暂停请求失败后获取最新列表，切换的详情保持当前批次', async () => {
+    const batches = [{ ...draft, status: 'sending' }, { ...draft, id: 8, subject: '另一批邮件', status: 'queued' }]
+    vi.mocked(bulkEmailAPI.list).mockImplementation(async () => pageOf(batches.map(b => ({ ...b }))))
+    vi.mocked(bulkEmailAPI.detail).mockImplementation(async id => ({ batch: { ...batches.find(b => b.id === id)! }, recipients: pageOf([]) }))
+    let rejectPause!: (reason: Error) => void
+    vi.mocked(bulkEmailAPI.pause).mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectPause = reject }))
+    state.params = { id: '7' }
+    const wrapper = render()
+    await flushPromises()
+    await wrapper.get('[data-test="dialog"]').findAll('button').find(b => b.text() === 'bulkMail.pause')!.trigger('click')
+    state.params = { id: '8' }
+    await flushPromises()
+    batches[0].status = 'completed'
+    rejectPause(new Error('批次已完成'))
+    await flushPromises()
+    expect(alerts.showError).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('tbody tr').text()).toContain('bulkMail.statuses.completed')
+    expect(wrapper.get('[data-test="dialog"]').text()).toContain('另一批邮件')
+    expect(bulkEmailAPI.detail).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('暂停和详情刷新暂时失败后仍可按原批次再次暂停', async () => {
+    const detail = { batch: { ...draft, status: 'sending' }, recipients: pageOf([]) }
+    vi.mocked(bulkEmailAPI.detail).mockResolvedValueOnce(detail).mockRejectedValueOnce(new Error('刷新失败'))
+      .mockResolvedValue({ ...detail, batch: { ...draft, status: 'paused' } })
+    vi.mocked(bulkEmailAPI.pause).mockRejectedValueOnce(new Error('请求中断')).mockResolvedValueOnce()
+    state.params = { id: '7' }
+    const wrapper = render()
+    await flushPromises()
+    const dialog = wrapper.get('[data-test="dialog"]')
+    const pause = () => dialog.findAll('button').find(b => b.text() === 'bulkMail.pause')!
+    await pause().trigger('click')
+    await flushPromises()
+    expect(dialog.find('[role="alert"]').exists()).toBe(true)
+    expect(pause().attributes('disabled')).toBeUndefined()
+    await pause().trigger('click')
+    await flushPromises()
+    expect(bulkEmailAPI.pause).toHaveBeenCalledTimes(2)
+    expect(bulkEmailAPI.pause).toHaveBeenLastCalledWith(7)
+    expect(dialog.text()).toContain('bulkMail.statuses.paused')
+    wrapper.unmount()
+  })
+
+  it('暂停期间继续轮询回执以及其他标签页的恢复操作', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const visible = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    const batch: BulkEmailBatch = { ...draft, status: 'paused' }
+    vi.mocked(bulkEmailAPI.list).mockImplementation(async () => pageOf([{ ...batch }]))
+    vi.mocked(bulkEmailAPI.detail).mockImplementation(async () => ({ batch: { ...batch }, recipients: pageOf([]) }))
+    state.params = { id: '7' }
+    const wrapper = render()
+    try {
+      await flushPromises()
+      batch.sent_count = 1
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(wrapper.get('progress').element.value).toBe(1)
+      batch.status = 'sending'
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(wrapper.get('tbody tr button').text()).toBe('bulkMail.pause')
+      expect(wrapper.get('[data-test="dialog"]').text()).toContain('bulkMail.statuses.sending')
+    } finally {
+      wrapper.unmount()
+      visible.mockRestore()
+      vi.useRealTimers()
+    }
   })
 })

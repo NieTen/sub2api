@@ -74,8 +74,11 @@ type BulkEmailRepository interface {
 	Get(ctx context.Context, id int64) (*BulkEmailBatch, error)
 	Recipients(ctx context.Context, id int64, page, pageSize int) ([]BulkEmailRecipient, int64, error)
 	StartBatch(ctx context.Context, id int64) error
+	Pause(ctx context.Context, id int64) error
+	Resume(ctx context.Context, id int64) error
 	Retry(ctx context.Context, id int64) error
 	Claim(ctx context.Context, limit int, lease time.Duration) ([]BulkEmailRecipient, error)
+	ReleaseUnsent(ctx context.Context, item BulkEmailRecipient) error
 	Complete(ctx context.Context, item BulkEmailRecipient, result BulkEmailDeliveryResult, retryAt time.Time) error
 }
 
@@ -165,6 +168,10 @@ func (s *BulkEmailService) StartBatch(ctx context.Context, id int64) error {
 }
 func (s *BulkEmailService) Retry(ctx context.Context, id int64) error { return s.repo.Retry(ctx, id) }
 
+func (s *BulkEmailService) Pause(ctx context.Context, id int64) error { return s.repo.Pause(ctx, id) }
+
+func (s *BulkEmailService) Resume(ctx context.Context, id int64) error { return s.repo.Resume(ctx, id) }
+
 func (s *BulkEmailService) Start() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,7 +218,22 @@ func (s *BulkEmailService) process(ctx context.Context) {
 	for _, item := range items {
 		deliveryCtx, deliveryCancel := context.WithTimeout(ctx, 2*time.Minute)
 		batch, err := s.repo.Get(deliveryCtx, item.BatchID)
+		if err == nil && batch.Status == "paused" {
+			deliveryCancel()
+			// 管理员可能在领取后暂停批次。此时尚未调用 SMTP，可安全释放本次领取。
+			releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			if err := s.repo.ReleaseUnsent(releaseCtx, item); err != nil {
+				slog.Warn("批量邮件暂停后释放收件人失败", "batch_id", item.BatchID, "recipient_id", item.ID, "attempts", item.Attempts, "error", err)
+			}
+			cancel()
+			continue
+		}
 		if err == nil {
+			// 租约过期后，其他进程可能已经将整个批次归入待核对或其他终态。
+			if batch.Status != "queued" && batch.Status != "sending" {
+				deliveryCancel()
+				continue
+			}
 			body := supportEmailHTML(batch.Body, batch.Images)
 			err = s.email.SendEmailWithImages(deliveryCtx, item.Email, batch.Subject, body, batch.Images)
 		}

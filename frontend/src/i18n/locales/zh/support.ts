@@ -65,9 +65,11 @@ export default {
     total: '收件人总数', sent: '已发送', failed: '发送失败', pending: '等待发送',
     progress: '处理进度', details: '查看详情', retry: '重试已确认失败的收件人', retryStarted: '已确认失败的收件人已重新加入队列',
     retryHint: '重试仅处理已确认发送失败的收件人。',
+    pause: '暂停发送', resume: '继续发送', pauseHint: '暂停后，已开始投递的邮件仍可能送达。继续发送时会接着处理待发收件人。',
+    pauseSuccess: '批次 #{id} 已暂停，已开始投递的邮件仍可能送达。', resumeSuccess: '批次 #{id} 已恢复，将继续处理待发收件人。',
     reviewDeliveryHint: '投递待核实的邮件可能已经发出。请按收件地址核对 SMTP 服务商的投递记录。',
     email: '邮箱', status: '状态', attempts: '本轮任务领取次数', lastError: '投递说明',
-    statuses: { draft: '待确认', pending: '等待发送', queued: '排队中', running: '发送中', sending: '发送中', processing: '发送中', completed: '已完成', completed_with_errors: '部分失败', partial_failed: '部分失败', partial: '部分失败', sent: '已发送', failed: '失败', needs_review: '需核对投递记录', unconfirmed: '投递待核实', cancelled: '已取消', skipped: '已跳过' },
+    statuses: { draft: '待确认', pending: '等待发送', queued: '排队中', paused: '已暂停', running: '发送中', sending: '发送中', processing: '发送中', completed: '已完成', completed_with_errors: '部分失败', partial_failed: '部分失败', partial: '部分失败', sent: '已发送', failed: '失败', needs_review: '需核对投递记录', unconfirmed: '投递待核实', cancelled: '已取消', skipped: '已跳过' },
     required: '请填写主题和正文，并选择至少一位收件人。', noRecipients: '该草稿没有可发送的收件人。',
     sending: '正在处理…', cancelReview: '稍后确认', loadFailed: '加载邮件记录失败，请重试。'
   }

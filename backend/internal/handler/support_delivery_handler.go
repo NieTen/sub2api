@@ -142,6 +142,26 @@ func (h *SupportDeliveryHandler) BatchImage(c *gin.Context) {
 	c.Data(http.StatusOK, img.MimeType, img.Data)
 }
 
+func (h *SupportDeliveryHandler) PauseBatch(c *gin.Context) {
+	id, ok := supportRequestID(c)
+	if !ok {
+		return
+	}
+	if !response.ErrorFrom(c, h.bulk.Pause(c.Request.Context(), id)) {
+		response.Success(c, gin.H{"message": "批量邮件已暂停"})
+	}
+}
+
+func (h *SupportDeliveryHandler) ResumeBatch(c *gin.Context) {
+	id, ok := supportRequestID(c)
+	if !ok {
+		return
+	}
+	if !response.ErrorFrom(c, h.bulk.Resume(c.Request.Context(), id)) {
+		response.Accepted(c, gin.H{"message": "批量邮件已恢复发送"})
+	}
+}
+
 func (h *SupportDeliveryHandler) RetryBatch(c *gin.Context) {
 	id, ok := supportRequestID(c)
 	if !ok {

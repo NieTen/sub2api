@@ -167,6 +167,12 @@ export const bulkEmailAPI = {
   async start(id: number) {
     return (await apiClient.post<BulkEmailBatch>(`/admin/bulk-emails/${id}/start`)).data
   },
+  async pause(id: number) {
+    await apiClient.post(`/admin/bulk-emails/${id}/pause`)
+  },
+  async resume(id: number) {
+    await apiClient.post(`/admin/bulk-emails/${id}/resume`)
+  },
   async retry(id: number) {
     return (await apiClient.post<BulkEmailBatch>(`/admin/bulk-emails/${id}/retry`)).data
   }

@@ -299,18 +299,55 @@ func TestBulkEmailProcessPersistsSMTPResult(t *testing.T) {
 		{"接收正文后断开", "", BulkEmailDeliveryUnconfirmed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			srv, port := startFakeSMTPServerWithDataReply(t, false, false, tc.reply)
-			settings := newNotificationEmailMemorySettingRepo()
-			ctx := context.Background()
-			require.NoError(t, settings.SetMultiple(ctx, map[string]string{
-				SettingKeySMTPHost: "127.0.0.1", SettingKeySMTPPort: strconv.Itoa(port),
-				SettingKeySMTPUsername: "test", SettingKeySMTPPassword: "test",
-				SettingKeySMTPFrom: "sender@example.com",
-			}))
-			repo := &bulkEmailTestRepository{batch: &BulkEmailBatch{ID: 1, Subject: "标题", Body: "正文"}}
-			NewBulkEmailService(repo, NewEmailService(settings, nil), nil).process(ctx)
+			svc, repo, srv := newBulkEmailWorkerTest(t, tc.reply)
+			svc.process(context.Background())
 			require.True(t, srv.sawCommand("DATA"))
 			require.Equal(t, []BulkEmailDeliveryResult{tc.want}, repo.results)
+		})
+	}
+}
+
+func newBulkEmailWorkerTest(t *testing.T, reply string) (*BulkEmailService, *bulkEmailTestRepository, *fakeSMTPServer) {
+	t.Helper()
+	srv, port := startFakeSMTPServerWithDataReply(t, false, false, reply)
+	settings := newNotificationEmailMemorySettingRepo()
+	require.NoError(t, settings.SetMultiple(context.Background(), map[string]string{
+		SettingKeySMTPHost: "127.0.0.1", SettingKeySMTPPort: strconv.Itoa(port),
+		SettingKeySMTPUsername: "test", SettingKeySMTPPassword: "test",
+		SettingKeySMTPFrom: "sender@example.com",
+	}))
+	repo := &bulkEmailTestRepository{batch: &BulkEmailBatch{ID: 1, Subject: "标题", Body: "正文", Status: "sending"}}
+	return NewBulkEmailService(repo, NewEmailService(settings, nil), nil), repo, srv
+}
+
+func TestBulkEmailPauseAfterClaimAndResume(t *testing.T) {
+	ctx := context.Background()
+	svc, repo, srv := newBulkEmailWorkerTest(t, "250 accepted")
+	// 模拟领取已经成功，读取批次时才发现管理员刚刚暂停。
+	repo.batch.Status = "paused"
+	svc.process(ctx)
+	require.Zero(t, srv.conns.Load())
+	require.Empty(t, repo.results)
+	require.Len(t, repo.released, 1)
+	require.EqualValues(t, 2, repo.released[0].ID)
+	require.Equal(t, "lease", repo.released[0].LeaseToken)
+
+	require.NoError(t, svc.Resume(ctx, repo.batch.ID))
+	svc.process(ctx)
+	require.EqualValues(t, 1, srv.conns.Load())
+	require.True(t, srv.sawCommand("DATA"))
+	require.Equal(t, []BulkEmailDeliveryResult{BulkEmailDeliverySent}, repo.results)
+}
+
+func TestBulkEmailSkipsNonSendingBatchAfterClaim(t *testing.T) {
+	for _, status := range []string{"draft", "completed", "partial_failed", "failed", "needs_review"} {
+		t.Run(status, func(t *testing.T) {
+			svc, repo, srv := newBulkEmailWorkerTest(t, "250 accepted")
+			repo.batch.Status = status
+			svc.process(context.Background())
+			require.Zero(t, srv.conns.Load())
+			require.Empty(t, repo.results)
+			require.Empty(t, repo.released)
 		})
 	}
 }

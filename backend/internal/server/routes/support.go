@@ -39,5 +39,7 @@ func registerSupportAdminRoutes(group *gin.RouterGroup, h *handler.Handlers) {
 	bulk.GET("/:id", h.SupportDelivery.GetBatch)
 	bulk.GET("/:id/images/:index", h.SupportDelivery.BatchImage)
 	bulk.POST("/:id/start", h.SupportDelivery.StartBatch)
+	bulk.POST("/:id/pause", h.SupportDelivery.PauseBatch)
+	bulk.POST("/:id/resume", h.SupportDelivery.ResumeBatch)
 	bulk.POST("/:id/retry", h.SupportDelivery.RetryBatch)
 }

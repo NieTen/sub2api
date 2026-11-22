@@ -231,6 +231,46 @@ func (r *bulkEmailRepository) StartBatch(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *bulkEmailRepository) Pause(ctx context.Context, id int64) error {
+	return r.setPaused(ctx, id, true)
+}
+
+func (r *bulkEmailRepository) Resume(ctx context.Context, id int64) error {
+	return r.setPaused(ctx, id, false)
+}
+
+func (r *bulkEmailRepository) setPaused(ctx context.Context, id int64, paused bool) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var status string
+	if err = tx.QueryRowContext(ctx, `SELECT status FROM bulk_email_batches WHERE id=$1 FOR UPDATE`, id).Scan(&status); errors.Is(err, sql.ErrNoRows) {
+		return service.ErrBulkEmailNotFound
+	} else if err != nil {
+		return err
+	}
+	switch status {
+	case "paused":
+		if paused {
+			return tx.Commit()
+		}
+		status = "queued"
+	case "queued", "sending":
+		if !paused {
+			return tx.Commit()
+		}
+		status = "paused"
+	default:
+		return service.ErrBulkEmailState
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE bulk_email_batches SET status=$2,updated_at=NOW() WHERE id=$1`, id, status); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (r *bulkEmailRepository) Retry(ctx context.Context, id int64) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -277,11 +317,12 @@ func (r *bulkEmailRepository) Claim(ctx context.Context, limit int, lease time.D
 
 	// 与完成和手动重试保持相同锁序，事务提交后才允许调用 SMTP。
 	var batchID int64
-	err = tx.QueryRowContext(ctx, `SELECT b.id FROM bulk_email_recipients r JOIN bulk_email_batches b ON b.id=r.batch_id
-		WHERE b.status IN ('queued','sending') AND (
-			(r.status='pending' AND r.next_attempt_at<=NOW()) OR
+	var batchStatus string
+	err = tx.QueryRowContext(ctx, `SELECT b.id,b.status FROM bulk_email_recipients r JOIN bulk_email_batches b ON b.id=r.batch_id
+		WHERE b.status IN ('queued','sending','paused') AND (
+			(b.status<>'paused' AND r.status='pending' AND r.next_attempt_at<=NOW()) OR
 			(r.status='sending' AND (r.lease_until<=NOW() OR r.lease_until IS NULL)))
-		ORDER BY r.next_attempt_at,r.id LIMIT 1 FOR UPDATE OF b SKIP LOCKED`).Scan(&batchID)
+		ORDER BY r.next_attempt_at,r.id LIMIT 1 FOR UPDATE OF b SKIP LOCKED`).Scan(&batchID, &batchStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -296,9 +337,13 @@ func (r *bulkEmailRepository) Claim(ctx context.Context, limit int, lease time.D
 	if err != nil {
 		return nil, err
 	}
-	items, err := claimPendingBulkEmails(ctx, tx, batchID, limit, lease)
-	if err != nil {
-		return nil, err
+	// 暂停期间只隔离过期租约，不能领取剩余收件人。
+	var items []service.BulkEmailRecipient
+	if batchStatus != "paused" {
+		items, err = claimPendingBulkEmails(ctx, tx, batchID, limit, lease)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err = refreshBulkEmailBatchStatus(ctx, tx, batchID); err != nil {
 		return nil, err
@@ -333,6 +378,40 @@ func claimPendingBulkEmails(ctx context.Context, tx *sql.Tx, batchID int64, limi
 		items = append(items, v)
 	}
 	return items, rows.Err()
+}
+
+// ReleaseUnsent 只归还尚未调用 SMTP 的本次领取；过期租约保留原次数并进入待核对状态。
+func (r *bulkEmailRepository) ReleaseUnsent(ctx context.Context, item service.BulkEmailRecipient) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id int64
+	if err = tx.QueryRowContext(ctx, `SELECT id FROM bulk_email_batches WHERE id=$1 FOR UPDATE`, item.BatchID).Scan(&id); err != nil {
+		return err
+	}
+	// 锁等待可能跨过租约截止时间，以取得批次锁之后的语句时间判断。
+	result, err := tx.ExecContext(ctx, `UPDATE bulk_email_recipients SET
+		status=CASE WHEN lease_until>statement_timestamp() THEN 'pending' ELSE 'unconfirmed' END,
+		attempts=CASE WHEN lease_until>statement_timestamp() THEN attempts-1 ELSE attempts END,
+		last_error=CASE WHEN lease_until>statement_timestamp() THEN last_error ELSE $4 END,
+		lease_until=NULL,lease_token=''
+		WHERE id=$1 AND batch_id=$2 AND status='sending' AND lease_token=$3 AND lease_token<>''`, item.ID, item.BatchID, item.LeaseToken, bulkEmailUnconfirmedMessage)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return service.ErrBulkEmailState
+	}
+	if err = refreshBulkEmailBatchStatus(ctx, tx, item.BatchID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *bulkEmailRepository) Complete(ctx context.Context, item service.BulkEmailRecipient, delivery service.BulkEmailDeliveryResult, retryAt time.Time) error {
@@ -382,7 +461,8 @@ func (r *bulkEmailRepository) Complete(ctx context.Context, item service.BulkEma
 
 func refreshBulkEmailBatchStatus(ctx context.Context, tx *sql.Tx, batchID int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE bulk_email_batches SET status=CASE
-		WHEN EXISTS(SELECT 1 FROM bulk_email_recipients WHERE batch_id=$1 AND status IN ('pending','sending')) THEN 'sending'
+		WHEN EXISTS(SELECT 1 FROM bulk_email_recipients WHERE batch_id=$1 AND status IN ('pending','sending'))
+			THEN CASE WHEN status='paused' THEN 'paused' ELSE 'sending' END
 		WHEN EXISTS(SELECT 1 FROM bulk_email_recipients WHERE batch_id=$1 AND status='unconfirmed') THEN 'needs_review'
 		WHEN NOT EXISTS(SELECT 1 FROM bulk_email_recipients WHERE batch_id=$1 AND status='failed') THEN 'completed'
 		WHEN EXISTS(SELECT 1 FROM bulk_email_recipients WHERE batch_id=$1 AND status='sent') THEN 'partial_failed' ELSE 'failed' END,

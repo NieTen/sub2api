@@ -70,7 +70,7 @@ func TestBulkEmailClaimOnlyConfirmedBatchesAndUsesLease(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
-	mock.ExpectQuery(`(?s)SELECT b.id FROM bulk_email_recipients.*b.status IN \('queued','sending'\).*FOR UPDATE OF b SKIP LOCKED`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(2))
+	mock.ExpectQuery(`(?s)SELECT b.id,b.status FROM bulk_email_recipients.*b.status IN \('queued','sending','paused'\).*b.status<>'paused'.*FOR UPDATE OF b SKIP LOCKED`).WillReturnRows(sqlmock.NewRows([]string{"id", "status"}).AddRow(2, "queued"))
 	mock.ExpectExec(`UPDATE bulk_email_recipients SET status='unconfirmed'`).WithArgs(2, bulkEmailUnconfirmedMessage, bulkEmailMaxAttempts).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`(?s)WITH picked AS.*status='pending'.*attempts<\$2.*FOR UPDATE SKIP LOCKED.*lease_token=\$5`).WithArgs(2, bulkEmailMaxAttempts, 1, float64(180), sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"id", "batch_id", "user_id", "email", "status", "attempts", "last_error", "sent_at", "lease_token"}).AddRow(int64(1), int64(2), int64(3), "to@example.com", "sending", 1, "", nil, "lease"))
 	mock.ExpectExec(`UPDATE bulk_email_batches SET status=CASE`).WithArgs(2).WillReturnResult(sqlmock.NewResult(0, 1))
